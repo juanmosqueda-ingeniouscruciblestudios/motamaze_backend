@@ -86,7 +86,7 @@ androidpublisher.googleapis.com  Google Play Android Developer API  ENABLED
 
 **Resultado parcial (2026-06-17):** Cuenta Google Play Developer creada por Juan bajo Ingenious Crucible Studios.
 - **Developer Account ID:** `5099504302304988454`
-- Package name: ⬜ Pendiente de definir
+- **Package name:** `com.ingeniouscruciblestudios.motamaze` ✅ Definido 2026-06-17
 
 ---
 

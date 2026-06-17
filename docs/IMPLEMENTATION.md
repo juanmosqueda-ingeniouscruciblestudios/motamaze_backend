@@ -240,7 +240,7 @@ Ordenadas por workstream y dependencia de ejecución.
 | ST-04 | Crear ad unit Interstitial (`motamaze_interstitial_between_levels`) | ✅ Done 2026-06-17 | `ca-app-pub-9121176819960949/4963097342` |
 | ST-05 | Crear ad unit Banner (`motamaze_banner_menu`) — Adaptive Banner | ✅ Done 2026-06-17 | `ca-app-pub-9121176819960949/3593004496` |
 | ST-06 | Documentar App ID + 3 production ad unit IDs en `logic/admob-config.md` | ✅ Done 2026-06-17 | IDs documentados y en GitHub |
-| ST-07 | Vincular AdMob a Firebase proyecto `motamaze` | 🔄 Juan — en progreso | |
+| ST-07 | Vincular AdMob a Firebase proyecto `motamaze` | ✅ Done 2026-06-17 | Package: `com.ingeniouscruciblestudios.motamaze`, `google-services.json` descargado |
 
 ---
 

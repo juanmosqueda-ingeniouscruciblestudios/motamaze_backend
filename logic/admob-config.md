@@ -21,8 +21,8 @@
 |---|---|
 | AdMob App ID (producción) | `ca-app-pub-9121176819960949~9751218738` |
 | AdMob App ID (test — Android) | `ca-app-pub-3940256099942544~3347511713` |
-| Package name | TBD (Juan define en EXT-001 ST-02) |
-| Vinculado a Firebase | ⬜ Pendiente (EXT-002 ST-07) |
+| Package name | `com.ingeniouscruciblestudios.motamaze` |
+| Vinculado a Firebase | ✅ Done 2026-06-17 — `google-services.json` descargado |
 
 ---
 
