@@ -3,7 +3,7 @@
 | Ticket | Slug | Workstream | Status | Date |
 |---|---|---|---|---|
 | [INFRA-001](INFRA-001-gcp-base-infra.md) | gcp-base-infra | Infra/DevOps | ✅ Done | 2026-06-16 |
-| [EXT-001](EXT-001-google-play-developer-api.md) | google-play-developer-api | External Services | In Progress — ST-01 ✅, ST-02–ST-06 bloqueados (Juan mañana) | 2026-06-16 |
+| [EXT-001](EXT-001-google-play-developer-api.md) | google-play-developer-api | External Services | In Progress — ST-01 ✅, ST-02 ✅, ST-03–06 🔴 bloqueados por verificación de cuenta Google (puede tardar días) | 2026-06-17 |
 | [EXT-002](EXT-002-admob-account-ad-units.md) | admob-account-ad-units | External Services | ✅ Done | 2026-06-17 |
 | [DATA-001](DATA-001-bigquery-analytics-tables.md) | bigquery-analytics-tables | Dataflow & Outputs | ✅ Done | 2026-06-16 |
 | [INFRA-002](INFRA-002-env-secrets-design.md) | env-secrets-design | Infra/DevOps | ✅ Done | 2026-06-17 |

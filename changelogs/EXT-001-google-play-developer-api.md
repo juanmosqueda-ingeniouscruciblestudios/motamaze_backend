@@ -84,20 +84,32 @@ androidpublisher.googleapis.com  Google Play Android Developer API  ENABLED
 
 **Acción:** Revisar en **play.google.com/console** con la cuenta del estudio. Si no hay cuenta, hay que crear una (costo único: $25 USD).
 
-**Resultado parcial (2026-06-17):** Cuenta Google Play Developer creada por Juan bajo Ingenious Crucible Studios.
+**Resultado (2026-06-17):** ✅ Cuenta Google Play Developer creada y verificada.
+- **Org name:** Ingenious Crucible Studios (Organization account)
 - **Developer Account ID:** `5099504302304988454`
 - **Package name:** `com.ingeniouscruciblestudios.motamaze` ✅ Definido 2026-06-17
+- **Estado:** Google verificando identidad — documentos subidos, puede tomar algunos días
+- **Pendiente (Juan):** Verify organization's website + Verify phone numbers
+- **Acceso Saul:** ✅ confirmado vía Play Console
 
 ---
 
-### ST-03 — Vincular proyecto GCP a Play Console ⬜ Pending
+### ST-03 — Vincular proyecto GCP a Play Console 🔴 Bloqueado — verificación de cuenta pendiente
 
-**Por qué:** Play Console necesita saber qué proyecto GCP puede hacer llamadas a la API en nombre de la cuenta. Esto se configura en Play Console → Setup → API access.
+**Por qué:** Play Console necesita saber qué proyecto GCP puede hacer llamadas a la API en nombre de la cuenta. Esto se configura en Settings → API access (la sección aparece solo cuando hay al menos una app registrada).
 
-**Flujo en consola (manual):**
-1. Play Console → **Setup** → **API access**
-2. Sección "Link to a Google Cloud Project" → seleccionar proyecto `motamaze`
-3. Confirmar el vínculo
+**Bloqueador encontrado (2026-06-17):** La sección "API access" en Settings no aparece hasta que exista al menos una app registrada como draft. El botón "Create app" está deshabilitado con el mensaje: *"Complete account verifications to create new apps"* — Google está verificando los documentos de identidad de Ingenious Crucible Studios (subidos en ST-02). Hasta que la verificación concluya, no se puede crear la app draft ni acceder a API access.
+
+**Pendiente de Juan para desbloquear:**
+- Verify organization's website en Play Console
+- Verify phone numbers en Play Console
+(Ambas aceleran el proceso de verificación de identidad de Google)
+
+**Flujo en consola (manual — una vez desbloqueado):**
+1. Crear app draft: Play Console → Home → "Create app" → MotaMaze / Game / Free / `com.ingeniouscruciblestudios.motamaze`
+2. Play Console → **Settings** → **API access**
+3. Sección "Link to a Google Cloud Project" → seleccionar proyecto `motamaze`
+4. Confirmar el vínculo
 
 **Nota importante:** Solo se puede vincular **un proyecto GCP por cuenta de Play Console**. Si Juan ya vinculó otro proyecto, hay que evaluarlo.
 

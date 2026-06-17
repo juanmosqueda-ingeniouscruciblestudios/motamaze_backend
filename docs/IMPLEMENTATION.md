@@ -213,9 +213,9 @@ Ordenadas por workstream y dependencia de ejecución.
 | # | Subtarea | Status | Dependencias | Notas |
 |---|---|---|---|---|
 | ST-01 | Habilitar `androidpublisher.googleapis.com` en proyecto `motamaze` | ✅ Done | INFRA-001 ✅ | `Google Play Android Developer API` ENABLED |
-| ST-02 | Crear cuenta Google Play Developer (org: Ingenious Crucible Studios, $25 USD) + definir package name | ⏳ Juan — mañana 6/17 | — | "ICS Mexico" descartado, crear perfil nuevo |
-| ST-03 | Vincular proyecto GCP `motamaze` a Play Console (Setup → API access) | ⏳ Juan — mañana 6/17 | ST-02 | Manual en Play Console |
-| ST-04 | Invitar SA `game-api-backend` a Play Console — permiso "Manage orders and subscriptions" | ⏳ Juan — mañana 6/17 | ST-01 ✅, ST-03 | **Inicia el countdown 24h** |
+| ST-02 | Crear cuenta Google Play Developer (org: Ingenious Crucible Studios, $25 USD) + definir package name | ✅ Done 2026-06-17 | — | Org: Ingenious Crucible Studios, Account ID: `5099504302304988454`, package: `com.ingeniouscruciblestudios.motamaze` |
+| ST-03 | Vincular proyecto GCP `motamaze` a Play Console (Settings → API access) | 🔴 Bloqueado | ST-02 | API access no aparece hasta tener app registrada; "Create app" deshabilitado por verificación de cuenta pendiente |
+| ST-04 | Invitar SA `game-api-backend` a Play Console — permiso "Manage orders and subscriptions" | 🔴 Bloqueado | ST-03 | **Inicia el countdown 24h** — espera ST-03 |
 | ST-05 | Esperar 24h de propagación de permisos | ⏳ Pending | ST-04 | Registrar timestamp de ST-04 |
 | ST-06 | Verificar llamada de prueba a Play Developer API (esperado: 404/400, no 401/403) | ⏳ Pending | ST-05 | Requiere package name y ADC |
 
