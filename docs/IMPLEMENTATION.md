@@ -40,7 +40,7 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Storytelling:** → [changelogs/INFRA-002-env-secrets-design.md](../changelogs/INFRA-002-env-secrets-design.md)
 
-**Status:** 🔄 In Progress — Saul ✅ firmado, pendiente sign-off Juan
+**Status:** ✅ Done 2026-06-17 — Saul ✅ + Juan ✅ firmados
 
 ### Subtareas
 
@@ -52,7 +52,7 @@ Ordenadas por workstream y dependencia de ejecución.
 | ST-04 | Tabla de 13 env vars de FastAPI por entorno (dev/staging/prod) | ✅ Decidido | |
 | ST-05 | Tabla de recursos GCP por entorno (Cloud Run, Firestore, BQ, Storage, SA, Budgets) | ✅ Decidido | |
 | ST-06 | Sign-off Saul ✍️ | ✅ Done 2026-06-17 | Aprobado sin cambios |
-| ST-07 | Sign-off Juan ✍️ | ⬜ Pendiente | Compartir doc con Juan para aprobación |
+| ST-07 | Sign-off Juan ✍️ | ✅ Done 2026-06-17 | Aprobado sin cambios — commit en GitHub |
 
 ---
 
