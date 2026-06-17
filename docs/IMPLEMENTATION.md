@@ -234,13 +234,13 @@ Ordenadas por workstream y dependencia de ejecución.
 
 | # | Subtarea | Status | Owner | Notas |
 |---|---|---|---|---|
-| ST-01 | Crear cuenta AdMob (admob.google.com) bajo cuenta de la organización | ⏳ Juan | Reasignado — payment profile debe ser propiedad de Ingenious Crucible Studios |
-| ST-02 | Agregar app MotaMaze a AdMob (Android, manual — sin package name aún) | ⏳ Juan | Bloqueado por ST-01 |
-| ST-03 | Crear ad unit Rewarded Video (`motamaze_rewarded_lives`) con SSV activado | ⏳ Juan | Bloqueado por ST-02 |
-| ST-04 | Crear ad unit Interstitial (`motamaze_interstitial_between_levels`) | ⏳ Juan | Bloqueado por ST-02 |
-| ST-05 | Crear ad unit Banner (`motamaze_banner_menu`) — Adaptive Banner | ⏳ Juan | Bloqueado por ST-02 |
-| ST-06 | Documentar App ID + 3 production ad unit IDs + test IDs en `logic/admob-config.md` | ⏳ Saul | Retoma cuando Juan entregue los IDs |
-| ST-07 | Vincular AdMob a Firebase proyecto `motamaze` (activa ad revenue en BigQuery) | ⏳ Juan | Bloqueado por ST-02 |
+| ST-01 | Crear cuenta AdMob bajo cuenta de la organización ICS | ✅ Done 2026-06-17 | Publisher ID: `pub-9121176819960949` |
+| ST-02 | Agregar app MotaMaze a AdMob (Android, manual) | ✅ Done 2026-06-17 | App ID: `ca-app-pub-9121176819960949~9751218738` |
+| ST-03 | Crear ad unit Rewarded Video (`motamaze_rewarded_lives`) con SSV activado | ✅ Done 2026-06-17 | `ca-app-pub-9121176819960949/9093914042` |
+| ST-04 | Crear ad unit Interstitial (`motamaze_interstitial_between_levels`) | ✅ Done 2026-06-17 | `ca-app-pub-9121176819960949/4963097342` |
+| ST-05 | Crear ad unit Banner (`motamaze_banner_menu`) — Adaptive Banner | ✅ Done 2026-06-17 | `ca-app-pub-9121176819960949/3593004496` |
+| ST-06 | Documentar App ID + 3 production ad unit IDs en `logic/admob-config.md` | ✅ Done 2026-06-17 | IDs documentados y en GitHub |
+| ST-07 | Vincular AdMob a Firebase proyecto `motamaze` | 🔄 Juan — en progreso | |
 
 ---
 
