@@ -52,8 +52,9 @@ INFRA-003 crea ese servidor desde cero: el scaffold mínimo viable — un conten
 - [ ] Repo backend creado con estructura FastAPI + Dockerfile + `pyproject.toml`
 - [ ] Endpoint `GET /health` responde `{"status": "ok"}` con HTTP 200
 - [ ] Cloud Run service desplegado en `us-central1` con service account `game-api-backend`
-- [ ] `curl https://<cloud-run-url>/health` retorna 200 OK desde internet
+- [ ] `GET /health` y `GET /ready` retornan 200 OK desde internet
 - [ ] Sin credenciales hardcodeadas — ADC vía service account asignado al servicio
+- [ ] Deploy reproducible vía CI (ver nota en Follow-ups)
 
 ---
 
@@ -98,8 +99,10 @@ run.googleapis.com  Cloud Run Admin API  ENABLED
 motamaze-backend/
 ├── app/
 │   ├── main.py              # FastAPI app instance + routers
+│   ├── dependencies.py      # DI: get_firestore_client(), get_bq_client(), get_settings()
+│   ├── config.py            # Settings via pydantic-settings (env vars + Secret Manager)
 │   ├── routers/
-│   │   ├── health.py        # GET /health
+│   │   ├── health.py        # GET /health, GET /ready
 │   │   ├── auth.py          # POST /auth/login, DELETE /auth/account
 │   │   ├── sessions.py      # POST /sessions/start, /sessions/end
 │   │   ├── payments.py      # POST /payments/android/verify
@@ -111,6 +114,26 @@ motamaze-backend/
 ├── pyproject.toml
 └── .env.example
 ```
+
+**Patrón DI (Dependency Injection):**
+Los clientes GCP y la configuración se inyectan vía `Depends()` de FastAPI, no como singletons globales:
+```python
+# app/dependencies.py
+from functools import lru_cache
+from google.cloud import firestore, bigquery
+from app.config import Settings
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+def get_firestore_client() -> firestore.AsyncClient:
+    return firestore.AsyncClient()
+
+def get_bq_client() -> bigquery.Client:
+    return bigquery.Client()
+```
+Esto permite mockar clientes en tests sin parchear módulos globales.
 
 **`pyproject.toml` (dependencias mínimas):**
 ```toml
@@ -139,11 +162,13 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 ---
 
-### ST-03 — Implementar endpoint `GET /health` ⬜ Pending
+### ST-03 — Implementar endpoints `GET /health` y `GET /ready` ⬜ Pending
 
 **Depende de:** ST-02
 
-**Por qué:** Cloud Run necesita un endpoint de health check para saber que el contenedor arrancó correctamente. También es el smoke test de todo el pipeline CI/CD.
+**Por qué:** Cloud Run usa dos probes distintos:
+- `/health` (liveness) — ¿el proceso sigue vivo? Cloud Run reinicia el contenedor si falla.
+- `/ready` (readiness) — ¿el servicio está listo para recibir tráfico? Cloud Run no envía requests hasta que responda 200.
 
 **Código:**
 ```python
@@ -155,6 +180,10 @@ router = APIRouter()
 @router.get("/health")
 async def health():
     return {"status": "ok"}
+
+@router.get("/ready")
+async def ready():
+    return {"status": "ready"}
 ```
 
 ```python
@@ -220,21 +249,23 @@ gcloud projects get-iam-policy motamaze \
 
 ---
 
-### ST-06 — Smoke test: `curl /health` → 200 OK ⬜ Pending
+### ST-06 — Smoke test: `/health` y `/ready` → 200 OK ⬜ Pending
 
 **Depende de:** ST-05
 
 **Verificación final:**
 ```bash
 # Obtener URL del servicio
-gcloud run services describe motamaze-backend \
+URL=$(gcloud run services describe motamaze-backend \
   --region us-central1 \
   --project motamaze \
-  --format="value(status.url)"
+  --format="value(status.url)")
 
-# Smoke test
-curl -s https://<cloud-run-url>/health
+curl -s "$URL/health"
 # Esperado: {"status":"ok"}
+
+curl -s "$URL/ready"
+# Esperado: {"status":"ready"}
 ```
 
 ---
@@ -251,6 +282,9 @@ gcloud services list --enabled --filter="config.name:run.googleapis.com" --proje
 ## Follow-ups / Notes
 
 - **REST API contract es el bloqueador real:** ST-01 se puede hacer hoy, pero ST-02–06 esperan el contrato. La reunión con Juan está programada para el lunes siguiente (o antes si hay dependencia urgente). La fecha límite del contrato es 2026-06-24.
+- **CI en el AC de Juan:** El criterio "deploys via CI" de Juan implica que el primer deploy de INFRA-003 debería pasar por GitHub Actions, no ser un deploy manual one-off. En la práctica, el deploy manual de ST-04 valida que el scaffold funciona, y CI-001 (task separada, 7/8–7/9) lo automatiza. Si Juan quiere CI como parte del AC de INFRA-003, CI-001 deberá adelantarse — pendiente aclarar en la reunión del contrato.
+- **Referencias externas de Juan:** El storytelling de Juan cita `docs/DATA_MODEL.md` y `Architecture spec §9A`. Estos documentos no están en el repo aún — pendiente obtenerlos de Juan para cruzar referencias en ST-02.
+- **`pydantic-settings`:** Agregar como dependencia en ST-02 para manejar la config vía env vars con tipado fuerte.
 - **`min-instances` en prod:** Para el soft launch se recomienda `--min-instances=1` para eliminar cold starts. En desarrollo, `0` (escala a cero) para no incurrir costos.
 - **Variables de entorno en runtime:** Los secrets (JWT private key, etc.) se inyectarán vía Secret Manager en ST-04 usando `--set-secrets`. Detalle en INFRA-004.
 - **Repo independiente vs. monorepo:** El backend FastAPI vivirá en un repo separado (no en `motamaze_backend` que es el repo de documentación). Decidir el nombre del repo en el REST API contract meeting.
