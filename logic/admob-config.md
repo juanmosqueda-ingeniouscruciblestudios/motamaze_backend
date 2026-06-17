@@ -22,7 +22,7 @@
 | AdMob App ID (producción) | `ca-app-pub-9121176819960949~9751218738` |
 | AdMob App ID (test — Android) | `ca-app-pub-3940256099942544~3347511713` |
 | Package name | `com.ingeniouscruciblestudios.motamaze` |
-| Vinculado a Firebase | ✅ Done 2026-06-17 — `google-services.json` descargado |
+| Vinculado a Firebase | ✅ Done 2026-06-17 — linked via AdMob → Firebase (Google Analytics habilitado, Stream ID: `15105520154`) |
 
 ---
 
