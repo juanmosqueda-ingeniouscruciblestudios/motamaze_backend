@@ -58,22 +58,22 @@ Ordenadas por workstream y dependencia de ejecución.
 
 ## INFRA-003 — FastAPI Scaffold en Cloud Run
 
-**Monday ID:** 12272254518 | **RAG:** Gray | **Timeline:** 6/25–6/26/2026 | **Critical Path:** No
+**Monday ID:** 12272254518 | **RAG:** Amber | **Timeline:** 6/25–6/26/2026 | **Critical Path:** No
 
-**Status:** ⬜ Not Started
+**Storytelling:** → [changelogs/INFRA-003-fastapi-scaffold-cloud-run.md](../changelogs/INFRA-003-fastapi-scaffold-cloud-run.md)
 
-**Storytelling:** pendiente
+**Status:** 🔄 In Progress — ST-01 en ejecución 2026-06-17, ST-02–06 bloqueados en REST API contract (vence 2026-06-24)
 
 ### Subtareas
 
 | # | Subtarea | Status | Dependencias |
 |---|---|---|---|
-| ST-01 | Habilitar API `run.googleapis.com` | ❌ Pending | INFRA-001 billing |
-| ST-02 | Crear repo backend (FastAPI, Dockerfile, pyproject.toml) | ❌ Pending | REST API contract |
-| ST-03 | Implementar health check endpoint `/health` | ❌ Pending | ST-02 |
-| ST-04 | Configurar Cloud Run service (max-instances=10, ADC, region us-central1) | ❌ Pending | ST-01, ST-02 |
-| ST-05 | Configurar ADC en Cloud Run (service account = game-api-backend) | ❌ Pending | ST-04, INFRA-001 ST-07 |
-| ST-06 | Smoke test: `curl https://<cloud-run-url>/health` → 200 OK | ❌ Pending | ST-05 |
+| ST-01 | Habilitar `run.googleapis.com` en proyecto `motamaze` | ✅ Done 2026-06-17 | INFRA-001 billing ✅ |
+| ST-02 | Crear repo backend (FastAPI, Dockerfile, pyproject.toml) | ⬜ Pending | REST API contract |
+| ST-03 | Implementar health check endpoint `/health` | ⬜ Pending | ST-02 |
+| ST-04 | Configurar Cloud Run service (max-instances=10, us-central1, SA game-api-backend) | ⬜ Pending | ST-01, ST-02 |
+| ST-05 | Verificar ADC en Cloud Run (roles IAM del SA) | ⬜ Pending | ST-04 |
+| ST-06 | Smoke test: `curl https://<cloud-run-url>/health` → 200 OK | ⬜ Pending | ST-05 |
 
 ---
 
