@@ -193,7 +193,7 @@ def get_secret(secret_id: str) -> str:
 | Persona | Firma | Fecha | Notas |
 |---|---|---|---|
 | Saul Zavala Morin | ✅ Aprobado | 2026-06-17 | Diseño aprobado sin cambios |
-| Juan Mosqueda | ⬜ Pendiente | — | |
+| Juan Mosqueda | ✅ Aprobado | 2026-06-17 | Diseño aprobado sin cambios |
 
 ---
 
