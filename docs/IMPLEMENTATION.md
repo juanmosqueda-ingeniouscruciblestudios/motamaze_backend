@@ -178,9 +178,25 @@ Ordenadas por workstream y dependencia de ejecución.
 
 ## DATA-002 — Firestore → BigQuery Async Streaming
 
-**Monday ID:** 12272094755 | **RAG:** Gray | **Timeline:** 6/22–6/23/2026
+**Monday ID:** 12272094755 | **RAG:** Amber | **Timeline:** 6/22–6/23/2026
 
-**Status:** ⬜ Not Started — depende de DATA-001
+**Storytelling:** → [changelogs/DATA-002-firestore-bigquery-streaming.md](../changelogs/DATA-002-firestore-bigquery-streaming.md)
+
+**Status:** 🔄 In Progress — ST-01 diseño ✅, ST-02–09 pendientes de INFRA-003
+
+### Subtareas
+
+| # | Subtarea | Status | Dependencias | Notas |
+|---|---|---|---|---|
+| ST-01 | Diseño de arquitectura: BackgroundTasks + BQ Streaming Insert | ✅ Decidido 2026-06-17 | DATA-001 ✅ | Descartadas Pub/Sub y Firebase Extension para MVP |
+| ST-02 | Implementar `app/services/bq_streaming.py` con retry logic | ⬜ Pending | INFRA-003 (repo FastAPI) | Código diseñado en changelog — listo para integrar |
+| ST-03 | Integrar background_task en `POST /auth/login` → `login_events` | ⬜ Pending | ST-02 | |
+| ST-04 | Integrar background_task en `POST /sessions/*` → `session_events` | ⬜ Pending | ST-02 | |
+| ST-05 | Integrar background_task en `POST /events/behavior` → `behavior_events` | ⬜ Pending | ST-02 | |
+| ST-06 | Integrar background_task en `POST /payments/android/verify` → `purchase_events` | ⬜ Pending | ST-02 | |
+| ST-07 | Integrar background_task en SSV callback + `/entitlements/grant` | ⬜ Pending | ST-02 | |
+| ST-08 | Integrar background_task en `DELETE /auth/account` → `deletion_queue` | ⬜ Pending | ST-02 | |
+| ST-09 | Test de integración end-to-end: evento → tabla BQ verificada | ⬜ Pending | ST-03–08, INFRA-003 desplegado | |
 
 ---
 

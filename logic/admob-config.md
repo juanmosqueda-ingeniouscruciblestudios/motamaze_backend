@@ -1,6 +1,6 @@
 # AdMob Configuration — Estado actual
 
-> Última actualización: 2026-06-16
+> Última actualización: 2026-06-17
 > Completar con IDs reales una vez que EXT-002 esté ejecutado.
 
 ---
@@ -9,8 +9,8 @@
 
 | Campo | Valor |
 |---|---|
-| Cuenta Google | `saulmorin@ingeniouscruciblestudios.com` |
-| Estado | ⬜ Pendiente de crear |
+| Cuenta Google | Cuenta de organización Ingenious Crucible Studios |
+| Estado | ⬜ Pendiente de crear (EXT-002 ST-01) |
 | Publisher ID | TBD |
 
 ---

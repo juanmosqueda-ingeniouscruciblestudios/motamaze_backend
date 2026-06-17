@@ -75,7 +75,7 @@ androidpublisher.googleapis.com  Google Play Android Developer API  ENABLED
 
 ---
 
-### ST-02 — Confirmar existencia de cuenta Google Play Developer y app en Play Console ⬜ Pending
+### ST-02 — Confirmar existencia de cuenta Google Play Developer y app en Play Console 🔄 In Progress (2026-06-17)
 
 **Por qué:** Necesitamos saber:
 1. ¿Existe ya una cuenta de Google Play Developer para Ingenious Crucible Studios?
@@ -83,6 +83,10 @@ androidpublisher.googleapis.com  Google Play Android Developer API  ENABLED
 3. ¿Cuál es el `packageName` de la app? (necesario para todas las llamadas a la API, ej: `com.ingeniouscrucible.motamaze`)
 
 **Acción:** Revisar en **play.google.com/console** con la cuenta del estudio. Si no hay cuenta, hay que crear una (costo único: $25 USD).
+
+**Resultado parcial (2026-06-17):** Cuenta Google Play Developer creada por Juan bajo Ingenious Crucible Studios.
+- **Developer Account ID:** `5099504302304988454`
+- Package name: ⬜ Pendiente de definir
 
 ---
 
