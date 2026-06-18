@@ -875,9 +875,284 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 
 ---
 
-### ST-05 — Payloads Payments ⬜ Pending
+### ST-05 — Payloads Payments ✅ Done (2026-06-17)
 
-*(Ver sección pendiente — se llenará en ST-05)*
+> **Principios de este dominio:**
+> - **Idempotencia obligatoria:** Si el mismo `purchase_token` / `transaction_id` llega dos veces, el segundo request retorna el mismo resultado sin doblar el grant.
+> - **Acknowledge en el mismo request:** El backend llama a la API de la tienda para acknowledge/consume en el mismo flujo antes de responder al cliente — nunca dejar una compra sin acknowledge.
+> - **Los refund webhooks son llamados por la tienda**, no por el cliente — su autenticación es por firma criptográfica, no por JWT.
+
+---
+
+#### `POST /payments/android/verify` — Verificar compra de Google Play
+
+**Auth:** 🔒 JWT
+
+**Flujo:**
+```
+[Godot] compra con Play Billing SDK → recibe purchaseToken
+[Godot] POST /payments/android/verify { purchase_token, product_id, session_id }
+[Backend] Google Play Developer API: purchases.products.get(purchase_token)
+[Backend] verifica purchaseState == PURCHASED (0)
+[Backend] Firestore: otorga entitlement al usuario
+[Backend] Google Play Developer API: acknowledge (non-consumable) o consume (consumable)
+[Backend] BigQuery: inserta en purchase_events + entitlement_grants (background)
+[Backend] responde 200 al cliente con el entitlement otorgado
+```
+
+**Request body:**
+```json
+{
+  "purchase_token": "mgohjialkdgfj...",
+  "product_id":     "lives_pack_5",
+  "session_id":     "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `purchase_token` | string | ✅ | Token emitido por Play Billing SDK al completar la compra |
+| `product_id` | string | ✅ | SKU del producto, ej: `"lives_pack_5"`, `"no_ads"`, `"skin_gold"` |
+| `session_id` | string | ✅ | Para trazar el evento en `purchase_events` BQ |
+
+**Response `200 OK`:**
+```json
+{
+  "order_id":             "GPA.3327-4521-8241-12345",
+  "product_id":           "lives_pack_5",
+  "product_type":         "consumable",
+  "verification_status":  "verified",
+  "grant_status":         "granted",
+  "entitlement": {
+    "type":           "life_pack",
+    "quantity":       5,
+    "current_lives":  7
+  }
+}
+```
+
+**Response `200 OK` — compra ya procesada (idempotente):**
+```json
+{
+  "order_id":             "GPA.3327-4521-8241-12345",
+  "product_id":           "lives_pack_5",
+  "product_type":         "consumable",
+  "verification_status":  "verified",
+  "grant_status":         "already_granted",
+  "entitlement": {
+    "type":           "life_pack",
+    "quantity":       5,
+    "current_lives":  3
+  }
+}
+```
+
+**Response `202 Accepted` — compra pendiente (PENDING en Play):**
+```json
+{
+  "order_id":            null,
+  "product_id":          "lives_pack_5",
+  "verification_status": "pending",
+  "grant_status":        "pending",
+  "message":             "Purchase is pending approval. Retry when payment is confirmed."
+}
+```
+
+| Campo en response | Tipo | Descripción |
+|---|---|---|
+| `order_id` | string \| null | ID de orden de Google Play. `null` si la compra está pendiente |
+| `verification_status` | string | `"verified"` \| `"pending"` \| `"invalid"` |
+| `grant_status` | string | `"granted"` \| `"already_granted"` \| `"pending"` \| `"failed"` |
+| `entitlement.type` | string | `"life_pack"` \| `"no_ads"` \| `"skin"` |
+| `entitlement.quantity` | int \| null | Solo para `"life_pack"` — cantidad de vidas otorgadas |
+| `entitlement.current_lives` | int \| null | Solo para `"life_pack"` — vidas totales después del grant |
+| `entitlement.skin_id` | string \| null | Solo para `"skin"` — ej: `"skin_gold"` |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `PAY_MISSING_FIELDS` | Falta `purchase_token` o `product_id` |
+| `400` | `PAY_PRODUCT_NOT_FOUND` | `product_id` no existe en el catálogo |
+| `401` | `AUTH_JWT_*` | Token JWT inválido |
+| `402` | `PAY_VERIFICATION_FAILED` | Play Developer API rechaza el `purchase_token` (inválido, ya consumido por otro usuario, o manipulado) |
+| `503` | `PAY_STORE_UNAVAILABLE` | Google Play Developer API no responde — el cliente debe reintentar |
+
+---
+
+#### `POST /payments/ios/verify` — Verificar compra de Apple StoreKit 2
+
+**Auth:** 🔒 JWT
+
+**Flujo:**
+```
+[Godot] compra con StoreKit 2 SDK → recibe transactionId (Int64)
+[Godot] POST /payments/ios/verify { transaction_id, product_id, session_id }
+[Backend] App Store Server API: GET /inApps/v1/transactions/{transactionId}
+[Backend] recibe JWS (JSON Web Signature) firmado por Apple
+[Backend] verifica la cadena JWS contra el certificado raíz de Apple
+[Backend] Firestore: otorga entitlement al usuario
+[Backend] BigQuery: inserta en purchase_events + entitlement_grants (background)
+[Backend] responde 200 al cliente con el entitlement otorgado
+```
+
+> **StoreKit 2 vs. StoreKit 1:** StoreKit 2 usa `transactionId` (Int64) en lugar del `receiptData` de StoreKit 1. No se usa `verifyReceipt` (deprecated) — se usa el App Store Server API con el `transactionId`. El JWS de respuesta se verifica localmente sin llamada adicional.
+
+**Request body:**
+```json
+{
+  "transaction_id": "2000000123456789",
+  "product_id":     "lives_pack_5",
+  "session_id":     "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `transaction_id` | string | ✅ | Transaction ID de StoreKit 2 — Int64 como string (ej: `"2000000123456789"`) |
+| `product_id` | string | ✅ | SKU del producto |
+| `session_id` | string | ✅ | Para trazar en BQ |
+
+**Response `200 OK`:**
+```json
+{
+  "transaction_id":       "2000000123456789",
+  "product_id":           "lives_pack_5",
+  "product_type":         "consumable",
+  "verification_status":  "verified",
+  "grant_status":         "granted",
+  "entitlement": {
+    "type":          "life_pack",
+    "quantity":      5,
+    "current_lives": 7
+  }
+}
+```
+
+> La estructura del response es idéntica a la del endpoint Android, facilitando el manejo unificado en el cliente.
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `PAY_MISSING_FIELDS` | Falta `transaction_id` o `product_id` |
+| `400` | `PAY_PRODUCT_NOT_FOUND` | `product_id` no existe en el catálogo |
+| `401` | `AUTH_JWT_*` | Token JWT inválido |
+| `402` | `PAY_VERIFICATION_FAILED` | JWS inválido, firma no corresponde a Apple, o transacción ya revocada |
+| `402` | `PAY_TRANSACTION_NOT_FOUND` | `transaction_id` no existe en App Store Server API |
+| `503` | `PAY_STORE_UNAVAILABLE` | App Store Server API no responde |
+
+---
+
+#### `POST /payments/android/refund-notification` — Webhook de refund Google Play
+
+**Auth:** 🔓 firmado por Pub/Sub (no JWT)
+
+> Este endpoint **no es llamado por el cliente Godot** — es llamado por Google Cloud Pub/Sub cuando Google Play emite una notificación RTDN (Real-Time Developer Notification). La autenticación se hace via el bearer token de la push subscription de Pub/Sub, verificado automáticamente por GCP.
+
+**Flujo:**
+```
+[Google Play] emite RTDN (refund / voided purchase)
+[Pub/Sub] hace POST a https://api.motamaze.com/payments/android/refund-notification
+[Backend] verifica el bearer token del push subscription
+[Backend] decodifica base64: message.data → DeveloperNotification JSON
+[Backend] si es voidedPurchaseNotification o SUBSCRIPTION_REVOKED:
+           → revoca entitlement en Firestore
+           → actualiza purchase_events BQ (verification_status = "refunded")
+[Backend] retorna 200 para acknowledge — Pub/Sub deja de reintentar
+```
+
+**Request body** (estructura de push de Pub/Sub):
+```json
+{
+  "message": {
+    "data":        "<base64url-encoded DeveloperNotification JSON>",
+    "messageId":   "1234567890",
+    "publishTime": "2026-06-17T14:00:00Z"
+  },
+  "subscription": "projects/motamaze/subscriptions/play-rtdn-sub"
+}
+```
+
+**`message.data` decodificado — notificación de refund:**
+```json
+{
+  "version":          "1.0",
+  "packageName":      "com.ingeniouscruciblestudios.motamaze",
+  "eventTimeMillis":  "1750000000000",
+  "voidedPurchaseNotification": {
+    "purchaseToken": "mgohjialkdgfj...",
+    "orderId":       "GPA.3327-4521-8241-12345",
+    "productType":   1
+  }
+}
+```
+
+> `productType`: `1` = in-app product, `2` = subscription.
+
+**Response `200 OK`:** body vacío `{}`
+
+> **Crítico:** El backend debe responder `200` dentro de 30 segundos. Si no, Pub/Sub reintentará con backoff exponencial. Responder `200` no significa que el procesamiento esté completo — si hay un error interno, logearlo y responder `200` de todas formas (para evitar reintento infinito). Los errores se resuelven via reconciliación diaria con el reporte de AdMob / Play Console.
+
+**Errores que NO se retornan al llamador (se logean internamente):**
+
+| Situación | Acción |
+|---|---|
+| `purchase_token` no encontrado en Firestore | Log warning, responder 200 (puede ser de una compra pre-MVP) |
+| Error al revocar entitlement | Log error, responder 200 de todas formas |
+| JSON malformado en `message.data` | Log error, responder 200 |
+
+---
+
+#### `POST /payments/ios/refund-notification` — Webhook de refund Apple
+
+**Auth:** 🔓 firmado por Apple (JWS — no JWT)
+
+> Este endpoint es llamado directamente por Apple App Store Server Notifications v2. La autenticación es via la firma JWS del payload — el backend verifica la cadena de certificados contra el Apple Root CA.
+
+**Flujo:**
+```
+[Apple] emite ASSN v2 notification (REFUND / REVOKE)
+[Apple] hace POST a https://api.motamaze.com/payments/ios/refund-notification
+[Backend] decodifica y verifica signedPayload (JWS firmado por Apple)
+[Backend] extrae notificationType del payload
+[Backend] si es REFUND o REVOKE:
+           → revoca entitlement en Firestore
+           → actualiza purchase_events BQ
+[Backend] retorna 200 para acknowledge
+```
+
+**Request body:**
+```json
+{
+  "signedPayload": "eyJhbGciOiJFUzI1NiIsIng1YyI6WyJNSUlC..."
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `signedPayload` | string | JWS (JSON Web Signature) firmado por Apple. Al decodificar el payload, contiene `notificationType` y `data.signedTransactionInfo`. |
+
+**`signedPayload` decodificado — tipos de notificación relevantes:**
+
+| `notificationType` | Acción requerida |
+|---|---|
+| `REFUND` | El usuario recibió un reembolso — revocar entitlement |
+| `REVOKE` | Compra revocada por Apple (family sharing revoke, etc.) — revocar entitlement |
+| `DID_CHANGE_RENEWAL_STATUS` | No aplica en MVP (no hay suscripciones) — ignorar, responder 200 |
+| Cualquier otro tipo | Ignorar, responder 200 |
+
+**Response `200 OK`:** body vacío `{}`
+
+> Apple reintenta la notificación hasta 5 veces con backoff exponencial si no recibe `200`. Misma regla que el webhook de Android: responder `200` siempre; los errores internos se logean, no se retornan.
+
+**Errores que NO se retornan al llamador (se logean internamente):**
+
+| Situación | Acción |
+|---|---|
+| `signedPayload` JWS con firma inválida | Log error de seguridad, responder `200` (evitar que Apple reintente un payload malicioso) |
+| `transaction_id` no encontrado en Firestore | Log warning, responder `200` |
+| Error al revocar entitlement | Log error, responder `200` |
 
 ---
 
