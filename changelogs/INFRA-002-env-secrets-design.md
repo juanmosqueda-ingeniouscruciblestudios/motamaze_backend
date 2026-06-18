@@ -196,6 +196,7 @@ def get_secret(secret_id: str) -> str:
 | ST-02 | Sign-off de Saul | ✅ Done 2026-06-17 | Aprobado sin cambios |
 | ST-03 | Sign-off de Juan | ✅ Done 2026-06-17 | Aprobado sin cambios |
 | ST-04 | Topología de proyectos GCP documentada y justificada | ✅ Done 2026-06-17 | Opción B (3 proyectos separados): `motamaze-dev`, `motamaze-staging`, `motamaze` (prod). Justificación: aislamiento de compliance, billing independiente, IAM separado por entorno. |
+| ST-05 | Naming convention de Secret Manager definida | ✅ Done 2026-06-17 | Sin sufijo de env — el proyecto GCP aísla, no el nombre. Formato: `{componente}-{descripcion-kebab}`. Versioning via `latest` salvo rollback. Los 5 secrets del inventario validan la convención. |
 
 ---
 

@@ -73,6 +73,7 @@ Ordenadas por workstream y dependencia de ejecución.
 | ST-02 | Sign-off Saul ✍️ | ✅ Done 2026-06-17 | Aprobado sin cambios |
 | ST-03 | Sign-off Juan ✍️ | ✅ Done 2026-06-17 | Aprobado sin cambios |
 | ST-04 | Topología de proyectos GCP documentada y justificada | ✅ Done 2026-06-17 | Opción B — 3 proyectos separados: `motamaze-dev`, `motamaze-staging`, `motamaze` (prod). JWT TTL corregido: 900s access / 1209600s refresh (alineado con REST-001). |
+| ST-05 | Naming convention de Secret Manager definida | ✅ Done 2026-06-17 | Sin sufijo de env, formato `{componente}-{descripcion-kebab}`, versioning via `latest`. |
 
 ---
 
