@@ -166,13 +166,14 @@ Ordenadas por workstream y dependencia de ejecución.
 | # | Subtarea | Status | Notas |
 |---|---|---|---|
 | ST-01 | Crear tabla `login_events` | ✅ Done | partition: event_date / cluster: user_id |
-| ST-02 | Crear tabla `session_events` | ✅ Done | partition: event_date / cluster: user_id |
-| ST-03 | Crear tabla `behavior_events` | ✅ Done | partition: event_date / cluster: user_id + event_name |
+| ST-02 | Crear tabla `session_durations` | ✅ Done 2026-06-17 | renombrada de `session_events` |
+| ST-03 | Crear tabla `player_behavior` | ✅ Done 2026-06-17 | renombrada de `behavior_events` |
 | ST-04 | Crear tabla `purchase_events` | ✅ Done | partition: event_date / cluster: user_id |
-| ST-05 | Crear tabla `ad_events` | ✅ Done | partition: event_date / cluster: user_id + ad_type |
-| ST-06 | Crear tabla `entitlement_events` | ✅ Done | partition: event_date / cluster: user_id |
-| ST-07 | Crear tabla `deletion_queue` | ✅ Done | partition: request_date / cluster: user_id + status |
-| ST-08 | Verificar 7 tablas en `motamaze_analytics` | ✅ Done | totalItems: 7 confirmado |
+| ST-05 | Crear tabla `ad_impressions` | ✅ Done 2026-06-17 | renombrada de `ad_events` |
+| ST-06 | Crear tabla `entitlement_grants` | ✅ Done 2026-06-17 | renombrada de `entitlement_events` |
+| ST-07 | Crear tabla `account_deletions` | ✅ Done 2026-06-17 | renombrada de `deletion_queue` |
+| ST-08 | Crear tabla `admob_daily_report` | ✅ Done 2026-06-17 | nueva — partition: report_date / cluster: ad_unit_id + country |
+| ST-09 | Verificar 8 tablas en `motamaze_analytics` | ✅ Done 2026-06-17 | 8 tablas confirmadas |
 
 ---
 

@@ -192,12 +192,12 @@ async def login(background_tasks: BackgroundTasks, ...):
 | Endpoint FastAPI | Tabla BQ | Cuándo se dispara |
 |---|---|---|
 | `POST /auth/login` | `login_events` | Cada login exitoso |
-| `POST /sessions/start`, `POST /sessions/end` | `session_events` | Inicio y fin de sesión |
-| `POST /events/behavior` | `behavior_events` | Eventos de gameplay (batch o individual) |
+| `POST /sessions/start`, `POST /sessions/end` | `session_durations` | Inicio y fin de sesión |
+| `POST /events/behavior` | `player_behavior` | Eventos de gameplay (batch o individual) |
 | `POST /payments/android/verify` | `purchase_events` | Cada intento de IAP |
-| `POST /lives/grant/admob-ssv` | `ad_events` | Callback SSV de AdMob |
-| `POST /entitlements/grant` | `entitlement_events` | Cada otorgamiento de entitlement |
-| `DELETE /auth/account` | `deletion_queue` | Solicitud de borrado GDPR |
+| `POST /lives/grant/admob-ssv` | `ad_impressions` | Callback SSV de AdMob |
+| `POST /entitlements/grant` | `entitlement_grants` | Cada otorgamiento de entitlement |
+| `DELETE /auth/account` | `account_deletions` | Solicitud de borrado GDPR |
 
 ---
 
@@ -208,11 +208,11 @@ async def login(background_tasks: BackgroundTasks, ...):
 | ST-01 | Diseño de arquitectura: BackgroundTasks + BQ Streaming Insert (esta doc) | ✅ Decidido | DATA-001 ✅ | Descartadas Pub/Sub y Firebase Extension para MVP |
 | ST-02 | Implementar `app/services/bq_streaming.py` con retry logic | ⬜ Pending | INFRA-003 (estructura repo) | Código listo en este doc — integrar cuando exista el repo |
 | ST-03 | Integrar background_task en `POST /auth/login` → `login_events` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-04 | Integrar background_task en `POST /sessions/*` → `session_events` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-05 | Integrar background_task en `POST /events/behavior` → `behavior_events` | ⬜ Pending | ST-02, INFRA-003 | |
+| ST-04 | Integrar background_task en `POST /sessions/*` → `session_durations` | ⬜ Pending | ST-02, INFRA-003 | |
+| ST-05 | Integrar background_task en `POST /events/behavior` → `player_behavior` | ⬜ Pending | ST-02, INFRA-003 | |
 | ST-06 | Integrar background_task en `POST /payments/android/verify` → `purchase_events` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-07 | Integrar background_task en SSV callback + `/entitlements/grant` → `ad_events`, `entitlement_events` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-08 | Integrar background_task en `DELETE /auth/account` → `deletion_queue` | ⬜ Pending | ST-02, INFRA-003 | |
+| ST-07 | Integrar background_task en SSV callback + `/entitlements/grant` → `ad_impressions`, `entitlement_grants` | ⬜ Pending | ST-02, INFRA-003 | |
+| ST-08 | Integrar background_task en `DELETE /auth/account` → `account_deletions` | ⬜ Pending | ST-02, INFRA-003 | |
 | ST-09 | Test de integración end-to-end: evento → tabla BQ verificada | ⬜ Pending | ST-03–08, INFRA-003 desplegado | Verificar con query BQ: `SELECT * FROM login_events LIMIT 1` |
 
 ---
@@ -221,6 +221,6 @@ async def login(background_tasks: BackgroundTasks, ...):
 
 - **INFRA-003 bloqueante:** ST-02 en adelante requiere el repo FastAPI. El código de `bq_streaming.py` está diseñado aquí — cuando exista el repo se copia directamente.
 - **Migración a Pub/Sub post-MVP:** Si en producción se observan eventos perdidos por reinicios de Cloud Run, agregar un Pub/Sub topic como buffer durable. El helper `bq_streaming.py` se reemplaza por un publisher, sin cambiar los endpoints.
-- **`deletion_queue` y GDPR:** Cuando `DELETE /auth/account` inserta en `deletion_queue`, también debe iniciar el proceso de purge en Firestore. Ese flujo detallado es de COMP-001 (Compliance, 7/27) — aquí solo se inserta la fila en BQ.
+- **`account_deletions` y GDPR:** Cuando `DELETE /auth/account` inserta en `account_deletions`, también debe iniciar el proceso de purge en Firestore. Ese flujo detallado es de COMP-001 (Compliance, 7/27) — aquí solo se inserta la fila en BQ.
 - **Costo BQ Streaming:** A $0.01/200MB y con < 1,000 usuarios en soft launch, el costo mensual de streaming será < $1 USD.
 - **Campos `event_date`:** BigQuery requiere el campo de partición en formato `YYYY-MM-DD` (string o DATE). El helper debe asegurarse de enviar `datetime.now().date().isoformat()`, no un timestamp completo.

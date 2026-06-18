@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Dataflow & Outputs / Setup |
 | **Prioridad** | Alta |
-| **Status** | ✅ Done — 7 tablas creadas y verificadas 2026-06-16 |
+| **Status** | ✅ Done — 8 tablas (7 creadas 2026-06-16, renombradas + `admob_daily_report` agregada 2026-06-17 para alinear con architecture spec) |
 | **Fecha planeada** | 2026-06-18 – 2026-06-19 |
 | **Workstream** | Dataflow & Outputs |
 | **Owner** | Saul Zavala Morin |
@@ -33,11 +33,12 @@ BigQuery cobra por datos escaneados. Tener `behavior_events` separado de `purcha
 
 ## Criterios de aceptación
 
-- [ ] 7 tablas creadas en `motamaze_analytics` con esquemas correctos
-- [ ] Todas particionadas por `event_date` (reducción de costo de queries)
-- [ ] Tablas de alta cardinalidad clusterizadas por `user_id`
-- [ ] `deletion_queue` con campo `status` para orquestar purges GDPR
-- [ ] Verificación: todas las tablas visibles vía REST API
+- [x] 8 tablas creadas en `motamaze_analytics` con esquemas correctos
+- [x] Todas particionadas por `event_date` / `report_date` (reducción de costo de queries)
+- [x] Tablas de alta cardinalidad clusterizadas por `user_id`
+- [x] `account_deletions` con campo `status` para orquestar purges GDPR
+- [x] `admob_daily_report` para reconciliación diaria de ingresos AdMob
+- [x] Verificación: todas las tablas visibles en BigQuery
 
 ---
 
@@ -84,7 +85,7 @@ os_version       STRING
 
 ---
 
-### Tabla 2: `session_events`
+### Tabla 2: `session_durations`
 
 Registra inicio y fin de cada sesión de juego. Fuente: cliente Godot vía HTTP API.
 
@@ -104,7 +105,7 @@ ads_shown             INT64                 -- interstitials + banners en sesió
 
 ---
 
-### Tabla 3: `behavior_events`
+### Tabla 3: `player_behavior`
 
 Eventos de gameplay granulares. Fuente: cliente Godot. Es la tabla de mayor volumen.
 
@@ -162,7 +163,7 @@ grant_status         STRING                -- 'granted' | 'failed' | 'duplicate'
 
 ---
 
-### Tabla 5: `ad_events`
+### Tabla 5: `ad_impressions`
 
 Impresiones, clicks y rewards de anuncios. Fuente: AdMob SSV callback + cliente.
 
@@ -183,7 +184,7 @@ ad_network       STRING                -- 'admob' | futuras redes de mediation
 
 ---
 
-### Tabla 6: `entitlement_events`
+### Tabla 6: `entitlement_grants`
 
 Cada vez que se otorga un entitlement. Fuente: backend tras verificar IAP o SSV ad.
 
@@ -204,7 +205,7 @@ quantity          INT64                 -- para life_pack: cuántas vidas
 
 ---
 
-### Tabla 7: `deletion_queue`
+### Tabla 7: `account_deletions`
 
 Solicitudes de borrado de datos de usuario. Fuente: backend `DELETE /auth/account` (AUTH-003).
 
@@ -232,13 +233,75 @@ notes           STRING                    -- errores o información de auditorí
 | # | Subtarea | Status | Notas |
 |---|---|---|---|
 | ST-01 | Crear tabla `login_events` | ✅ Done 2026-06-16 | partition: event_date, cluster: user_id |
-| ST-02 | Crear tabla `session_events` | ✅ Done 2026-06-16 | partition: event_date, cluster: user_id |
-| ST-03 | Crear tabla `behavior_events` | ✅ Done 2026-06-16 | partition: event_date, cluster: user_id + event_name |
+| ST-02 | Crear tabla `session_durations` | ✅ Done 2026-06-17 | renombrada de `session_events` para alinear con arch spec |
+| ST-03 | Crear tabla `player_behavior` | ✅ Done 2026-06-17 | renombrada de `behavior_events` |
 | ST-04 | Crear tabla `purchase_events` | ✅ Done 2026-06-16 | partition: event_date, cluster: user_id |
-| ST-05 | Crear tabla `ad_events` | ✅ Done 2026-06-16 | partition: event_date, cluster: user_id + ad_type |
-| ST-06 | Crear tabla `entitlement_events` | ✅ Done 2026-06-16 | partition: event_date, cluster: user_id |
-| ST-07 | Crear tabla `deletion_queue` | ✅ Done 2026-06-16 | partition: request_date, cluster: user_id + status |
-| ST-08 | Verificar 7 tablas en `motamaze_analytics` | ✅ Done 2026-06-16 | totalItems: 7 confirmado via REST API |
+| ST-05 | Crear tabla `ad_impressions` | ✅ Done 2026-06-17 | renombrada de `ad_events` |
+| ST-06 | Crear tabla `entitlement_grants` | ✅ Done 2026-06-17 | renombrada de `entitlement_events` |
+| ST-07 | Crear tabla `account_deletions` | ✅ Done 2026-06-17 | renombrada de `deletion_queue` |
+| ST-08 | Crear tabla `admob_daily_report` | ✅ Done 2026-06-17 | nueva — daily AdMob Reporting API reconciliation, partition: report_date, cluster: ad_unit_id + country |
+| ST-09 | Verificar 8 tablas en `motamaze_analytics` | ✅ Done 2026-06-17 | 8 tablas confirmadas en BigQuery |
+
+---
+
+### Tabla 8: `admob_daily_report`
+
+Reporte diario de ingresos AdMob. Fuente: Cloud Scheduler → AdMob Reporting API (DATA-003, 7/10). Esta tabla es el número autoritativo de ingresos — complementa `ad_impressions` (por evento) con el agregado diario oficial de AdMob.
+
+```sql
+report_date               DATE     NOT NULL   -- partition key
+ad_unit_id                STRING   NOT NULL   -- clustering key 1
+ad_format                 STRING              -- 'rewarded' | 'interstitial' | 'banner'
+country                   STRING   NOT NULL   -- clustering key 2
+estimated_earnings_micros INTEGER             -- ingresos en microdólares (÷ 1,000,000 = USD)
+impressions               INTEGER
+clicks                    INTEGER
+impression_rpm            FLOAT               -- revenue per 1,000 impressions
+fill_rate                 FLOAT               -- 0.0 - 1.0
+```
+
+---
+
+## Audit — Renombre de tablas (2026-06-17)
+
+Al revisar el architecture spec de Juan (`rnd_research/2026-06-04_motamaze-architecture-final.md`), se detectó discrepancia entre los nombres creados en DATA-001 y los definidos en el spec. Las tablas estaban vacías (etapa temprana), por lo que se hizo `bq cp` + `bq rm` para alinear los nombres:
+
+| Nombre anterior | Nombre actual | Cambio |
+|---|---|---|
+| `session_events` | `session_durations` | Renombrada |
+| `behavior_events` | `player_behavior` | Renombrada |
+| `ad_events` | `ad_impressions` | Renombrada |
+| `entitlement_events` | `entitlement_grants` | Renombrada |
+| `deletion_queue` | `account_deletions` | Renombrada |
+| *(no existía)* | `admob_daily_report` | Creada nueva |
+
+```bash
+# Renombres ejecutados 2026-06-17
+bq cp motamaze:motamaze_analytics.session_events     motamaze:motamaze_analytics.session_durations
+bq cp motamaze:motamaze_analytics.behavior_events    motamaze:motamaze_analytics.player_behavior
+bq cp motamaze:motamaze_analytics.ad_events          motamaze:motamaze_analytics.ad_impressions
+bq cp motamaze:motamaze_analytics.entitlement_events motamaze:motamaze_analytics.entitlement_grants
+bq cp motamaze:motamaze_analytics.deletion_queue     motamaze:motamaze_analytics.account_deletions
+bq rm -f motamaze:motamaze_analytics.{session_events,behavior_events,ad_events,entitlement_events,deletion_queue}
+
+# admob_daily_report creada nueva
+bq mk --table --time_partitioning_field=report_date --time_partitioning_type=DAY \
+    --clustering_fields=ad_unit_id,country \
+    motamaze:motamaze_analytics.admob_daily_report \
+    "report_date:DATE,ad_unit_id:STRING,ad_format:STRING,country:STRING,estimated_earnings_micros:INTEGER,impressions:INTEGER,clicks:INTEGER,impression_rpm:FLOAT,fill_rate:FLOAT"
+```
+
+**Verificación final — 8 tablas:**
+```
+account_deletions    DAY (request_date)  user_id, status
+ad_impressions       DAY (event_date)    user_id, ad_type
+admob_daily_report   DAY (report_date)   ad_unit_id, country
+entitlement_grants   DAY (event_date)    user_id
+login_events         DAY (event_date)    user_id
+player_behavior      DAY (event_date)    user_id, event_name
+purchase_events      DAY (event_date)    user_id
+session_durations    DAY (event_date)    user_id
+```
 
 ---
 
