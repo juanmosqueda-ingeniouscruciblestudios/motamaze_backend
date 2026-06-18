@@ -63,7 +63,7 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Storytelling:** → [changelogs/INFRA-002-env-secrets-design.md](../changelogs/INFRA-002-env-secrets-design.md)
 
-**Status:** ✅ Done 2026-06-17 — todos los sign-offs completados, topología documentada
+**Status:** ✅ Done 2026-06-17 — ST-01–08 completos, todos los sign-offs y criterios de aceptación cerrados
 
 ### Subtareas
 
@@ -76,6 +76,7 @@ Ordenadas por workstream y dependencia de ejecución.
 | ST-05 | Naming convention de Secret Manager definida | ✅ Done 2026-06-17 | Sin sufijo de env, formato `{componente}-{descripcion-kebab}`, versioning via `latest`. |
 | ST-06 | Inventario completo de secrets por categoría | ✅ Done 2026-06-17 | 5 secrets en SM + 7 vars planas en Cloud Run. `.env` y `credentials.json` descartados. |
 | ST-07 | Lista de env vars de FastAPI — SM vs. variable plana | ✅ Done 2026-06-17 | 13 vars planas con valores dev/staging/prod + 4 confidenciales leídas de SM en runtime. |
+| ST-08 | Tabla de recursos GCP por entorno (nombres exactos) | ✅ Done 2026-06-17 | 11 recursos × 3 entornos documentados: Cloud Run, Firestore, BQ, Storage, SA, Artifact Registry, budgets. |
 
 ---
 

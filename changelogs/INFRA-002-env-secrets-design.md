@@ -199,6 +199,7 @@ def get_secret(secret_id: str) -> str:
 | ST-05 | Naming convention de Secret Manager definida | ✅ Done 2026-06-17 | Sin sufijo de env — el proyecto GCP aísla, no el nombre. Formato: `{componente}-{descripcion-kebab}`. Versioning via `latest` salvo rollback. Los 5 secrets del inventario validan la convención. |
 | ST-06 | Inventario completo de secrets por categoría | ✅ Done 2026-06-17 | 5 secrets en Secret Manager (`jwt-private-key`, `google-oauth-client-id`, `google-oauth-client-secret`, `play-package-name`, `admob-ssv-hmac-key`) + 7 variables planas en Cloud Run (no confidenciales). `.env` y `credentials.json` descartados explícitamente. |
 | ST-07 | Lista de env vars de FastAPI — qué va en Secret Manager vs. variable plana | ✅ Done 2026-06-17 | 13 vars planas con valores por entorno (dev/staging/prod) + 4 vars confidenciales leídas de SM en runtime vía `secretmanager` SDK. Patrón de lectura documentado. |
+| ST-08 | Tabla de recursos GCP por entorno (nombres exactos) | ✅ Done 2026-06-17 | 11 tipos de recursos × 3 entornos: Cloud Run service `game-api`, Firestore `(default)`, BQ `motamaze_analytics`, Storage buckets, SA `game-api-backend@{project}.iam.gserviceaccount.com`, Artifact Registry, budget alerts ($10/$20/$50). |
 
 ---
 
