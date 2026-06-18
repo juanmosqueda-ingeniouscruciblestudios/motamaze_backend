@@ -3,8 +3,31 @@
 Seguimiento de todas las tareas asignadas a Saul Zavala Morin.
 Ordenadas por workstream y dependencia de ejecución.
 
-> Última actualización: 2026-06-16
+> Última actualización: 2026-06-17
 > Fuente de verdad: Monday.com board "motamaze mvp - project plan"
+
+---
+
+## REST-001 — Client↔Backend REST API Contract ★ CRITICAL
+
+**Monday ID:** 12272268104 | **RAG:** Amber | **Timeline:** 6/19–6/24/2026 | **Critical Path:** ★ CRITICAL
+
+**Storytelling:** → [changelogs/REST-001-rest-api-contract.md](../changelogs/REST-001-rest-api-contract.md)
+
+**Status:** 🔄 In Progress — ST-01 ✅, ST-02–08 pendientes (deadline 2026-06-24)
+
+### Subtareas
+
+| # | Subtarea | Status | Notas |
+|---|---|---|---|
+| ST-01 | Lista completa de endpoints por dominio (19 endpoints, 4 dominios) | ✅ Done 2026-06-17 | Auth(6), Game Services(7), Payments(4), Infra(2) |
+| ST-02 | JWT spec (claims, headers, TTLs, JWKS) | ⬜ Pending | |
+| ST-03 | Payloads — Auth endpoints | ⬜ Pending | ST-02 |
+| ST-04 | Payloads — Game Services endpoints | ⬜ Pending | |
+| ST-05 | Payloads — Payments endpoints | ⬜ Pending | |
+| ST-06 | Payloads — Infrastructure endpoints | ⬜ Pending | |
+| ST-07 | Error taxonomy (formato estándar + catálogo de códigos) | ⬜ Pending | ST-03–06 |
+| ST-08 | Sign-off de Juan | ⬜ Pending | deadline 2026-06-24 |
 
 ---
 
