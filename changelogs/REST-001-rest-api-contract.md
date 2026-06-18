@@ -115,9 +115,149 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 
 ---
 
-### ST-02 — JWT spec ⬜ Pending
+### ST-02 — JWT spec ✅ Done (2026-06-17)
 
-*(Ver sección pendiente — se llenará en ST-02)*
+#### Resumen ejecutivo
+
+MotaMaze usa **dos tokens distintos** para autenticación:
+
+| | Access Token | Refresh Token |
+|---|---|---|
+| Formato | JWT firmado RS256 | Opaco (UUID v4) |
+| TTL | **15 minutos** | **14 días** |
+| Almacenamiento servidor | Stateless (verifica con public key) | Hash bcrypt en Firestore `sessions/{session_id}` |
+| Transmisión | `Authorization: Bearer <token>` header | Body de `POST /auth/refresh` únicamente |
+| Revocación | JTI en `revoked_jtis/{jti}` (TTL = 15 min) | Firestore session delete |
+
+**Por qué RS256 y no HS256:**
+HS256 requiere que cada servicio que verifique tokens tenga la clave secreta. RS256 usa clave privada solo para firmar (en Secret Manager) y clave pública para verificar (en `/.well-known/jwks.json`, accesible por cualquiera). Esto permite que el cliente Godot verifique tokens localmente si lo necesita. Adicionalmente, el whitelist explícito del algoritmo en el verify call previene ataques de confusion RS256→HS256.
+
+---
+
+#### Access Token — estructura JWT
+
+**Header:**
+```json
+{
+  "alg": "RS256",
+  "typ": "JWT",
+  "kid": "motamaze-key-v1"
+}
+```
+
+`kid` (Key ID) permite identificar qué clave pública usar para verificar — esencial para key rotation sin downtime.
+
+**Payload (claims):**
+```json
+{
+  "iss": "https://api.motamaze.com",
+  "sub": "usr_abc123def456",
+  "aud": "motamaze-api",
+  "exp": 1750000000,
+  "iat": 1749999100,
+  "jti": "550e8400-e29b-41d4-a716-446655440000",
+  "uid": "usr_abc123def456",
+  "provider": "google"
+}
+```
+
+| Claim | Tipo | Descripción |
+|---|---|---|
+| `iss` | string | Issuer — siempre `"https://api.motamaze.com"` |
+| `sub` | string | Subject — `user_id` del documento Firestore `users/{user_id}` |
+| `aud` | string | Audience — siempre `"motamaze-api"` (validar en cada request) |
+| `exp` | int | Unix timestamp de expiración — `iat + 900` (15 min) |
+| `iat` | int | Unix timestamp de emisión |
+| `jti` | string | JWT ID único — UUID v4 — usado para revocación inmediata |
+| `uid` | string | Copia de `sub` — acceso directo sin ambigüedad en el backend |
+| `provider` | string | `"google"` \| `"apple"` — proveedor OAuth de origen |
+
+**Reglas de validación (backend FastAPI en cada request protegido):**
+1. Verificar firma RS256 con la public key del JWKS endpoint
+2. Verificar `alg == "RS256"` explícitamente — rechazar cualquier otro valor
+3. Verificar `aud == "motamaze-api"`
+4. Verificar `exp` no expirado (con tolerancia de clock skew de ±30 segundos)
+5. Verificar `iss == "https://api.motamaze.com"`
+6. Consultar Firestore `revoked_jtis/{jti}` — rechazar si existe
+
+---
+
+#### Refresh Token — estructura
+
+El refresh token es un **string opaco** (UUID v4), no un JWT. Nunca se almacena en texto plano.
+
+```
+Valor en tránsito:  "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+Almacenado en Firestore sessions/{session_id}:
+  token_hash: "$2b$12$xyz..."  ← bcrypt hash del UUID
+```
+
+**Flujo de rotación (en cada llamada a `POST /auth/refresh`):**
+1. Cliente envía el refresh token opaco en el body
+2. Backend busca la sesión en Firestore — verifica `bcrypt.verify(token, token_hash)`
+3. Invalida la sesión actual (Firestore delete)
+4. Genera nuevo access token (JWT) + nuevo refresh token (UUID v4)
+5. Crea nueva sesión en Firestore con hash del nuevo refresh token
+6. Retorna los dos nuevos tokens al cliente
+
+**Protección contra replay:** Si el refresh token ya fue consumido (sesión no existe), el request retorna `401 UNAUTHORIZED`. El cliente debe redirigir al login.
+
+---
+
+#### Authorization header
+
+```
+Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6Im1vdGFtYXplLWtleS12MSJ9...
+```
+
+- Formato exacto: `Bearer ` + JWT (un espacio, sin comillas)
+- Presente en **todos los endpoints protegidos** (🔒)
+- Ausente en endpoints públicos (🔓) — el backend los ignora si están presentes
+
+---
+
+#### JWKS endpoint — formato de respuesta
+
+`GET /.well-known/jwks.json` devuelve:
+
+```json
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "motamaze-key-v1",
+      "n": "<base64url-encoded modulus>",
+      "e": "AQAB"
+    }
+  ]
+}
+```
+
+| Campo | Valor | Descripción |
+|---|---|---|
+| `kty` | `"RSA"` | Key type |
+| `use` | `"sig"` | Usage — solo firma, nunca cifrado |
+| `alg` | `"RS256"` | Algoritmo explícito |
+| `kid` | `"motamaze-key-v1"` | Key ID — debe coincidir con el header del JWT |
+| `n` | string | Módulo RSA en base64url |
+| `e` | `"AQAB"` | Exponente público RSA (65537) |
+
+Durante key rotation, el array `keys` puede contener temporalmente **dos claves** (la antigua y la nueva) para que los tokens emitidos antes de la rotación sigan siendo válidos durante su TTL de 15 minutos.
+
+---
+
+#### Key rotation path
+
+1. Generar nuevo keypair RS256 en Secret Manager (nueva versión del secret `motamaze-jwt-private-key`)
+2. Actualizar JWKS endpoint para devolver **ambas claves** (old `kid` + new `kid`)
+3. Configurar el backend para firmar nuevos tokens con la nueva clave
+4. Esperar 15 minutos (TTL de access tokens) — todos los tokens con la clave antigua expiran
+5. Remover la clave antigua del JWKS endpoint
+6. Desactivar la versión antigua del secret en Secret Manager
+
+Tiempo total de rotación sin downtime: **~15 minutos**.
 
 ---
 
