@@ -75,6 +75,7 @@ Ordenadas por workstream y dependencia de ejecución.
 | ST-04 | Topología de proyectos GCP documentada y justificada | ✅ Done 2026-06-17 | Opción B — 3 proyectos separados: `motamaze-dev`, `motamaze-staging`, `motamaze` (prod). JWT TTL corregido: 900s access / 1209600s refresh (alineado con REST-001). |
 | ST-05 | Naming convention de Secret Manager definida | ✅ Done 2026-06-17 | Sin sufijo de env, formato `{componente}-{descripcion-kebab}`, versioning via `latest`. |
 | ST-06 | Inventario completo de secrets por categoría | ✅ Done 2026-06-17 | 5 secrets en SM + 7 vars planas en Cloud Run. `.env` y `credentials.json` descartados. |
+| ST-07 | Lista de env vars de FastAPI — SM vs. variable plana | ✅ Done 2026-06-17 | 13 vars planas con valores dev/staging/prod + 4 confidenciales leídas de SM en runtime. |
 
 ---
 
