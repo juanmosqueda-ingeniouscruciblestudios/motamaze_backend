@@ -14,7 +14,7 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Storytelling:** → [changelogs/REST-001-rest-api-contract.md](../changelogs/REST-001-rest-api-contract.md)
 
-**Status:** 🔄 In Progress — ST-01–05 ✅, ST-06–08 pendientes (deadline 2026-06-24)
+**Status:** 🔄 In Progress — ST-01–06 ✅, ST-07–08 pendientes (deadline 2026-06-24)
 
 ### Subtareas
 
@@ -25,7 +25,7 @@ Ordenadas por workstream y dependencia de ejecución.
 | ST-03 | Payloads — Auth endpoints | ✅ Done 2026-06-17 | 6 endpoints: login, refresh, logout, delete account, pending poll, JWKS |
 | ST-04 | Payloads — Game Services endpoints | ✅ Done 2026-06-17 | 7 endpoints: progress GET/POST, lives GET/spend/grant, store catalog, equip-skin |
 | ST-05 | Payloads — Payments endpoints | ✅ Done 2026-06-17 | 4 endpoints: android/verify, ios/verify (StoreKit 2), android/refund, ios/refund webhooks |
-| ST-06 | Payloads — Infrastructure endpoints | ⬜ Pending | |
+| ST-06 | Payloads — Infrastructure endpoints | ✅ Done 2026-06-17 | /health (liveness, no external checks) + /ready (readiness, Firestore ping) |
 | ST-07 | Error taxonomy (formato estándar + catálogo de códigos) | ⬜ Pending | ST-03–06 |
 | ST-08 | Sign-off de Juan | ⬜ Pending | deadline 2026-06-24 |
 

@@ -1156,9 +1156,107 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 
 ---
 
-### ST-06 — Payloads Infrastructure ⬜ Pending
+### ST-06 — Payloads Infrastructure ✅ Done (2026-06-17)
 
-*(Ver sección pendiente — se llenará en ST-06)*
+> Ambos endpoints ya están implementados en el scaffold de INFRA-003 (`app/routers/health.py`). Esta sección los formaliza como parte del contrato.
+
+---
+
+#### `GET /health` — Liveness probe
+
+**Auth:** 🔓 público
+
+**Propósito:** Cloud Run llama a este endpoint para determinar si el contenedor está vivo. Si retorna `non-2xx` tres veces consecutivas, Cloud Run reinicia el contenedor. No debe hacer ninguna llamada externa — solo confirmar que el proceso Python responde.
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK`:**
+```json
+{
+  "status":  "ok",
+  "version": "1.0.0"
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `status` | string | Siempre `"ok"` si el endpoint responde |
+| `version` | string | Versión del servicio (inyectada como variable de entorno `APP_VERSION` en el build) |
+
+**Comportamiento de errores:** Si el proceso falla antes de responder, Cloud Run recibe un timeout o connection error — no hay un JSON de error explícito porque el proceso no puede generarlo.
+
+**Configuración Cloud Run (liveness probe):**
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+```
+
+---
+
+#### `GET /ready` — Readiness probe
+
+**Auth:** 🔓 público
+
+**Propósito:** Cloud Run llama a este endpoint para determinar si el contenedor está listo para recibir tráfico. Si retorna `non-2xx`, Cloud Run no enruta requests a esta instancia hasta que pase. A diferencia de `/health`, puede verificar dependencias externas.
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK` — instancia lista:**
+```json
+{
+  "status":  "ready",
+  "version": "1.0.0",
+  "checks": {
+    "firestore": "ok"
+  }
+}
+```
+
+**Response `503 Service Unavailable` — instancia no lista:**
+```json
+{
+  "status": "not_ready",
+  "checks": {
+    "firestore": "error"
+  }
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `status` | string | `"ready"` \| `"not_ready"` |
+| `checks.firestore` | string | `"ok"` si Firestore responde a un ping de lectura; `"error"` si no |
+
+> **MVP:** El check de Firestore es un read de un documento de prueba (`/_health/probe`). Si falla, la instancia no recibe tráfico hasta que Firestore se recupere. BigQuery no se verifica en el readiness check — las escrituras BQ son background tasks y su falla no impide servir requests.
+
+**Configuración Cloud Run (readiness probe):**
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /ready
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+```
+
+---
+
+#### Diferencia clave entre `/health` y `/ready`
+
+| | `/health` (liveness) | `/ready` (readiness) |
+|---|---|---|
+| **Fallo implica** | Reiniciar el contenedor | Dejar de enviarle tráfico |
+| **Verifica dependencias externas** | ❌ No — solo que el proceso vive | ✅ Sí — Firestore reachable |
+| **Latencia objetivo** | < 10ms | < 500ms |
+| **Si falla 3 veces** | Cloud Run reinicia la instancia | Cloud Run quita la instancia del load balancer |
 
 ---
 
