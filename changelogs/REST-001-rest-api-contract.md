@@ -509,9 +509,369 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 
 ---
 
-### ST-04 — Payloads Game Services ⬜ Pending
+### ST-04 — Payloads Game Services ✅ Done (2026-06-17)
 
-*(Ver sección pendiente — se llenará en ST-04)*
+> Todos los endpoints de este dominio requieren `Authorization: Bearer <access_token>`.
+
+---
+
+#### `GET /progress` — Progreso del jugador
+
+**Auth:** 🔒 JWT
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK`:**
+```json
+{
+  "user_id":                 "usr_abc123def456",
+  "highest_unlocked_level":  5,
+  "total_stars":             12,
+  "levels": [
+    {
+      "level_id":      1,
+      "stars_earned":  3,
+      "best_score":    9500,
+      "completed_at":  "2026-06-15T12:00:00Z"
+    },
+    {
+      "level_id":      2,
+      "stars_earned":  2,
+      "best_score":    6200,
+      "completed_at":  "2026-06-15T12:45:00Z"
+    }
+  ]
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `highest_unlocked_level` | int | Nivel más alto al que el jugador tiene acceso (1–30). Nuevo usuario = `1`. |
+| `total_stars` | int | Suma de estrellas en todos los niveles (máximo 90 = 30 niveles × 3 estrellas) |
+| `levels` | array | Solo niveles que el jugador ha completado al menos una vez |
+| `levels[].level_id` | int | Identificador del nivel (1–30) |
+| `levels[].stars_earned` | int | 1, 2, o 3 — mejor resultado histórico en ese nivel |
+| `levels[].best_score` | int | Mejor puntuación histórica |
+| `levels[].completed_at` | string (ISO 8601) | Timestamp del primer completion |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `401` | `AUTH_JWT_MISSING` / `AUTH_JWT_INVALID` / `AUTH_JWT_EXPIRED` | Token inválido o ausente |
+| `404` | `USER_NOT_FOUND` | El `user_id` del JWT no existe en Firestore (inconsistencia) |
+
+---
+
+#### `POST /progress/level-complete` — Registrar nivel completado
+
+**Auth:** 🔒 JWT
+
+**Request body:**
+```json
+{
+  "level_id":      5,
+  "score":         9200,
+  "stars_earned":  3,
+  "duration_secs": 142,
+  "session_id":    "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `level_id` | int | ✅ | Nivel completado (1–30) |
+| `score` | int | ✅ | Puntuación obtenida (≥ 0) |
+| `stars_earned` | int | ✅ | Estrellas obtenidas (1, 2, o 3) |
+| `duration_secs` | int | ✅ | Duración de la partida en segundos |
+| `session_id` | string | ✅ | Session ID activo — necesario para el event de `player_behavior` en BQ |
+
+**Validaciones server-side:**
+- `level_id` entre 1 y 30
+- `level_id` ≤ `highest_unlocked_level + 1` (no puede saltarse niveles)
+- `stars_earned` entre 1 y 3
+- `score` ≥ 0
+
+**Response `200 OK`:**
+```json
+{
+  "level_id":                5,
+  "stars_earned":            3,
+  "best_score":              9200,
+  "new_best":                true,
+  "next_level_unlocked":     6,
+  "highest_unlocked_level":  6,
+  "total_stars":             15
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `new_best` | bool | `true` si este score supera el mejor histórico del nivel |
+| `next_level_unlocked` | int \| null | Número del nivel recién desbloqueado, o `null` si ya estaba desbloqueado |
+| `highest_unlocked_level` | int | Valor actualizado tras este completion |
+| `total_stars` | int | Total actualizado |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `PROGRESS_LEVEL_LOCKED` | El `level_id` supera `highest_unlocked_level + 1` |
+| `400` | `PROGRESS_INVALID_STARS` | `stars_earned` fuera del rango 1–3 |
+| `400` | `PROGRESS_INVALID_LEVEL` | `level_id` fuera del rango 1–30 |
+| `401` | `AUTH_JWT_MISSING` / `AUTH_JWT_INVALID` / `AUTH_JWT_EXPIRED` | Token inválido |
+
+---
+
+#### `GET /lives` — Estado de las vidas
+
+**Auth:** 🔒 JWT
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK` — jugador por debajo del máximo:**
+```json
+{
+  "current_lives":     3,
+  "max_lives":         5,
+  "next_regen_at":     "2026-06-17T14:30:00Z",
+  "regen_interval_secs": 1800
+}
+```
+
+**Response `200 OK` — jugador con máximo de vidas:**
+```json
+{
+  "current_lives":     5,
+  "max_lives":         5,
+  "next_regen_at":     null,
+  "regen_interval_secs": 1800
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `current_lives` | int | Vidas actuales (0–`max_lives`) |
+| `max_lives` | int | Máximo de vidas (5 en MVP) |
+| `next_regen_at` | string \| null | ISO 8601 — cuándo se regenera la próxima vida. `null` si `current_lives == max_lives` |
+| `regen_interval_secs` | int | Segundos entre regeneraciones (1800 = 30 min) |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `401` | `AUTH_JWT_*` | Token inválido o expirado |
+
+---
+
+#### `POST /lives/spend` — Gastar una vida
+
+**Auth:** 🔒 JWT
+
+**Request body:**
+```json
+{
+  "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `session_id` | string | ✅ | Session activo — para trazar la pérdida de vida en `player_behavior` BQ |
+
+> El servidor decrementa atómicamente. Si `current_lives == 0`, retorna error — el cliente **no debe** llamar a este endpoint si sabe que no hay vidas.
+
+**Response `200 OK`:**
+```json
+{
+  "remaining_lives": 2,
+  "next_regen_at":   "2026-06-17T14:30:00Z"
+}
+```
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `LIVES_INSUFFICIENT` | `current_lives == 0` — no hay vidas para gastar |
+| `401` | `AUTH_JWT_*` | Token inválido |
+
+---
+
+#### `POST /lives/grant` — Otorgar vidas
+
+**Auth:** 🔒 JWT
+
+**Request body — source `iap`:**
+```json
+{
+  "source":     "iap",
+  "product_id": "lives_pack_5",
+  "session_id": "f47ac10b-..."
+}
+```
+
+**Request body — source `rewarded_ad_ssv`:**
+```json
+{
+  "source":        "rewarded_ad_ssv",
+  "reward_token":  "<token firmado por AdMob SDK>",
+  "ad_unit_id":    "ca-app-pub-3940256099942544/5354046379",
+  "session_id":    "f47ac10b-..."
+}
+```
+
+**Request body — source `promo`:**
+```json
+{
+  "source":     "promo",
+  "promo_code": "BETA_LAUNCH",
+  "session_id": "f47ac10b-..."
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `source` | string | ✅ | `"iap"` \| `"rewarded_ad_ssv"` \| `"promo"` |
+| `product_id` | string | Condicional | Requerido si `source == "iap"` — SKU del producto, ej: `"lives_pack_5"` |
+| `reward_token` | string | Condicional | Requerido si `source == "rewarded_ad_ssv"` — token firmado que entrega el AdMob SDK |
+| `ad_unit_id` | string | Condicional | Requerido si `source == "rewarded_ad_ssv"` |
+| `promo_code` | string | Condicional | Requerido si `source == "promo"` |
+| `session_id` | string | ✅ | Para trazar el grant en `entitlement_grants` BQ |
+
+> **`source: "iap"`** — Este path solo se llama cuando el grant viene directamente del flujo de IAP y **no** del flujo de verify (es decir, cuando `POST /payments/android/verify` ya otorgó el entitlement). En la práctica, el flujo normal de IAP llama a `/payments/*/verify` que internamente otorga el entitlement. `POST /lives/grant` con `source: "iap"` es para grants directos (ej: admin tools, fallback recovery).
+>
+> **`source: "rewarded_ad_ssv"`** — El cliente envía el `reward_token` del AdMob SDK. El backend lo verifica criptográficamente con la clave pública de AdMob antes de otorgar.
+
+**Response `200 OK`:**
+```json
+{
+  "granted":       1,
+  "current_lives": 4,
+  "max_lives":     5,
+  "next_regen_at": "2026-06-17T14:30:00Z",
+  "capped":        false
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `granted` | int | Vidas realmente otorgadas (puede ser menor al solicitado si el jugador estaba cerca del máximo) |
+| `capped` | bool | `true` si se truncó el grant por llegar al máximo (ej: tenía 4 vidas, se intentaron dar 5, solo se dieron 1) |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `LIVES_GRANT_INVALID_SOURCE` | `source` no es uno de los tres valores válidos |
+| `400` | `LIVES_GRANT_MISSING_FIELDS` | Falta `product_id`, `reward_token`, o `promo_code` según el source |
+| `401` | `AUTH_JWT_*` | Token inválido |
+| `402` | `LIVES_SSV_INVALID` | El `reward_token` de AdMob no pasa la verificación criptográfica |
+| `409` | `LIVES_GRANT_DUPLICATE` | El `reward_token` ya fue usado (replay attack) |
+| `422` | `LIVES_PROMO_INVALID` | El `promo_code` no existe o ya fue canjeado por este usuario |
+
+---
+
+#### `GET /store/catalog` — Catálogo de productos
+
+**Auth:** 🔒 JWT
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK`:**
+```json
+{
+  "catalog_version": "2026-06-17",
+  "products": [
+    {
+      "product_id":    "lives_pack_5",
+      "type":          "consumable",
+      "display_name":  "5 Extra Lives",
+      "description":   "Keep playing with 5 extra lives",
+      "price_usd":     0.99,
+      "currency":      "USD",
+      "lives_granted": 5,
+      "owned":         false,
+      "promotion":     null
+    },
+    {
+      "product_id":   "no_ads",
+      "type":         "non_consumable",
+      "display_name": "Remove Ads",
+      "description":  "Remove all ads permanently",
+      "price_usd":    2.99,
+      "currency":     "USD",
+      "owned":        false,
+      "promotion": {
+        "discount_percent": 20,
+        "original_price_usd": 3.99,
+        "expires_at": "2026-07-01T00:00:00Z"
+      }
+    },
+    {
+      "product_id":   "skin_gold",
+      "type":         "non_consumable",
+      "display_name": "Gold Mota",
+      "description":  "A shiny golden skin for Mota",
+      "price_usd":    0.99,
+      "currency":     "USD",
+      "owned":        true,
+      "promotion":    null
+    }
+  ]
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `catalog_version` | string | Fecha de la última actualización del catálogo — el cliente puede cachear si la versión no cambia |
+| `type` | string | `"consumable"` (lives) \| `"non_consumable"` (no_ads, skins) |
+| `owned` | bool | `true` si el usuario ya tiene este entitlement — el cliente oculta o deshabilita el botón de compra |
+| `promotion` | object \| null | Si activo: `discount_percent`, `original_price_usd`, `expires_at`. Los precios en promoción vienen resueltos en `price_usd`. |
+| `lives_granted` | int \| null | Solo en productos de tipo `consumable` de tipo lives. |
+
+> **Por qué server-driven:** El precio en `price_usd` y las promociones activas se resuelven en el servidor (vía Remote Config). El cliente Godot nunca tiene precios hardcodeados — siempre consume este endpoint para mostrar la tienda.
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `401` | `AUTH_JWT_*` | Token inválido |
+
+---
+
+#### `POST /profile/equip-skin` — Equipar skin
+
+**Auth:** 🔒 JWT
+
+**Request body:**
+```json
+{
+  "skin_id": "skin_gold"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `skin_id` | string | ✅ | ID del skin a equipar, ej: `"skin_gold"`, `"skin_default"` |
+
+> El backend verifica que el usuario tenga el entitlement de ese skin en Firestore `entitlements/{user_id}` antes de actualizar `users/{user_id}.equipped_skin`.
+
+**Response `200 OK`:**
+```json
+{
+  "skin_id":   "skin_gold",
+  "equipped":  true
+}
+```
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `SKIN_NOT_FOUND` | El `skin_id` no existe en el catálogo de skins |
+| `401` | `AUTH_JWT_*` | Token inválido |
+| `403` | `SKIN_NOT_OWNED` | El usuario no tiene el entitlement de ese skin — no lo ha comprado |
 
 ---
 

@@ -14,7 +14,7 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Storytelling:** → [changelogs/REST-001-rest-api-contract.md](../changelogs/REST-001-rest-api-contract.md)
 
-**Status:** 🔄 In Progress — ST-01–03 ✅, ST-04–08 pendientes (deadline 2026-06-24)
+**Status:** 🔄 In Progress — ST-01–04 ✅, ST-05–08 pendientes (deadline 2026-06-24)
 
 ### Subtareas
 
@@ -23,7 +23,7 @@ Ordenadas por workstream y dependencia de ejecución.
 | ST-01 | Lista completa de endpoints por dominio (19 endpoints, 4 dominios) | ✅ Done 2026-06-17 | Auth(6), Game Services(7), Payments(4), Infra(2) |
 | ST-02 | JWT spec (claims, headers, TTLs, JWKS) | ✅ Done 2026-06-17 | RS256, 15 min access / 14 días refresh, JTI revocation, JWKS kid rotation |
 | ST-03 | Payloads — Auth endpoints | ✅ Done 2026-06-17 | 6 endpoints: login, refresh, logout, delete account, pending poll, JWKS |
-| ST-04 | Payloads — Game Services endpoints | ⬜ Pending | |
+| ST-04 | Payloads — Game Services endpoints | ✅ Done 2026-06-17 | 7 endpoints: progress GET/POST, lives GET/spend/grant, store catalog, equip-skin |
 | ST-05 | Payloads — Payments endpoints | ⬜ Pending | |
 | ST-06 | Payloads — Infrastructure endpoints | ⬜ Pending | |
 | ST-07 | Error taxonomy (formato estándar + catálogo de códigos) | ⬜ Pending | ST-03–06 |
