@@ -261,9 +261,251 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 
 ---
 
-### ST-03 — Payloads Auth ⬜ Pending
+### ST-03 — Payloads Auth ✅ Done (2026-06-17)
 
-*(Ver sección pendiente — se llenará en ST-03)*
+> **Convención de errores:** Todos los errores siguen el formato `{"error_code": "...", "message": "..."}`. El catálogo completo va en ST-07.
+
+---
+
+#### `POST /auth/login` — Login con Google / Apple OAuth
+
+**Auth:** 🔓 público
+
+**Request body:**
+```json
+{
+  "provider":     "google",
+  "id_token":     "eyJhbGci...",
+  "platform":     "android",
+  "app_version":  "1.0.0",
+  "device_model": "Pixel 7",
+  "os_version":   "Android 14",
+  "country":      "MX"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `provider` | string | ✅ | `"google"` \| `"apple"` |
+| `id_token` | string | ✅ | Token OAuth del proveedor. Google: `id_token` de GoogleSignIn. Apple: `identity_token` de `ASAuthorizationAppleIDCredential` |
+| `platform` | string | ✅ | `"android"` \| `"ios"` |
+| `app_version` | string | ✅ | Versión semántica, ej: `"1.0.0"` |
+| `device_model` | string | ⬜ | Modelo de dispositivo, ej: `"Pixel 7"` |
+| `os_version` | string | ⬜ | Versión de OS, ej: `"Android 14"` |
+| `country` | string | ⬜ | ISO 3166-1 alpha-2, ej: `"MX"`, `"BR"`. Si ausente, backend lo infiere del IP. |
+
+**Response `200 OK`:**
+```json
+{
+  "access_token":  "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6Im1vdGFtYXplLWtleS12MSJ9...",
+  "refresh_token": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "token_type":    "Bearer",
+  "expires_in":    900,
+  "user_id":       "usr_abc123def456",
+  "is_new_user":   false
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `access_token` | string | JWT RS256 firmado — TTL 15 min |
+| `refresh_token` | string | UUID v4 opaco — TTL 14 días |
+| `token_type` | string | Siempre `"Bearer"` |
+| `expires_in` | int | Segundos hasta expiración del access token (`900`) |
+| `user_id` | string | ID del usuario en Firestore `users/{user_id}` |
+| `is_new_user` | bool | `true` en el primer login (para onboarding en cliente) |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `AUTH_MISSING_FIELDS` | Falta `provider`, `id_token`, `platform`, o `app_version` |
+| `401` | `AUTH_TOKEN_INVALID` | El `id_token` no pasa la verificación del proveedor OAuth |
+| `401` | `AUTH_TOKEN_EXPIRED` | El `id_token` ya expiró (típico si el usuario tardó en confirmar) |
+| `422` | `VALIDATION_ERROR` | FastAPI rechaza el body por tipos incorrectos |
+| `500` | `INTERNAL_ERROR` | Error al escribir en Firestore o emitir JWT |
+
+---
+
+#### `POST /auth/refresh` — Rotar refresh token
+
+**Auth:** 🔓 público (lleva refresh token en el body, no JWT header)
+
+**Request body:**
+```json
+{
+  "refresh_token": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `refresh_token` | string | ✅ | UUID v4 opaco obtenido de `/auth/login` o de un refresh anterior |
+
+**Response `200 OK`:**
+```json
+{
+  "access_token":  "eyJhbGci...",
+  "refresh_token": "9b2c3d47-0e02-4b2c-a567-f47ac10b58cc",
+  "token_type":    "Bearer",
+  "expires_in":    900
+}
+```
+
+> ⚠️ El `refresh_token` retornado es **siempre uno nuevo**. El anterior queda invalidado inmediatamente. El cliente debe reemplazarlo en su storage persistente.
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `AUTH_MISSING_FIELDS` | Falta el campo `refresh_token` |
+| `401` | `AUTH_REFRESH_INVALID` | Token no existe en Firestore (ya consumido, nunca existió, o manipulado) |
+| `401` | `AUTH_REFRESH_EXPIRED` | La sesión en Firestore existe pero la marca de tiempo supera los 14 días |
+| `422` | `VALIDATION_ERROR` | FastAPI rechaza el body |
+
+---
+
+#### `POST /auth/logout` — Cerrar sesión
+
+**Auth:** 🔒 JWT
+
+**Request body:** vacío `{}`
+
+**Response `200 OK`:**
+```json
+{
+  "message": "Session revoked"
+}
+```
+
+> El backend agrega el `jti` del access token al documento `revoked_jtis/{jti}` en Firestore (con TTL = tiempo de expiración del token) y elimina la sesión de `sessions/{session_id}`.
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `401` | `AUTH_JWT_MISSING` | Header `Authorization` ausente |
+| `401` | `AUTH_JWT_INVALID` | JWT malformado, firma inválida, o `jti` ya revocado |
+| `401` | `AUTH_JWT_EXPIRED` | Token expirado — cliente debe llamar a `/auth/refresh` primero |
+
+---
+
+#### `DELETE /auth/account` — Borrar cuenta (GDPR / Apple 5.1.1)
+
+**Auth:** 🔒 JWT
+
+**Request body:** vacío `{}`
+
+**Response `202 Accepted`:**
+```json
+{
+  "message":     "Account deletion queued",
+  "deletion_id": "del_7f3a9c12"
+}
+```
+
+> `202` en lugar de `200` porque la eliminación es **asíncrona**: el backend inserta una fila en `account_deletions` BQ con `status='pending'` y una Cloud Function la procesa en segundo plano (COMP-001, 7/27). El usuario queda efectivamente sin sesión activa de forma inmediata (la sesión se invalida en el mismo request), pero los datos tardan minutos en purgarse.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `deletion_id` | string | ID de referencia para auditoría — corresponde al registro en `account_deletions` BQ |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `401` | `AUTH_JWT_MISSING` | Header `Authorization` ausente |
+| `401` | `AUTH_JWT_INVALID` | JWT inválido o revocado |
+| `401` | `AUTH_JWT_EXPIRED` | Token expirado |
+| `409` | `AUTH_DELETION_PENDING` | Ya existe una solicitud de borrado en curso para este usuario |
+
+---
+
+#### `GET /auth/pending/{state_token}` — Polling de resultado OAuth
+
+**Auth:** 🔓 público
+
+**Path param:**
+
+| Parámetro | Tipo | Descripción |
+|---|---|---|
+| `state_token` | string (UUID v4) | Token de estado OAuth generado por Godot antes de abrir el browser. TTL: 10 minutos. |
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK` — login completado:**
+```json
+{
+  "status":        "complete",
+  "access_token":  "eyJhbGci...",
+  "refresh_token": "f47ac10b-...",
+  "token_type":    "Bearer",
+  "expires_in":    900,
+  "user_id":       "usr_abc123def456",
+  "is_new_user":   false
+}
+```
+
+**Response `200 OK` — aún esperando:**
+```json
+{
+  "status": "pending"
+}
+```
+
+**Response `200 OK` — OAuth falló en el callback:**
+```json
+{
+  "status":     "error",
+  "error_code": "AUTH_OAUTH_FAILED"
+}
+```
+
+> El cliente Godot llama a este endpoint cada **2 segundos** hasta recibir `status: "complete"` o `status: "error"`. Después de recibir cualquier estado final, debe dejar de hacer polling. Si recibe 404, el usuario tardó demasiado y debe reiniciar el flujo.
+
+**Flujo completo:**
+```
+[Godot] genera state_token (UUID v4)
+[Godot] abre browser: https://accounts.google.com/...&state=<state_token>
+[Godot] inicia polling: GET /auth/pending/<state_token> cada 2s
+[Google] redirige a: https://api.motamaze.com/auth/callback?code=...&state=<state_token>
+[Backend] verifica code → upsert user → almacena tokens en Firestore keyed por state_token
+[Godot] polling devuelve status:"complete" → extrae tokens → cierra browser
+```
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `404` | `AUTH_STATE_NOT_FOUND` | El `state_token` no existe o expiró (TTL 10 min). Godot debe reiniciar el flujo. |
+
+---
+
+#### `GET /.well-known/jwks.json` — Clave pública JWT
+
+**Auth:** 🔓 público
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK`:**
+```json
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "motamaze-key-v1",
+      "n":   "<base64url-encoded modulus>",
+      "e":   "AQAB"
+    }
+  ]
+}
+```
+
+> Durante key rotation, el array `keys` contiene dos entradas (old `kid` + new `kid`) por una ventana de 15 minutos. Ver ST-02 para el proceso completo de rotación.
+
+**Errores:** ninguno esperado — este endpoint no tiene dependencias externas en el request path.
 
 ---
 
