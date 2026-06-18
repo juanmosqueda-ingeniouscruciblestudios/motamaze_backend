@@ -1260,9 +1260,180 @@ readinessProbe:
 
 ---
 
-### ST-07 — Error taxonomy ⬜ Pending
+### ST-07 — Error taxonomy ✅ Done (2026-06-17)
 
-*(Ver sección pendiente — se llenará en ST-07)*
+---
+
+#### Formato estándar de error
+
+Todos los errores generados por el backend MotaMaze siguen esta forma:
+
+```json
+{
+  "error_code": "AUTH_TOKEN_INVALID",
+  "message":    "The provided OAuth token is invalid or could not be verified.",
+  "details":    {}
+}
+```
+
+| Campo | Tipo | Siempre presente | Descripción |
+|---|---|---|---|
+| `error_code` | string | ✅ | Código de máquina — el cliente Godot ramifica su lógica por este campo |
+| `message` | string | ✅ | Descripción en inglés para logging / debugging — no mostrar al usuario final |
+| `details` | object | ⬜ Opcional | Contexto adicional (ej: qué campo falló). Puede estar ausente o vacío `{}`. |
+
+> **Regla para el cliente Godot:** Leer siempre `error_code` para la lógica. Nunca parsear `message` — ese campo puede cambiar sin aviso. `details` es solo para debugging.
+
+---
+
+#### Excepción: errores de validación FastAPI (422)
+
+FastAPI genera automáticamente errores 422 con su propio formato cuando el request body no coincide con el schema Pydantic. Este formato es **distinto** del estándar anterior:
+
+```json
+{
+  "detail": [
+    {
+      "loc":  ["body", "provider"],
+      "msg":  "field required",
+      "type": "value_error.missing"
+    },
+    {
+      "loc":  ["body", "id_token"],
+      "msg":  "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+```
+
+| Campo | Descripción |
+|---|---|
+| `detail` | Array de errores de validación |
+| `detail[].loc` | Ubicación del campo que falló, ej: `["body", "campo"]` |
+| `detail[].msg` | Descripción del fallo |
+| `detail[].type` | Código interno de Pydantic |
+
+> El cliente Godot debe manejar `422` como "error de programación" (el request está malformado) y no como un error de usuario. En producción no deberían ocurrir.
+
+---
+
+#### HTTP status codes utilizados
+
+| Código | Nombre | Uso en MotaMaze |
+|---|---|---|
+| `200` | OK | Request exitoso con respuesta en body |
+| `202` | Accepted | Operación asíncrona encolada — `DELETE /auth/account` |
+| `400` | Bad Request | Input inválido, regla de negocio violada, campo faltante |
+| `401` | Unauthorized | Autenticación requerida o fallida (JWT inválido, OAuth fallo, refresh expirado) |
+| `402` | Payment Required | Verificación de compra fallida (token inválido, SSV inválido, transacción no encontrada) |
+| `403` | Forbidden | Autenticado pero sin permiso sobre ese recurso (skin no comprada, nivel bloqueado) |
+| `404` | Not Found | Recurso no existe (state_token expirado, user_id inexistente) |
+| `409` | Conflict | Conflicto de estado (solicitud de borrado ya en curso, reward token ya canjeado) |
+| `422` | Unprocessable Entity | FastAPI: body no cumple el schema Pydantic |
+| `503` | Service Unavailable | Dependencia externa no disponible (Play Developer API, App Store Server API) |
+
+**Códigos no utilizados y por qué:**
+- `404` en endpoints protegidos con JWT: si el `user_id` del JWT no existe en Firestore, se retorna `401` (no `404`) para no confirmar si el usuario existe.
+- `429` (Rate Limiting): no implementado en MVP. Se agrega post soft-launch con Cloud Armor o un middleware de FastAPI.
+- `500` (Internal Server Error): FastAPI lo emite automáticamente en excepciones no capturadas. El backend no lo retorna explícitamente excepto en casos muy específicos.
+
+---
+
+#### Catálogo de error codes — Globales
+
+Aplican a cualquier endpoint protegido (🔒):
+
+| `error_code` | HTTP | Cuándo |
+|---|---|---|
+| `AUTH_JWT_MISSING` | 401 | Header `Authorization` ausente en un endpoint protegido |
+| `AUTH_JWT_INVALID` | 401 | JWT malformado, firma RS256 inválida, `aud` incorrecto, o `jti` en `revoked_jtis` |
+| `AUTH_JWT_EXPIRED` | 401 | JWT expirado (`exp` en el pasado, fuera del clock skew de ±30s) |
+| `INTERNAL_ERROR` | 500 | Error inesperado del servidor — ver logs en Cloud Logging |
+| `VALIDATION_ERROR` | 422 | Body no cumple el schema Pydantic (generado por FastAPI) |
+
+---
+
+#### Catálogo de error codes — Auth
+
+| `error_code` | HTTP | Endpoint | Cuándo |
+|---|---|---|---|
+| `AUTH_MISSING_FIELDS` | 400 | `POST /auth/login`, `POST /auth/refresh` | Falta `provider`, `id_token`, `platform`, `app_version`, o `refresh_token` |
+| `AUTH_TOKEN_INVALID` | 401 | `POST /auth/login` | El `id_token` no pasa la verificación del proveedor OAuth (Google/Apple) |
+| `AUTH_TOKEN_EXPIRED` | 401 | `POST /auth/login` | El `id_token` ya expiró antes de llegar al backend |
+| `AUTH_REFRESH_INVALID` | 401 | `POST /auth/refresh` | Refresh token no existe en Firestore (ya consumido, nunca existió, o manipulado) |
+| `AUTH_REFRESH_EXPIRED` | 401 | `POST /auth/refresh` | La sesión existe pero el timestamp supera los 14 días |
+| `AUTH_DELETION_PENDING` | 409 | `DELETE /auth/account` | Ya existe una solicitud de borrado en curso para este usuario |
+| `AUTH_STATE_NOT_FOUND` | 404 | `GET /auth/pending/{state_token}` | El `state_token` no existe o su TTL de 10 minutos expiró |
+
+---
+
+#### Catálogo de error codes — Game Services
+
+| `error_code` | HTTP | Endpoint | Cuándo |
+|---|---|---|---|
+| `USER_NOT_FOUND` | 404 | `GET /progress` | El `user_id` del JWT no existe en Firestore (inconsistencia — no debería ocurrir en producción) |
+| `PROGRESS_INVALID_LEVEL` | 400 | `POST /progress/level-complete` | `level_id` fuera del rango 1–30 |
+| `PROGRESS_LEVEL_LOCKED` | 400 | `POST /progress/level-complete` | `level_id` supera `highest_unlocked_level + 1` (intento de saltar nivel) |
+| `PROGRESS_INVALID_STARS` | 400 | `POST /progress/level-complete` | `stars_earned` fuera del rango 1–3 |
+| `LIVES_INSUFFICIENT` | 400 | `POST /lives/spend` | `current_lives == 0` — no hay vidas para gastar |
+| `LIVES_GRANT_INVALID_SOURCE` | 400 | `POST /lives/grant` | `source` no es `"iap"`, `"rewarded_ad_ssv"`, ni `"promo"` |
+| `LIVES_GRANT_MISSING_FIELDS` | 400 | `POST /lives/grant` | Falta el campo condicional requerido según el `source` |
+| `LIVES_SSV_INVALID` | 402 | `POST /lives/grant` | El `reward_token` de AdMob no pasa la verificación criptográfica |
+| `LIVES_GRANT_DUPLICATE` | 409 | `POST /lives/grant` | El `reward_token` ya fue canjeado (replay attack) |
+| `LIVES_PROMO_INVALID` | 422 | `POST /lives/grant` | El `promo_code` no existe o ya fue canjeado por este usuario |
+| `SKIN_NOT_FOUND` | 400 | `POST /profile/equip-skin` | El `skin_id` no existe en el catálogo de skins |
+| `SKIN_NOT_OWNED` | 403 | `POST /profile/equip-skin` | El usuario no tiene el entitlement del skin (no lo ha comprado) |
+
+---
+
+#### Catálogo de error codes — Payments
+
+| `error_code` | HTTP | Endpoint | Cuándo |
+|---|---|---|---|
+| `PAY_MISSING_FIELDS` | 400 | `POST /payments/*/verify` | Falta `purchase_token`, `transaction_id`, `product_id`, o `session_id` |
+| `PAY_PRODUCT_NOT_FOUND` | 400 | `POST /payments/*/verify` | `product_id` no existe en el catálogo de productos del servidor |
+| `PAY_VERIFICATION_FAILED` | 402 | `POST /payments/android/verify` | Play Developer API rechaza el `purchase_token` (inválido, ya consumido por otro usuario, fraudulento) |
+| `PAY_TRANSACTION_NOT_FOUND` | 402 | `POST /payments/ios/verify` | `transaction_id` no existe en App Store Server API |
+| `PAY_STORE_UNAVAILABLE` | 503 | `POST /payments/*/verify` | Google Play Developer API o App Store Server API no responden — el cliente debe reintentar después |
+
+---
+
+#### Guía de manejo de errores para el cliente Godot
+
+```
+switch error_code:
+
+  # Redirigir al login
+  "AUTH_JWT_EXPIRED", "AUTH_JWT_INVALID", "AUTH_REFRESH_EXPIRED", "AUTH_REFRESH_INVALID":
+    → llamar a POST /auth/refresh
+    → si falla, redirigir al flujo de login
+
+  # Mostrar mensaje al usuario
+  "LIVES_INSUFFICIENT":
+    → mostrar "No tienes vidas. ¿Comprar más?"
+  "SKIN_NOT_OWNED":
+    → mostrar "Necesitas comprar este skin para equiparlo"
+  "PROGRESS_LEVEL_LOCKED":
+    → mostrar "Completa el nivel anterior primero"
+
+  # Reintentar automáticamente (backoff)
+  "PAY_STORE_UNAVAILABLE":
+    → esperar 5s, reintentar hasta 3 veces
+
+  # Idempotencia — tratar como éxito
+  "LIVES_GRANT_DUPLICATE":
+    → el reward ya fue otorgado — ignorar, refrescar estado con GET /lives
+
+  # Errores de programación (no mostrar al usuario, solo logear)
+  "VALIDATION_ERROR", "AUTH_MISSING_FIELDS", "PAY_MISSING_FIELDS":
+    → logear, no mostrar al usuario final
+
+  # Error genérico de servidor
+  "INTERNAL_ERROR":
+    → mostrar "Algo salió mal, intenta de nuevo"
+    → logear con el request original para debugging
+```
 
 ---
 
