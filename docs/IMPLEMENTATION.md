@@ -3,7 +3,7 @@
 Seguimiento de todas las tareas asignadas a Saul Zavala Morin.
 Ordenadas por workstream y dependencia de ejecución.
 
-> Última actualización: 2026-06-17
+> Última actualización: 2026-06-18
 > Fuente de verdad: Monday.com board "motamaze mvp - project plan"
 
 ---
@@ -20,10 +20,10 @@ Ordenadas por workstream y dependencia de ejecución.
 
 | # | Subtarea | Status | Notas |
 |---|---|---|---|
-| ST-01 | Lista completa de endpoints por dominio (19 endpoints, 4 dominios) | ✅ Done 2026-06-17 | Auth(6), Game Services(7), Payments(4), Infra(2) |
+| ST-01 | Lista completa de endpoints por dominio (20 endpoints, 4 dominios) | ✅ Done 2026-06-17, actualizado 2026-06-18 | Auth(6), Game Services(8), Payments(4), Infra(2). POST /events/behavior agregado como #14 (DATA-002 ST-02) |
 | ST-02 | JWT spec (claims, headers, TTLs, JWKS) | ✅ Done 2026-06-17 | RS256, 15 min access / 14 días refresh, JTI revocation, JWKS kid rotation |
 | ST-03 | Payloads — Auth endpoints | ✅ Done 2026-06-17 | 6 endpoints: login, refresh, logout, delete account, pending poll, JWKS |
-| ST-04 | Payloads — Game Services endpoints | ✅ Done 2026-06-17 | 7 endpoints: progress GET/POST, lives GET/spend/grant, store catalog, equip-skin |
+| ST-04 | Payloads — Game Services endpoints | ✅ Done 2026-06-17, actualizado 2026-06-18 | 8 endpoints: progress GET/POST, lives GET/spend/grant, store catalog, equip-skin, POST /events/behavior |
 | ST-05 | Payloads — Payments endpoints | ✅ Done 2026-06-17 | 4 endpoints: android/verify, ios/verify (StoreKit 2), android/refund, ios/refund webhooks |
 | ST-06 | Payloads — Infrastructure endpoints | ✅ Done 2026-06-17 | /health (liveness, no external checks) + /ready (readiness, Firestore ping) |
 | ST-07 | Error taxonomy (formato estándar + catálogo de códigos) | ✅ Done 2026-06-17 | 10 HTTP codes, 27 error codes, guía de manejo para cliente Godot |
@@ -207,21 +207,24 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Storytelling:** → [changelogs/DATA-002-firestore-bigquery-streaming.md](../changelogs/DATA-002-firestore-bigquery-streaming.md)
 
-**Status:** 🔄 In Progress — ST-01 diseño ✅, ST-02–09 pendientes de INFRA-003
+**Status:** 🔄 In Progress — ST-01 ✅ diseño, ST-02 ✅ endpoint mapping reconciliado, ST-03–12 pendientes de INFRA-003
 
 ### Subtareas
 
 | # | Subtarea | Status | Dependencias | Notas |
 |---|---|---|---|---|
-| ST-01 | Diseño de arquitectura: BackgroundTasks + BQ Streaming Insert | ✅ Decidido 2026-06-17 | DATA-001 ✅ | Descartadas Pub/Sub y Firebase Extension para MVP |
-| ST-02 | Implementar `app/services/bq_streaming.py` con retry logic | ⬜ Pending | INFRA-003 (repo FastAPI) | Código diseñado en changelog — listo para integrar |
-| ST-03 | Integrar background_task en `POST /auth/login` → `login_events` | ⬜ Pending | ST-02 | |
-| ST-04 | Integrar background_task en `POST /sessions/*` → `session_events` | ⬜ Pending | ST-02 | |
-| ST-05 | Integrar background_task en `POST /events/behavior` → `behavior_events` | ⬜ Pending | ST-02 | |
-| ST-06 | Integrar background_task en `POST /payments/android/verify` → `purchase_events` | ⬜ Pending | ST-02 | |
-| ST-07 | Integrar background_task en SSV callback + `/entitlements/grant` | ⬜ Pending | ST-02 | |
-| ST-08 | Integrar background_task en `DELETE /auth/account` → `deletion_queue` | ⬜ Pending | ST-02 | |
-| ST-09 | Test de integración end-to-end: evento → tabla BQ verificada | ⬜ Pending | ST-03–08, INFRA-003 desplegado | |
+| ST-01 | Diseño de arquitectura: BackgroundTasks + BQ Streaming Insert | ✅ Done 2026-06-17 | DATA-001 ✅ | Descartadas Pub/Sub y Firebase Extension para MVP |
+| ST-02 | Alinear endpoint → tabla mapping con REST-001 | ✅ Done 2026-06-18 | REST-001 ✅ | 3 gaps resueltos: sessions→auth/login+logout, player_behavior→nuevo /events/behavior (REST-001 #14), entitlement_grants→operaciones internas |
+| ST-03 | Implementar `app/services/bq_streaming.py` con retry logic | ⬜ Pending | INFRA-003 repo | Código pre-diseñado en changelog |
+| ST-04 | Definir dedup keys y backfill-safety strategy | ⬜ Pending | ST-03 | |
+| ST-05 | Integrar `POST /auth/login` → `login_events` + `session_durations` (session_start) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-06 | Integrar `POST /auth/logout` → `session_durations` (session_end + duration_secs) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-07 | Integrar `POST /events/behavior` → `player_behavior` (batch) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-08 | Integrar `POST /payments/*/verify` → `purchase_events` + `entitlement_grants` | ⬜ Pending | ST-03, INFRA-003 | Android + iOS |
+| ST-09 | Integrar `POST /lives/grant` → `ad_impressions` (SSV) + `entitlement_grants` | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-10 | Integrar `DELETE /auth/account` → `account_deletions` | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-11 | Integrar `POST /progress/level-complete` → `player_behavior` (event: level_complete) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-12 | Monitor y confirmar que datos llegan a BigQuery | ⬜ Pending | ST-05–11, INFRA-003 deployed | Query de verificación por las 8 tablas |
 
 ---
 

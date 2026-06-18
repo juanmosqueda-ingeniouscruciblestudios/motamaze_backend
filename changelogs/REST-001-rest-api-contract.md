@@ -69,7 +69,7 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 
 ---
 
-#### Dominio 2 — Game Services (7 endpoints)
+#### Dominio 2 — Game Services (8 endpoints)
 
 | # | Método | Path | Auth | Descripción | Monday task |
 |---|---|---|---|---|---|
@@ -80,6 +80,9 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 | 11 | `POST` | `/lives/grant` | 🔒 JWT | Otorga vidas al usuario — fuente: `iap` \| `rewarded_ad_ssv` \| `promo` | Game-003 |
 | 12 | `GET` | `/store/catalog` | 🔒 JWT | Catálogo de productos resuelto server-side con precios y promociones activas | Game-004 |
 | 13 | `POST` | `/profile/equip-skin` | 🔒 JWT | Equipa un skin — verifica entitlement antes de escribir en Firestore | Game-005 |
+| 14 | `POST` | `/events/behavior` | 🔒 JWT | Reporte batch de eventos de gameplay desde Godot (level_start, level_fail, maze_shift, npc_caught, etc.) — write-only, alimenta `player_behavior` BQ | Game-006 |
+
+> **Endpoint #14 agregado 2026-06-18** como resultado del análisis DATA-002 ST-02: ningún endpoint previo capturaba eventos granulares de gameplay. Ver DATA-002 ST-02 para justificación completa.
 
 ---
 
@@ -87,10 +90,10 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 
 | # | Método | Path | Auth | Descripción | Monday task |
 |---|---|---|---|---|---|
-| 14 | `POST` | `/payments/android/verify` | 🔒 JWT | Verifica `purchaseToken` con Play Developer API → otorga entitlement → acknowledge/consume | PAY-001 |
-| 15 | `POST` | `/payments/ios/verify` | 🔒 JWT | Verifica `transactionId` con App Store Server API (JWS chain) → otorga entitlement | PAY-001 |
-| 16 | `POST` | `/payments/android/refund-notification` | 🔓 firmado (Play Pub/Sub) | Recibe notificación RTDN de refund/voided-purchase de Google Play | PAY-003 |
-| 17 | `POST` | `/payments/ios/refund-notification` | 🔓 firmado (Apple ASSN v2 JWS) | Recibe notificación de refund de Apple App Store Server Notifications v2 | PAY-003 |
+| 15 | `POST` | `/payments/android/verify` | 🔒 JWT | Verifica `purchaseToken` con Play Developer API → otorga entitlement → acknowledge/consume | PAY-001 |
+| 16 | `POST` | `/payments/ios/verify` | 🔒 JWT | Verifica `transactionId` con App Store Server API (JWS chain) → otorga entitlement | PAY-001 |
+| 17 | `POST` | `/payments/android/refund-notification` | 🔓 firmado (Play Pub/Sub) | Recibe notificación RTDN de refund/voided-purchase de Google Play | PAY-003 |
+| 18 | `POST` | `/payments/ios/refund-notification` | 🔓 firmado (Apple ASSN v2 JWS) | Recibe notificación de refund de Apple App Store Server Notifications v2 | PAY-003 |
 
 ---
 
@@ -98,8 +101,8 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 
 | # | Método | Path | Auth | Descripción | Monday task |
 |---|---|---|---|---|---|
-| 18 | `GET` | `/health` | 🔓 público | Liveness probe — Cloud Run reinicia el contenedor si falla | INFRA-003 |
-| 19 | `GET` | `/ready` | 🔓 público | Readiness probe — Cloud Run no envía tráfico hasta que devuelva 200 | INFRA-003 |
+| 19 | `GET` | `/health` | 🔓 público | Liveness probe — Cloud Run reinicia el contenedor si falla | INFRA-003 |
+| 20 | `GET` | `/ready` | 🔓 público | Readiness probe — Cloud Run no envía tráfico hasta que devuelva 200 | INFRA-003 |
 
 ---
 
@@ -108,10 +111,10 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 | Dominio | Endpoints | Públicos | Requieren JWT |
 |---|---|---|---|
 | Auth | 6 | 3 | 2 + 1 (refresh token en body) |
-| Game Services | 7 | 0 | 7 |
+| Game Services | 8 | 0 | 8 |
 | Payments | 4 | 2 (firmados por store) | 2 |
 | Infrastructure | 2 | 2 | 0 |
-| **Total** | **19** | **7** | **11** |
+| **Total** | **20** | **7** | **12** |
 
 ---
 
@@ -872,6 +875,76 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 | `400` | `SKIN_NOT_FOUND` | El `skin_id` no existe en el catálogo de skins |
 | `401` | `AUTH_JWT_*` | Token inválido |
 | `403` | `SKIN_NOT_OWNED` | El usuario no tiene el entitlement de ese skin — no lo ha comprado |
+
+---
+
+#### `POST /events/behavior` — Reporte batch de eventos de gameplay *(agregado 2026-06-18)*
+
+**Auth:** 🔒 JWT
+
+**Propósito:** Endpoint write-only para que el cliente Godot reporte eventos granulares de gameplay en batch. Alimenta directamente `player_behavior` en BigQuery. No modifica estado en Firestore — es puro analytics.
+
+> Godot acumula eventos durante la partida y los envía en batch al terminar un nivel o al ir al background — evita una llamada HTTP por cada evento individual.
+
+**Request body:**
+```json
+{
+  "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "events": [
+    {
+      "event_name":    "level_start",
+      "level_id":      5,
+      "timestamp":     "2026-06-18T14:00:00Z"
+    },
+    {
+      "event_name":    "maze_shift",
+      "level_id":      5,
+      "timestamp":     "2026-06-18T14:01:23Z"
+    },
+    {
+      "event_name":    "npc_caught",
+      "level_id":      5,
+      "npc_type":      "bola",
+      "timestamp":     "2026-06-18T14:02:05Z"
+    },
+    {
+      "event_name":    "level_fail",
+      "level_id":      5,
+      "duration_secs": 125,
+      "timestamp":     "2026-06-18T14:02:05Z"
+    }
+  ]
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `session_id` | string | ✅ | Session activo — correlaciona todos los eventos de la misma sesión |
+| `events` | array | ✅ | Array de eventos (mínimo 1, máximo 100 por request) |
+| `events[].event_name` | string | ✅ | Tipo de evento — ver catálogo abajo |
+| `events[].level_id` | int | ⬜ | Nivel donde ocurrió (1–30) |
+| `events[].timestamp` | string ISO 8601 | ✅ | Timestamp del evento en el cliente |
+| `events[].duration_secs` | int | ⬜ | Duración — aplica en `level_fail` y `level_complete` |
+| `events[].score` | int | ⬜ | Score — aplica en `level_complete` |
+| `events[].stars_earned` | int | ⬜ | Estrellas — aplica en `level_complete` |
+| `events[].npc_type` | string | ⬜ | `"bola"` \| `"mancha"` \| `"huracan"` \| `"conejo"` — aplica en `npc_caught` |
+| `events[].extra_json` | string | ⬜ | JSON string para campos variables adicionales |
+
+**`event_name` válidos:** `level_start`, `level_complete`, `level_fail`, `maze_shift`, `npc_caught`, `item_collected`, `tutorial_step`
+
+**Response `200 OK`:**
+```json
+{ "accepted": 4 }
+```
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `EVENTS_EMPTY` | Array `events` vacío |
+| `400` | `EVENTS_TOO_MANY` | Array supera 100 elementos |
+| `400` | `EVENTS_INVALID_NAME` | Algún `event_name` no está en el catálogo válido |
+| `401` | `AUTH_JWT_*` | Token inválido |
 
 ---
 

@@ -189,14 +189,18 @@ async def login(background_tasks: BackgroundTasks, ...):
 
 ### Tabla de endpoints → tablas BQ
 
-| Endpoint FastAPI | Tabla BQ | Cuándo se dispara |
+> **Actualizado 2026-06-18 (ST-02):** Mapping reconciliado con REST-001 contract. 3 endpoints originales no existían en REST-001 — ver análisis ST-02 abajo.
+
+| Endpoint FastAPI | Tabla(s) BQ | Cuándo se dispara |
 |---|---|---|
-| `POST /auth/login` | `login_events` | Cada login exitoso |
-| `POST /sessions/start`, `POST /sessions/end` | `session_durations` | Inicio y fin de sesión |
-| `POST /events/behavior` | `player_behavior` | Eventos de gameplay (batch o individual) |
-| `POST /payments/android/verify` | `purchase_events` | Cada intento de IAP |
-| `POST /lives/grant/admob-ssv` | `ad_impressions` | Callback SSV de AdMob |
-| `POST /entitlements/grant` | `entitlement_grants` | Cada otorgamiento de entitlement |
+| `POST /auth/login` | `login_events`, `session_durations` (event_type: session_start) | Cada login exitoso — también inicia registro de sesión |
+| `POST /auth/logout` | `session_durations` (event_type: session_end, duration_secs calculado) | Fin de sesión — calcula duración desde Firestore session.started_at |
+| `POST /events/behavior` *(REST-001 #14)* | `player_behavior` | Batch de eventos de gameplay enviado por Godot |
+| `POST /progress/level-complete` | `player_behavior` (event_name: level_complete) | También registra el nivel completado como evento de comportamiento |
+| `POST /payments/android/verify` | `purchase_events`, `entitlement_grants` | Verificación IAP Android — escribe compra + entitlement otorgado |
+| `POST /payments/ios/verify` | `purchase_events`, `entitlement_grants` | Verificación IAP iOS — mismo patrón |
+| `POST /lives/grant` (source: rewarded_ad_ssv) | `ad_impressions`, `entitlement_grants` | SSV de AdMob — registra impresión + vidas otorgadas |
+| `POST /lives/grant` (source: iap \| promo) | `entitlement_grants` | Grant directo de vidas — solo entitlement, no ad_impressions |
 | `DELETE /auth/account` | `account_deletions` | Solicitud de borrado GDPR |
 
 ---
@@ -205,15 +209,50 @@ async def login(background_tasks: BackgroundTasks, ...):
 
 | # | Subtarea | Status | Dependencias | Notas |
 |---|---|---|---|---|
-| ST-01 | Diseño de arquitectura: BackgroundTasks + BQ Streaming Insert (esta doc) | ✅ Decidido | DATA-001 ✅ | Descartadas Pub/Sub y Firebase Extension para MVP |
-| ST-02 | Implementar `app/services/bq_streaming.py` con retry logic | ⬜ Pending | INFRA-003 (estructura repo) | Código listo en este doc — integrar cuando exista el repo |
-| ST-03 | Integrar background_task en `POST /auth/login` → `login_events` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-04 | Integrar background_task en `POST /sessions/*` → `session_durations` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-05 | Integrar background_task en `POST /events/behavior` → `player_behavior` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-06 | Integrar background_task en `POST /payments/android/verify` → `purchase_events` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-07 | Integrar background_task en SSV callback + `/entitlements/grant` → `ad_impressions`, `entitlement_grants` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-08 | Integrar background_task en `DELETE /auth/account` → `account_deletions` | ⬜ Pending | ST-02, INFRA-003 | |
-| ST-09 | Test de integración end-to-end: evento → tabla BQ verificada | ⬜ Pending | ST-03–08, INFRA-003 desplegado | Verificar con query BQ: `SELECT * FROM login_events LIMIT 1` |
+| ST-01 | Diseño de arquitectura: BackgroundTasks + BQ Streaming Insert | ✅ Done 2026-06-17 | DATA-001 ✅ | Descartadas Pub/Sub y Firebase Extension para MVP |
+| ST-02 | Alinear endpoint → tabla mapping con REST-001 | ✅ Done 2026-06-18 | REST-001 ✅ | 3 gaps resueltos: `session_durations` vía auth/login+logout, `player_behavior` vía nuevo endpoint `/events/behavior` (REST-001 #14), `entitlement_grants` via endpoints existentes de payments+lives |
+| ST-03 | Implementar `app/services/bq_streaming.py` con retry logic | ⬜ Pending | INFRA-003 repo | Código pre-diseñado en doc — integrar cuando exista el repo |
+| ST-04 | Definir dedup keys y backfill-safety strategy | ⬜ Pending | ST-03 | |
+| ST-05 | Integrar `POST /auth/login` → `login_events` + `session_durations` (session_start) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-06 | Integrar `POST /auth/logout` → `session_durations` (session_end, duration_secs calculado) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-07 | Integrar `POST /events/behavior` → `player_behavior` (batch) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-08 | Integrar `POST /payments/*/verify` → `purchase_events` + `entitlement_grants` | ⬜ Pending | ST-03, INFRA-003 | Android + iOS |
+| ST-09 | Integrar `POST /lives/grant` → `ad_impressions` (SSV) + `entitlement_grants` | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-10 | Integrar `DELETE /auth/account` → `account_deletions` | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-11 | Integrar `POST /progress/level-complete` → `player_behavior` (event: level_complete) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-12 | Monitor y confirmar que datos llegan a BigQuery — query de verificación por tabla | ⬜ Pending | ST-05–11, INFRA-003 deployed | `SELECT * FROM login_events LIMIT 1` + verificar las 8 tablas |
+
+---
+
+## Análisis ST-02 — Reconciliación endpoint mapping vs. REST-001 (2026-06-18)
+
+Al cruzar el mapping original de DATA-002 con el contrato REST-001 finalizado, se detectaron 3 endpoints que no existían en REST-001. Resolución:
+
+### Gap 1: `POST /sessions/start` y `POST /sessions/end` → `session_durations`
+
+**Resolución: eliminados — cubiertos por endpoints de Auth existentes.**
+
+- `POST /auth/login` escribe fila `event_type: "session_start"` en `session_durations` como background_task. El campo `session_duration_secs = null` en este momento.
+- `POST /auth/logout` calcula `session_duration_secs = logout_time - session.started_at` (desde Firestore) y escribe fila `event_type: "session_end"`.
+- Edge case — app cerrada sin logout: la fila `session_end` nunca se escribe, `session_duration_secs` queda null. Aceptable para MVP (afecta solo a la duración, no al conteo de sesiones).
+
+### Gap 2: `POST /events/behavior` → `player_behavior`
+
+**Resolución: endpoint agregado a REST-001 como #14 (Game Services).**
+
+Ningún endpoint existente capturaba eventos granulares de gameplay (`level_start`, `level_fail`, `maze_shift`, `npc_caught`, `item_collected`, `tutorial_step`). `POST /progress/level-complete` solo captura el evento `level_complete`. Se agregó `POST /events/behavior` como endpoint batch write-only — Godot acumula eventos durante la partida y los envía en un solo request al terminar el nivel o ir al background.
+
+`POST /progress/level-complete` también escribe un evento `level_complete` a `player_behavior` como background_task para tener el evento en ambos contextos (progreso + comportamiento).
+
+### Gap 3: `POST /entitlements/grant` → `entitlement_grants`
+
+**Resolución: eliminado — no es un endpoint público, es una operación interna.**
+
+Los grants de entitlements ocurren dentro de los handlers de endpoints existentes:
+- `POST /payments/android/verify` y `POST /payments/ios/verify` → otorgan entitlement IAP → escriben a `entitlement_grants`
+- `POST /lives/grant` (cualquier source) → otorga vidas → escribe a `entitlement_grants`
+
+No se necesita un endpoint independiente `POST /entitlements/grant`.
 
 ---
 
