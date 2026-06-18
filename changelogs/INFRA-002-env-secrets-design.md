@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra / Design Decision |
 | **Prioridad** | Alta |
-| **Status** | In Progress — iniciado 2026-06-17 |
+| **Status** | ✅ Done — sign-off Saul + Juan completados 2026-06-17, topología y secrets documentados |
 | **Fecha planeada** | 2026-06-18 |
 | **Workstream** | Infra/DevOps |
 | **Owner** | Saul Zavala Morin |
@@ -28,13 +28,13 @@ El "sign-off" es literal: tanto Saul como Juan deben revisar y aprobar este docu
 
 ## Criterios de aceptación
 
-- [ ] Topología de proyectos GCP documentada y justificada
-- [ ] Naming convention de Secret Manager definida
-- [ ] Inventario completo de secrets por categoría
-- [ ] Lista de env vars de FastAPI — qué va en Secret Manager vs. variable plana
-- [ ] Tabla de recursos GCP por entorno (nombres exactos)
+- [x] Topología de proyectos GCP documentada y justificada — 3 proyectos separados (Opción B), ver Decisión 1
+- [x] Naming convention de Secret Manager definida — `{componente}-{descripcion-kebab}`, sin sufijo de env, ver Decisión 2
+- [x] Inventario completo de secrets por categoría — 5 secrets + variables no confidenciales, ver Decisión 3
+- [x] Lista de env vars de FastAPI — qué va en Secret Manager vs. variable plana — ver Decisión 4
+- [x] Tabla de recursos GCP por entorno (nombres exactos) — ver Decisión 5
 - [x] Sign-off explícito de Saul ✍️
-- [ ] Sign-off explícito de Juan ✍️
+- [x] Sign-off explícito de Juan ✍️
 
 ---
 
@@ -146,8 +146,8 @@ Separadas en dos categorías:
 | `LOG_LEVEL` | `DEBUG` | `INFO` | `WARNING` | Nivel de logging |
 | `MAX_INSTANCES` | `2` | `5` | `10` | Cloud Run max-instances |
 | `JWT_ALGORITHM` | `RS256` | `RS256` | `RS256` | Algoritmo JWT (constante) |
-| `JWT_ACCESS_TOKEN_TTL` | `3600` | `3600` | `3600` | TTL access token en segundos |
-| `JWT_REFRESH_TOKEN_TTL` | `2592000` | `2592000` | `2592000` | TTL refresh token (30 días) |
+| `JWT_ACCESS_TOKEN_TTL` | `900` | `900` | `900` | TTL access token en segundos (15 min — alineado con REST-001 ST-02) |
+| `JWT_REFRESH_TOKEN_TTL` | `1209600` | `1209600` | `1209600` | TTL refresh token en segundos (14 días — alineado con REST-001 ST-02) |
 
 ### B) Variables confidenciales — leídas desde Secret Manager en runtime
 
@@ -185,6 +185,17 @@ def get_secret(secret_id: str) -> str:
 | **Budget alert** | $10/mes | $20/mes | $50/mes ✅ |
 | **Firebase** | Firebase proyecto `motamaze-dev` | Firebase proyecto `motamaze-staging` | Firebase proyecto `motamaze` ✅ |
 | **Artifact Registry** | Imagen: `us-central1-docker.pkg.dev/motamaze-dev/game-api/app` | `…/motamaze-staging/…` | `…/motamaze/…` |
+
+---
+
+## Subtareas
+
+| # | Subtarea | Status | Notas |
+|---|---|---|---|
+| ST-01 | Saul redacta el diseño — topología, naming, secrets, env vars, tabla de recursos | ✅ Done 2026-06-17 | Decisiones 1–5 documentadas |
+| ST-02 | Sign-off de Saul | ✅ Done 2026-06-17 | Aprobado sin cambios |
+| ST-03 | Sign-off de Juan | ✅ Done 2026-06-17 | Aprobado sin cambios |
+| ST-04 | Topología de proyectos GCP documentada y justificada | ✅ Done 2026-06-17 | Opción B (3 proyectos separados): `motamaze-dev`, `motamaze-staging`, `motamaze` (prod). Justificación: aislamiento de compliance, billing independiente, IAM separado por entorno. |
 
 ---
 

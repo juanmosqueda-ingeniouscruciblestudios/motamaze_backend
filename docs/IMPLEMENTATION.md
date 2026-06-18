@@ -59,23 +59,20 @@ Ordenadas por workstream y dependencia de ejecución.
 
 ## INFRA-002 — Environment & Secrets Design Sign-off (dev/staging/prod topology)
 
-**Monday ID:** 12272268105 | **RAG:** Amber | **Timeline:** 6/18/2026 | **Critical Path:** No
+**Monday ID:** 12272268105 | **RAG:** Green | **Timeline:** 6/18/2026 | **Critical Path:** No
 
 **Storytelling:** → [changelogs/INFRA-002-env-secrets-design.md](../changelogs/INFRA-002-env-secrets-design.md)
 
-**Status:** ✅ Done 2026-06-17 — Saul ✅ + Juan ✅ firmados
+**Status:** ✅ Done 2026-06-17 — todos los sign-offs completados, topología documentada
 
 ### Subtareas
 
 | # | Subtarea | Status | Notas |
 |---|---|---|---|
-| ST-01 | Topología: 3 proyectos GCP separados (`motamaze-dev`, `motamaze-staging`, `motamaze`) | ✅ Decidido | Documento de diseño redactado |
-| ST-02 | Naming convention secrets: sin sufijo env (el proyecto aísla), formato `{componente}-{desc-kebab}` | ✅ Decidido | |
-| ST-03 | Inventario de 5 secrets por proyecto + separación Secret Manager vs. env vars planas | ✅ Decidido | |
-| ST-04 | Tabla de 13 env vars de FastAPI por entorno (dev/staging/prod) | ✅ Decidido | |
-| ST-05 | Tabla de recursos GCP por entorno (Cloud Run, Firestore, BQ, Storage, SA, Budgets) | ✅ Decidido | |
-| ST-06 | Sign-off Saul ✍️ | ✅ Done 2026-06-17 | Aprobado sin cambios |
-| ST-07 | Sign-off Juan ✍️ | ✅ Done 2026-06-17 | Aprobado sin cambios — commit en GitHub |
+| ST-01 | Redactar documento de diseño (topología, naming, secrets, env vars, tabla de recursos) | ✅ Done 2026-06-17 | 5 decisiones documentadas: proyectos, naming, inventario, env vars, recursos por entorno |
+| ST-02 | Sign-off Saul ✍️ | ✅ Done 2026-06-17 | Aprobado sin cambios |
+| ST-03 | Sign-off Juan ✍️ | ✅ Done 2026-06-17 | Aprobado sin cambios |
+| ST-04 | Topología de proyectos GCP documentada y justificada | ✅ Done 2026-06-17 | Opción B — 3 proyectos separados: `motamaze-dev`, `motamaze-staging`, `motamaze` (prod). JWT TTL corregido: 900s access / 1209600s refresh (alineado con REST-001). |
 
 ---
 
