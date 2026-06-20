@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Planning / Backend Contract |
 | **Prioridad** | Alta ★ CRITICAL |
-| **Status** | In Progress — ST-01 ✅, ST-02–08 pendientes |
+| **Status** | In Progress — ST-01–07 ✅, ST-08 🔴 Stuck (Juan pendiente revisar y aprobar, marcado Stuck en Monday 2026-06-19) |
 | **Fecha planeada** | 2026-06-19 – 2026-06-24 |
 | **Workstream** | Planning |
 | **Owner** | Saul Zavala Morin (derivar contrato) + Juan Mosqueda (sign-off) |

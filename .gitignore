@@ -1,0 +1,6 @@
+# Credentials — never commit
+.env.local
+*.env
+
+# Excel exports (use Monday API instead)
+docs/*.xlsx
