@@ -146,19 +146,18 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Monday ID:** 12272254521 | **RAG:** Gray | **Timeline:** 6/27–6/28/2026 | **Critical Path:** No
 
-**Status:** ⬜ Not Started
+**Status:** 🔄 In Progress — ST-01 ✅ proyectos + state bucket, ST-02 ✅ módulo Terraform, ST-03 ✅ remote state, ST-04 ⬜ apply pendiente billing + INFRA-003
 
-**Storytelling:** pendiente
+**Storytelling:** → [changelogs/INFRA-006-dev-staging-prod-terraform.md](../changelogs/INFRA-006-dev-staging-prod-terraform.md)
 
 ### Subtareas
 
-| # | Subtarea | Status | Dependencias |
+| # | Subtarea (Monday) | Status | Notas |
 |---|---|---|---|
-| ST-01 | Decidir estrategia env split (depende de INFRA-002 sign-off) | ❌ Pending | INFRA-002 ST-04 |
-| ST-02 | Crear módulo Terraform para infra base replicable por env | ❌ Pending | INFRA-003 completo |
-| ST-03 | Aplicar Terraform en `dev` | ❌ Pending | ST-02 |
-| ST-04 | Aplicar Terraform en `staging` | ❌ Pending | ST-03 |
-| ST-05 | Variables de entorno separadas por env en Secret Manager | ❌ Pending | ST-02 |
+| ST-01 | Create dev/staging/prod GCP projects | ✅ Parcial 2026-06-19 | `motamaze-dev` (1072330724928) y `motamaze-staging` (682669860502) creados. Billing pendiente Juan (billing.resourceAssociations.create requerido) |
+| ST-02 | Write a reusable Terraform module | ✅ Done 2026-06-19 | `terraform/modules/motamaze-env/` — APIs, SA, IAM, Firestore, BQ (8 tablas), GCS, SM (5 secrets), Cloud Run (count condicional) |
+| ST-03 | Configure remote state management | ✅ Done 2026-06-19 | Bucket `motamaze-terraform-state` (US, versioning on). Prefijos: dev/, staging/, prod/ |
+| ST-04 | Apply and verify on all three environments | ⬜ Pending | dev/staging: bloqueado por billing. prod: requiere `terraform import` de 15+ recursos existentes (INFRA-001). Cloud Run requiere INFRA-003. |
 
 ---
 
