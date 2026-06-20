@@ -125,19 +125,20 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Monday ID:** 12272254520 | **RAG:** Gray | **Timeline:** 6/29–6/30/2026 | **Critical Path:** No
 
-**Status:** ⬜ Not Started
+**Status:** 🔄 In Progress — ST-01 ✅, ST-02 ✅, ST-03 ⬜ pendiente INFRA-003, ST-04 ✅
 
-**Storytelling:** pendiente
+**Storytelling:** → [changelogs/INFRA-005-firestore-schema-security-rules.md](../changelogs/INFRA-005-firestore-schema-security-rules.md)
+
+**Data model:** → [docs/DATA_MODEL.md](DATA_MODEL.md)
 
 ### Subtareas
 
-| # | Subtarea | Status | Dependencias |
+| # | Subtarea (Monday) | Status | Notas |
 |---|---|---|---|
-| ST-01 | Definir colecciones: `users`, `sessions`, `revoked_jtis`, `progress`, `lives`, `entitlements` | ❌ Pending | REST API contract |
-| ST-02 | Crear Firebase Security Rules en modo producción (deny-all default) | ❌ Pending | ST-01 |
-| ST-03 | Escribir rules que permiten solo al backend SA leer/escribir (no client directo) | ❌ Pending | ST-02 |
-| ST-04 | Deploy rules via `firebase deploy --only firestore:rules` | ❌ Pending | ST-03 |
-| ST-05 | Test: intento de escritura directa desde cliente falla con PERMISSION_DENIED | ❌ Pending | ST-04 |
+| ST-01 | Define users/sessions/revoked_jtis collections (fields + indexes) | ✅ Done 2026-06-19 | 6 colecciones: `users`, `sessions`, `revoked_jtis`, `progress`, `lives`, `entitlements`. Sin índices compuestos para MVP. |
+| ST-02 | Write production-mode security rules (deny-by-default) | ✅ Done 2026-06-19 | `firestore.rules` deploy vía Firebase Rules REST API. Ruleset `523e539f` activo en `motamaze`. |
+| ST-03 | Test the rules | ⬜ Pending INFRA-003 | Tests con Firebase emulator — escritura directa debe fallar con PERMISSION_DENIED |
+| ST-04 | Document the schema in docs/DATA_MODEL.md | ✅ Done 2026-06-19 | → [docs/DATA_MODEL.md](DATA_MODEL.md) |
 
 ---
 

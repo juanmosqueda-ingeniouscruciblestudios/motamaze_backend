@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// MotaMaze — Firestore Security Rules
+// Todas las lecturas/escrituras van por FastAPI (Admin SDK) — el cliente Godot nunca
+// accede a Firestore directamente. Deny-all es la postura correcta aquí.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
