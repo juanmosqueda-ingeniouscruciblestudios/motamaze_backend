@@ -3,7 +3,7 @@
 Seguimiento de todas las tareas asignadas a Saul Zavala Morin.
 Ordenadas por workstream y dependencia de ejecución.
 
-> Última actualización: 2026-06-18
+> Última actualización: 2026-06-19
 > Fuente de verdad: Monday.com board "motamaze mvp - project plan"
 
 ---
@@ -105,19 +105,19 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Monday ID:** 12272254519 | **RAG:** Gray | **Timeline:** 6/29/2026 | **Critical Path:** No
 
-**Status:** ⬜ Not Started
+**Status:** 🔄 In Progress — ST-01 ✅, ST-02 ✅, ST-03–05 pendientes INFRA-003
 
-**Storytelling:** pendiente
+**Storytelling:** → [changelogs/INFRA-004-rs256-keypair-secret-manager.md](../changelogs/INFRA-004-rs256-keypair-secret-manager.md)
 
 ### Subtareas
 
-| # | Subtarea | Status | Dependencias |
+| # | Subtarea (Monday) | Status | Notas |
 |---|---|---|---|
-| ST-01 | Habilitar `secretmanager.googleapis.com` | ❌ Pending | INFRA-001 billing |
-| ST-02 | Generar keypair RS256 (`openssl genrsa -out private.pem 2048` + extract public) | ❌ Pending | — |
-| ST-03 | Subir `private.pem` a Secret Manager como `motamaze-jwt-private-key` | ❌ Pending | ST-01, ST-02 |
-| ST-04 | Implementar endpoint `GET /.well-known/jwks.json` en FastAPI | ❌ Pending | INFRA-003, ST-02 |
-| ST-05 | Verificar: `curl https://<url>/.well-known/jwks.json` retorna JWK con `kid`, `kty=RSA`, `use=sig` | ❌ Pending | ST-04 |
+| ST-01 | Generate the RS256 signing keypair | ✅ Done 2026-06-19 | RSA 2048-bit, OpenSSL 3.5.5, PKCS#8 — `secretmanager.googleapis.com` habilitada en `motamaze` |
+| ST-02 | Store it in Secret Manager | ✅ Done 2026-06-19 | Secret ID: `jwt-private-key`, version 1 enabled, proyecto `motamaze` (prod). Archivos locales eliminados inmediatamente. SA `game-api-backend` ya tiene `secretAccessor` (INFRA-001). |
+| ST-03 | Implement the `/.well-known/jwks.json` endpoint | ⬜ Pending INFRA-003 | Extrae public key de la private en runtime → JWK con `kid=motamaze-2026-v1` |
+| ST-04 | Wire signing to the private key | ⬜ Pending INFRA-003 | FastAPI lee `jwt-private-key` desde SM en `create_access_token()` + cache TTL=300s |
+| ST-05 | Document the key-rotation path | ⬜ Pending | Proceso en changelog INFRA-004. Ejecutar formalmente antes de soft launch. |
 
 ---
 

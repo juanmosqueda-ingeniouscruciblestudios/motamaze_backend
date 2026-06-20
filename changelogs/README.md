@@ -10,3 +10,4 @@
 | [REST-001](REST-001-rest-api-contract.md) | rest-api-contract | Planning | In Progress — ST-01–07 ✅, ST-08 🔴 Stuck (Juan pendiente revisar, deadline 2026-06-24) | 2026-06-19 |
 | [INFRA-003](INFRA-003-fastapi-scaffold-cloud-run.md) | fastapi-scaffold-cloud-run | Infra/DevOps | In Progress — ST-01 ✅, ST-02–06 pendientes REST API contract | 2026-06-17 |
 | [DATA-002](DATA-002-firestore-bigquery-streaming.md) | firestore-bigquery-streaming | Dataflow & Outputs | In Progress — ST-01 ✅ diseño, ST-02 ✅ endpoint mapping reconciliado (POST /events/behavior agregado a REST-001), ST-03–12 pendientes INFRA-003 | 2026-06-18 |
+| [INFRA-004](INFRA-004-rs256-keypair-secret-manager.md) | rs256-keypair-secret-manager | Infra/DevOps | In Progress — ST-01 ✅ keypair generado, ST-02 ✅ `jwt-private-key` en Secret Manager prod, ST-03–05 pendientes INFRA-003 | 2026-06-19 |
