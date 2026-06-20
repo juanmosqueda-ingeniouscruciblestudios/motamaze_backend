@@ -165,7 +165,19 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Monday ID:** 12272268267 | **RAG:** Gray | **Timeline:** 7/8–7/9/2026 | **Critical Path:** No
 
-**Status:** ⬜ Not Started — depende de INFRA-006
+**Status:** 🔄 In Progress — ST-01 ✅ Dockerfile + workflow build job, ST-02–05 pendientes INFRA-003
+
+**Storytelling:** → [changelogs/CI-001-cicd-github-actions.md](../changelogs/CI-001-cicd-github-actions.md)
+
+### Subtareas
+
+| # | Subtarea (Monday) | Status | Notas |
+|---|---|---|---|
+| ST-01 | Build the GitHub Actions image build | ✅ Done 2026-06-19 | Dockerfile (non-root, layer cache, single worker) + workflow YAML con build job. Archivos en `ci-templates/`. Layer cache via `type=gha`. Commit `NEXT`. |
+| ST-02 | Create AR repo + configure Workload Identity Federation | ⬜ Pending INFRA-003 | AR repo `backend` en `motamaze`. WIF pool + provider + SA `github-actions`. Comandos documentados en changelog. |
+| ST-03 | Push to Artifact Registry | ⬜ Pending ST-02 | Cubierto en workflow — push activo cuando `event_name == push`. |
+| ST-04 | Implement dev→staging→prod promotion | ⬜ Pending ST-02 + billing | Cubierto en workflow — jobs `deploy-staging/prod` con `environment:` GitHub y aprobación manual. Mismo digest en los 3 envs. |
+| ST-05 | Trigger deploy on merge and verify pipeline green | ⬜ Pending INFRA-003 | First real push al backend repo. |
 
 ---
 
