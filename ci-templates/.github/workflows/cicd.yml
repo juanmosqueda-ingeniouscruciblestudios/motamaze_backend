@@ -97,38 +97,12 @@ jobs:
           image:   ${{ needs.build.outputs.image }}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ST-03 — Promote to staging (same digest, manual trigger via GitHub environment)
-# ─────────────────────────────────────────────────────────────────────────────
-  deploy-staging:
-    name: Deploy → staging
-    needs: deploy-dev
-    runs-on: ubuntu-latest
-    environment: staging   # requires manual approval in GitHub → Settings → Environments
-    permissions:
-      contents: read
-      id-token: write
-
-    steps:
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-
-      - name: Deploy to Cloud Run (staging)
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: motamaze-backend
-          region:  ${{ env.REGION }}
-          project: motamaze-staging
-          image:   ${{ needs.build.outputs.image }}
-
-# ─────────────────────────────────────────────────────────────────────────────
 # ST-03 — Promote to prod (same digest, manual approval required)
+# staging environment deferred to ~1 month post-prod launch (2026-06-22 decision)
 # ─────────────────────────────────────────────────────────────────────────────
   deploy-prod:
     name: Deploy → prod
-    needs: deploy-staging
+    needs: deploy-dev
     runs-on: ubuntu-latest
     environment: prod      # requires manual approval in GitHub → Settings → Environments
     permissions:

@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / CI-CD |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅ Dockerfile + workflow build job, ST-02–05 pendientes INFRA-003 (backend repo) |
+| **Status** | In Progress — ST-01 ✅ Dockerfile + workflow DEV+PROD (staging diferido 2026-06-22), ST-02–05 pendientes INFRA-003 (backend repo) |
 | **Fecha planeada** | 7/8–7/9/2026 |
 | **Fecha real inicio** | 2026-06-19 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
@@ -19,14 +19,14 @@
 
 Pipeline CI/CD de imagen única: el backend FastAPI se construye **una sola vez** por commit y la misma imagen (mismo digest) se promueve de dev → staging → prod sin reconstrucción. Esto garantiza que lo que se probó en staging es exactamente lo que va a prod — no hay diferencias por rebuild.
 
-**Flujo por evento:**
+**Flujo por evento (DEV + PROD — staging diferido a post-lanzamiento):**
 
 | Evento | Resultado |
 |---|---|
 | `pull_request` a `main` | Build únicamente — valida que el Dockerfile compila |
 | `push` a `main` (merge) | Build + push a AR + deploy automático a `dev` |
-| Aprobación en GitHub → staging | Mismo digest → deploy a `staging` (sin rebuild) |
 | Aprobación en GitHub → prod | Mismo digest → deploy a `prod` (sin rebuild) |
+| ~~Aprobación en GitHub → staging~~ | **Diferido** — staging se activa ~1 mes post-lanzamiento PROD (2026-06-22) |
 
 **Convención de imagen:**
 ```
@@ -122,14 +122,14 @@ El workflow completo está en el archivo. Puntos clave del build job:
 - En builds posteriores, si `pyproject.toml` no cambió, la capa de dependencias se restaura del cache
 - Reduce el tiempo de build de ~3 min a ~40 s en el caso común (solo cambió código Python)
 
-**Estructura completa del workflow (4 jobs):**
+**Estructura del workflow (3 jobs — staging diferido):**
 
 ```
-build → deploy-dev → deploy-staging → deploy-prod
-         (auto)       (manual approval) (manual approval)
+build → deploy-dev → deploy-prod
+         (auto)       (manual approval)
 ```
 
-Los jobs `deploy-*` usan `google-github-actions/deploy-cloudrun@v2` con la misma imagen del job `build` (via `needs.build.outputs.image`). Esto garantiza que el mismo digest viaja por todos los entornos.
+Los jobs `deploy-*` usan `google-github-actions/deploy-cloudrun@v2` con la misma imagen del job `build` (via `needs.build.outputs.image`). Esto garantiza que el mismo digest viaja por todos los entornos. El job `deploy-staging` se agregará al workflow cuando staging se active (~1 mes post-lanzamiento PROD).
 
 ---
 
@@ -196,8 +196,8 @@ WIF_SERVICE_ACCOUNT = github-actions@motamaze.iam.gserviceaccount.com
 
 **GitHub Environments a crear en Settings → Environments:**
 - `dev` — sin reviewers, auto-deploy
-- `staging` — requiere aprobación de Saul o Juan
-- `prod` — requiere aprobación de ambos
+- `prod` — requiere aprobación de ambos (Saul + Juan)
+- ~~`staging`~~ — diferido a post-lanzamiento PROD (2026-06-22)
 
 ---
 

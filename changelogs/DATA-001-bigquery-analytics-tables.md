@@ -122,7 +122,7 @@ level_id           INT64                 -- 1-30
 score              INT64
 stars_earned       INT64                 -- 0-3
 duration_secs      INT64
-npc_type           STRING                -- 'bola'|'mancha'|'huracan'|'conejo'
+npc_type           STRING                -- 'bola'|'mancha'|'huracan'|'zas'
 extra_json         STRING                -- JSON string para campos variables
 ```
 

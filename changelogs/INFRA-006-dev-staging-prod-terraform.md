@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / IaC |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅ proyectos creados + estado remoto, ST-02 ✅ módulo Terraform escrito, ST-03 ✅ remote state configurado, ST-04 ⬜ apply pendiente billing dev/staging + INFRA-003 |
+| **Status** | In Progress — ST-01 ✅ proyectos creados + estado remoto, ST-02 ✅ módulo Terraform escrito, ST-03 ✅ remote state configurado, ST-04 ⬜ apply pendiente billing dev + INFRA-003. Staging diferido a post-lanzamiento (2026-06-22). |
 | **Fecha planeada** | 6/27–6/28/2026 |
 | **Fecha real inicio** | 2026-06-19 (adelantado) |
 | **Workstream** | Infra/DevOps |
@@ -49,10 +49,10 @@ terraform/
 - [x] Bucket `motamaze-terraform-state` creado en `motamaze` con versioning habilitado
 - [x] Módulo Terraform cubre: APIs (12), SA, IAM (6 roles), Firestore, BQ dataset + 8 tablas, GCS bucket, 5 secrets SM, Cloud Run (opcional por imagen)
 - [x] `backend.tf` configurado para los 3 entornos apuntando a prefijos separados en el bucket de estado
-- [ ] Billing linked en `motamaze-dev` y `motamaze-staging` (pendiente Juan — billing account `01A127-C8B7E6-B6DEE7`)
+- [ ] Billing linked en `motamaze-dev` (pendiente Juan — billing account `01A127-C8B7E6-B6DEE7`)
 - [ ] `terraform apply` exitoso en `dev` — todos los recursos creados
-- [ ] `terraform apply` exitoso en `staging` — todos los recursos creados
 - [ ] `terraform import` + `terraform apply` en `prod` — state sincronizado con recursos existentes
+- [ ] ~~`terraform apply` exitoso en `staging`~~ — **diferido** a ~1 mes post-lanzamiento PROD (2026-06-22)
 
 ---
 
@@ -89,13 +89,14 @@ motamaze-dev      1072330724928  ACTIVE
 motamaze-staging  682669860502   ACTIVE
 ```
 
-**Billing pendiente (requiere Juan):**
+**Billing pendiente (requiere Juan — solo motamaze-dev):**
 ```bash
 # Saul no tiene billing.resourceAssociations.create en la cuenta 01A127-C8B7E6-B6DEE7
-# Juan debe ejecutar o autorizar:
-gcloud billing projects link motamaze-dev     --billing-account=01A127-C8B7E6-B6DEE7
-gcloud billing projects link motamaze-staging --billing-account=01A127-C8B7E6-B6DEE7
+# Juan debe ejecutar o autorizar (solo dev — staging diferido a post-lanzamiento):
+gcloud billing projects link motamaze-dev --billing-account=01A127-C8B7E6-B6DEE7
 ```
+
+> `motamaze-staging`: billing NO se enlaza ahora. Staging se activa ~1 mes después del lanzamiento PROD (decisión 2026-06-22).
 
 ---
 
@@ -160,11 +161,13 @@ terraform {
 
 ### ST-04 — Apply and verify on all three environments ⬜ Pending
 
-**Bloqueadores:**
+**Avance parcial (2026-06-22):** Secret `play-package-name` creado manualmente en Secret Manager prod y poblado con valor `com.ingeniouscruciblestudios.motamaze` (versión 1). No es necesario esperar `terraform apply` para este secret — ya está disponible en prod.
+
+**Bloqueadores restantes:**
 - `motamaze-dev` y `motamaze-staging`: billing no enlazado (Juan)
 - Cloud Run: imagen no existe hasta INFRA-003
 
-**Comandos de apply (una vez resueltos bloqueadores):**
+**Comandos de apply (una vez resueltos bloqueadores — solo dev para MVP):**
 
 ```bash
 # dev
@@ -173,11 +176,8 @@ terraform init
 terraform plan -out=dev.tfplan
 terraform apply dev.tfplan
 
-# staging
-cd terraform/environments/staging
-terraform init
-terraform plan -out=staging.tfplan
-terraform apply staging.tfplan
+# staging — DIFERIDO a post-lanzamiento PROD (~1 mes después del soft launch)
+# NO ejecutar hasta esa fecha. Ver terraform/environments/staging/main.tf
 ```
 
 **Prod — requiere `terraform import` de recursos existentes (INFRA-001):**
@@ -215,10 +215,12 @@ terraform apply
 
 ## Follow-ups / Notes
 
-- **Billing en dev/staging:** Confirmar con Juan el lunes 2026-06-23. Una vez enlazado, `terraform apply` crea todos los recursos en ~3 minutos.
+- **Billing en dev (solo):** Confirmar con Juan — solo `motamaze-dev`. `motamaze-staging` no requiere billing ahora. Una vez enlazado dev, `terraform apply` crea todos los recursos en ~3 minutos.
+- **Staging diferido (2026-06-22):** Decisión acordada con Juan — staging se activa ~1 mes post-lanzamiento PROD. El proyecto `motamaze-staging` existe pero sin billing ni recursos. Los archivos Terraform de staging están listos para cuando llegue el momento.
 - **`terraform import` en prod:** Los IAM role bindings (`google_project_iam_member`) son más delicados — si la cuenta tiene roles extra vs. el módulo, `terraform plan` mostrará removes. Revisar antes de apply en prod.
 - **`google_firestore_database` ya existe en prod:** Terraform puede intentar recrearla si el import no funciona correctamente. Verificar con `terraform plan` que el resultado es "0 to add, 0 to change, 0 to destroy".
 - **Cloud Run imagen:** Una vez que INFRA-003 cree el repo y el primer build, actualizar `cloud_run_image` en los 3 `main.tf` de environments. El módulo ya tiene el recurso preparado con `count`.
-- **`admob-ssv-hmac-key` y `play-package-name`:** Estos secrets no existen aún en Secret Manager prod (solo `jwt-private-key`). El `terraform import` de esos 4 secrets fallará — Terraform los creará vacíos y los valores se llenan manualmente.
+- **`admob-ssv-hmac-key`:** Este secret no existe aún en Secret Manager prod. El `terraform import` de ese secret fallará — Terraform lo creará vacío y el valor se llena manualmente cuando esté disponible.
+- **`play-package-name`:** ✅ Creado manualmente en prod el 2026-06-22 con valor `com.ingeniouscruciblestudios.motamaze` (versión 1). El `terraform import` funcionará correctamente para este secret.
 - **Versión de Terraform:** Usar ≥ 1.8 (`required_version` en `versions.tf`). Recomendado instalar via `tfenv` para gestión de versiones.
 - **`firebase-admin` SA:** El SA de Firebase Admin (`firebase-adminsdk-fbsvc@motamaze.iam.gserviceaccount.com`) es gestionado por Firebase, no por Terraform. No incluir en el módulo.

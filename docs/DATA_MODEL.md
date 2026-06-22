@@ -1,7 +1,7 @@
 # MotaMaze — Firestore Data Model
 
-> Última actualización: 2026-06-19
-> Fuente: INFRA-005 ST-04
+> Última actualización: 2026-06-22
+> Fuente: INFRA-005 ST-04 + REST-001 actualización 2026-06-22 (Season Pass, Achievements, Leaderboard)
 > Scope: MVP (soft launch 2026-09-14)
 
 Todas las escrituras y lecturas de Firestore pasan por FastAPI (Admin SDK).
@@ -14,8 +14,8 @@ El cliente Godot **nunca accede directamente** a Firestore — solo hace HTTP a 
 | Entorno | Project ID | Firestore DB | Región |
 |---|---|---|---|
 | Production | `motamaze` | `(default)` | `nam5` (Iowa + Council Bluffs) |
-| Staging | `motamaze-staging` | `(default)` | `nam5` (por crear — INFRA-006) |
-| Development | `motamaze-dev` | `(default)` | `nam5` (por crear — INFRA-006) |
+| Development | `motamaze-dev` | `(default)` | `nam5` (por crear — INFRA-006 ST-04) |
+| Staging | `motamaze-staging` | `(default)` | `nam5` — **diferido** a ~1 mes post-lanzamiento (2026-06-22) |
 
 ---
 
@@ -163,7 +163,7 @@ Progresión del jugador por nivel. Autoridad del servidor — el cliente no pued
 | Endpoint | Operación |
 |---|---|
 | `GET /progress` | `get` |
-| `POST /progress/level-complete` | `set` (merge: solo actualiza el nivel enviado) |
+| `POST /progress/level-complete` | `set` (merge: solo actualiza el nivel enviado) + también escribe en `season_progress/{uid}` |
 
 ---
 
@@ -226,6 +226,144 @@ Compras y entitlements del jugador. Se actualiza tras verificar compras en `POST
 
 ---
 
+### `season_progress/{uid}` *(agregado 2026-06-22)*
+
+Progreso del jugador en la temporada activa. Se actualiza en cada `POST /progress/level-complete`. Se resetea al inicio de cada temporada (documento nuevo por `season_id`).
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `uid` | `string` | = document ID |
+| `season_id` | `string` | Temporada activa, ej: `"season_001"` |
+| `season_stars` | `number` | Season Stars ⭐ acumuladas en esta temporada |
+| `current_tier` | `number` | Tier actual (1–10) — calculado server-side al leer, no almacenado |
+| `has_gold_pass` | `boolean` | `true` si compró el Season Pass Gold track |
+| `free_rewards_claimed` | `number[]` | Tiers del track Free ya reclamados, ej: `[1, 2, 3]` |
+| `gold_rewards_claimed` | `number[]` | Tiers del track Gold ya reclamados |
+| `updated_at` | `timestamp` | Última actualización |
+
+> **Threshold de tiers (config-driven, Remote Config):** Tier 1 = 100 stars, Tier 2 = 250, ..., Tier 10 = 2000. El `current_tier` se calcula en cada request leyendo `season_stars` vs. la tabla de umbrales — no se persiste para evitar drift.
+
+**Endpoints que usan esta colección:**
+
+| Endpoint | Operación |
+|---|---|
+| `POST /progress/level-complete` | `update` (incrementa `season_stars`) |
+| `GET /season` | `get` |
+| `POST /season/claim-reward` | `update` (agrega tier a `free_rewards_claimed` o `gold_rewards_claimed`) |
+| `POST /payments/*/verify` | `update` (set `has_gold_pass = true` si product_id == `"season_pass_gold"`) |
+
+---
+
+### `achievement_progress/{uid}` *(agregado 2026-06-22)*
+
+Progreso del jugador en cada achievement. Un solo documento por usuario con todos sus achievements.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `uid` | `string` | = document ID |
+| `unlocked` | `string[]` | IDs de achievements desbloqueados, ej: `["first_level", "maze_master_5"]` |
+| `progress` | `map<string, number>` | Progreso actual por achievement, ej: `{"maze_master_10": 6}` |
+| `unlock_timestamps` | `map<string, timestamp>` | Cuándo se desbloqueó cada achievement |
+| `updated_at` | `timestamp` | Última escritura |
+
+**Ejemplo de documento:**
+```json
+{
+  "uid": "google-sub-123",
+  "unlocked": ["first_level", "maze_master_5"],
+  "progress": {
+    "maze_master_10": 6,
+    "speed_run": 2
+  },
+  "unlock_timestamps": {
+    "first_level": "2026-09-15T10:30:00Z",
+    "maze_master_5": "2026-09-17T14:20:00Z"
+  },
+  "updated_at": "2026-09-17T14:20:00Z"
+}
+```
+
+> **Escritura:** FastAPI evalúa logros en `POST /progress/level-complete` y otros endpoints relevantes. Si se cumple la condición de un achievement, lo agrega a `unlocked` y registra `unlock_timestamps`.
+
+**Endpoints que usan esta colección:**
+
+| Endpoint | Operación |
+|---|---|
+| `POST /progress/level-complete` | `update` (evalúa y otorga achievements relacionados con niveles) |
+| `GET /achievements` | `get` |
+
+---
+
+### `achievement_rarities/{achievement_id}` *(agregado 2026-06-22)*
+
+Rarity data-driven por achievement. Poblado por Cloud Scheduler cada 24h via BigQuery — no se escribe en tiempo real.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `achievement_id` | `string` | = document ID |
+| `total_players` | `number` | Total de jugadores activos al momento del cálculo |
+| `unlocked_by` | `number` | Jugadores que han desbloqueado este achievement |
+| `rarity_percent` | `number` | `unlocked_by / total_players * 100` |
+| `rarity_tier` | `string` | `"COMMON"` (≥50%) \| `"UNCOMMON"` (20–49%) \| `"RARE"` (8–19%) \| `"EPIC"` (4–7%) \| `"LEGENDARY"` (<4%) |
+| `computed_at` | `timestamp` | Timestamp del último cálculo vía BigQuery |
+
+> **Fuente:** Cloud Scheduler job cada 24h consulta BigQuery (`achievement_progress` stream) y escribe estos documentos. `GET /achievements` lee de aquí — sin queries BQ en tiempo real.
+
+**Escritores:**
+
+| Proceso | Operación |
+|---|---|
+| Cloud Scheduler (cada 24h) | `set` (sobreescribe todos los documentos de rarity) |
+
+**Lectores:**
+
+| Endpoint | Operación |
+|---|---|
+| `GET /achievements` | `get` (por cada achievement del catálogo) |
+
+---
+
+### `leaderboard_cache/{cache_key}` *(agregado 2026-06-22)*
+
+Rankings precalculados del leaderboard por temporada y tipo. Poblado cada 5 minutos por Cloud Scheduler. La CDN cachea el response del endpoint por 5 minutos (`Cache-Control: public, max-age=300`).
+
+`cache_key` = `{season_id}_{type}`, ej: `season_001_global`, `season_001_weekly`.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `cache_key` | `string` | = document ID |
+| `season_id` | `string` | Temporada correspondiente |
+| `type` | `string` | `"global"` \| `"weekly"` |
+| `rankings` | `array` | Top 100 jugadores ordenados por `season_stars` DESC |
+| `top3_prizes` | `array` | Premios de posiciones 1, 2 y 3 de la temporada |
+| `computed_at` | `timestamp` | Timestamp del último cálculo |
+
+**`rankings[i]` (elemento del array):**
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `rank` | `number` | Posición (1-based) |
+| `uid` | `string` | ID del jugador |
+| `display_name` | `string` | Nombre del jugador |
+| `season_stars` | `number` | Season Stars acumuladas |
+| `current_tier` | `number` | Tier actual del jugador |
+
+> **`GET /leaderboard` flow:** Lee `leaderboard_cache/{season_id}_{type}`, luego hace un lookup adicional de `season_progress/{uid_del_jugador}` para inyectar el `player_rank` del usuario autenticado (incluso si está fuera del top 100).
+
+**Escritores:**
+
+| Proceso | Operación |
+|---|---|
+| Cloud Scheduler (cada 5 min) | `set` (sobreescribe el documento de cache) |
+
+**Lectores:**
+
+| Endpoint | Operación |
+|---|---|
+| `GET /leaderboard` | `get` (cache) + `get` de `season_progress/{uid}` para el rank del jugador |
+
+---
+
 ## Índices
 
 Para MVP, todos los accesos son por document ID (lookups O(1)). **No se requieren índices compuestos.** Firestore auto-indexa todos los campos individuales por defecto.
@@ -236,6 +374,7 @@ Para MVP, todos los accesos son por document ID (lookups O(1)). **No se requiere
 |---|---|---|
 | `sessions` | `uid ASC, started_at DESC` | Analytics — sesiones recientes por usuario |
 | `revoked_jtis` | `expires_at ASC` | Limpieza batch de JTIs expirados |
+| `season_progress` | `season_id ASC, season_stars DESC` | Leaderboard fallback si Cloud Scheduler no corre |
 
 ---
 
@@ -246,6 +385,10 @@ Para MVP, todos los accesos son por document ID (lookups O(1)). **No se requiere
 | `revoked_jtis` | 14 días | Cloud Scheduler job cada 24h: elimina `expires_at < now()` |
 | `sessions` | Indefinido (MVP) | Se analizan en BigQuery via streaming; no se borran de Firestore en MVP |
 | `users` | Indefinido | `delete_requested_at != null` → BQ deletion queue → borrado en 30 días |
+| `season_progress` | Por temporada | Al inicio de cada nueva temporada, se archiva el documento anterior y se crea uno nuevo |
+| `achievement_progress` | Indefinido | Acumulativo — no se borra entre temporadas |
+| `achievement_rarities` | Indefinido | Sobreescrito cada 24h por Cloud Scheduler |
+| `leaderboard_cache` | Por temporada | Sobreescrito cada 5 min durante la temporada activa; archivado al terminar |
 
 ---
 
@@ -269,6 +412,22 @@ lives/{uid}
 
 entitlements/{uid}
   └── = misma ID que users/{uid}
+
+season_progress/{uid}          ← agregado 2026-06-22
+  └── = misma ID que users/{uid}
+  └── season_id → identifica la temporada activa
+
+achievement_progress/{uid}     ← agregado 2026-06-22
+  └── = misma ID que users/{uid}
+
+achievement_rarities/{achievement_id}  ← agregado 2026-06-22
+  └── escrito por Cloud Scheduler (24h)
+  └── leído por GET /achievements
+
+leaderboard_cache/{cache_key}  ← agregado 2026-06-22
+  └── cache_key = {season_id}_{type}
+  └── escrito por Cloud Scheduler (5 min)
+  └── leído por GET /leaderboard
 ```
 
 ---

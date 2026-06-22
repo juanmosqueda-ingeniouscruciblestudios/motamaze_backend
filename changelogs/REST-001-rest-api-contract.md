@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Planning / Backend Contract |
 | **Prioridad** | Alta ★ CRITICAL |
-| **Status** | In Progress — ST-01–07 ✅, ST-08 🔴 Stuck (Juan pendiente revisar y aprobar, marcado Stuck en Monday 2026-06-19) |
+| **Status** | In Progress — ST-01–07 ✅ (actualizados 2026-06-22: +Dominio 5 Leaderboard/Season/Achievements), ST-08 🔴 Pending sign-off Juan |
 | **Fecha planeada** | 2026-06-19 – 2026-06-24 |
 | **Workstream** | Planning |
 | **Owner** | Saul Zavala Morin (derivar contrato) + Juan Mosqueda (sign-off) |
@@ -41,7 +41,7 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 
 ### ST-01 — Lista completa de endpoints por dominio ✅ Done (2026-06-17)
 
-**19 endpoints en 4 dominios.** Derivados del architecture spec.
+**24 endpoints en 5 dominios.** Derivados del architecture spec + `docs/project_spec.md` de Juan (actualizado 2026-06-22: +4 endpoints Dominio 5).
 
 #### Convenciones globales
 
@@ -106,6 +106,19 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 
 ---
 
+#### Dominio 5 — Social & Meta (4 endpoints) *(agregado 2026-06-22)*
+
+> Confirmado en scope v1.0 vía `docs/project_spec.md` de Juan: Season Leaderboard, Season Pass y Achievements son MVP. Friends tab del leaderboard diferido a v1.1 (requiere sistema de amigos).
+
+| # | Método | Path | Auth | Descripción | Monday task |
+|---|---|---|---|---|---|
+| 21 | `GET` | `/leaderboard` | 🔒 JWT | Leaderboard de temporada activa — filtrable por `type=global\|weekly`. CDN-cached. Top-3 con premios. El rank del jugador siempre incluido al final. | Social-001 |
+| 22 | `GET` | `/season` | 🔒 JWT | Info de la temporada activa + progreso del jugador: Season Stars ⭐, tier actual, rewards reclamados, si tiene Gold Pass | Social-001 |
+| 23 | `POST` | `/season/claim-reward` | 🔒 JWT | Reclamar el reward de un tier específico (track `free` o `gold`). Idempotente — reclamar dos veces devuelve el mismo resultado. | Social-001 |
+| 24 | `GET` | `/achievements` | 🔒 JWT | Lista completa de achievements + progreso del jugador + rarity data-driven (% de jugadores que lo desbloquearon). | Social-002 |
+
+---
+
 #### Resumen por dominio
 
 | Dominio | Endpoints | Públicos | Requieren JWT |
@@ -114,7 +127,8 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 | Game Services | 8 | 0 | 8 |
 | Payments | 4 | 2 (firmados por store) | 2 |
 | Infrastructure | 2 | 2 | 0 |
-| **Total** | **20** | **7** | **12** |
+| Social & Meta | 4 | 0 | 4 |
+| **Total** | **24** | **7** | **16** |
 
 ---
 
@@ -614,6 +628,8 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 | `next_level_unlocked` | int \| null | Número del nivel recién desbloqueado, o `null` si ya estaba desbloqueado |
 | `highest_unlocked_level` | int | Valor actualizado tras este completion |
 | `total_stars` | int | Total actualizado |
+| `season_stars_earned` | int | Season Stars ⭐ ganadas en esta partida (sumadas al total de temporada) |
+| `total_season_stars` | int | Total acumulado de Season Stars del jugador en la temporada activa |
 
 **Errores:**
 
@@ -927,7 +943,7 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 | `events[].duration_secs` | int | ⬜ | Duración — aplica en `level_fail` y `level_complete` |
 | `events[].score` | int | ⬜ | Score — aplica en `level_complete` |
 | `events[].stars_earned` | int | ⬜ | Estrellas — aplica en `level_complete` |
-| `events[].npc_type` | string | ⬜ | `"bola"` \| `"mancha"` \| `"huracan"` \| `"conejo"` — aplica en `npc_caught` |
+| `events[].npc_type` | string | ⬜ | `"bola"` \| `"mancha"` \| `"huracan"` \| `"zas"` — aplica en `npc_caught` |
 | `events[].extra_json` | string | ⬜ | JSON string para campos variables adicionales |
 
 **`event_name` válidos:** `level_start`, `level_complete`, `level_fail`, `maze_shift`, `npc_caught`, `item_collected`, `tutorial_step`
@@ -1333,6 +1349,251 @@ readinessProbe:
 
 ---
 
+### ST-04c — Payloads Social & Meta *(agregado 2026-06-22)*
+
+> Todos los endpoints de este dominio requieren `Authorization: Bearer <access_token>`.
+> El leaderboard es CDN-cached — el backend emite `Cache-Control: public, max-age=300` (5 min). El cliente no necesita cache propio.
+
+---
+
+#### `GET /leaderboard` — Leaderboard de temporada
+
+**Auth:** 🔒 JWT
+
+**Query params:**
+
+| Parámetro | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `type` | string | ⬜ | `"global"` \| `"weekly"` — default: `"global"` |
+| `season_id` | string | ⬜ | ID de temporada — default: temporada activa |
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK`:**
+```json
+{
+  "season_id":        "season_001",
+  "season_name":      "Garden Rush",
+  "leaderboard_type": "global",
+  "top_players": [
+    {
+      "rank":          1,
+      "user_id":       "usr_abc123",
+      "display_name":  "Player1",
+      "season_points": 15420,
+      "current_tier":  9
+    },
+    {
+      "rank":          2,
+      "user_id":       "usr_def456",
+      "display_name":  "MazeRunner",
+      "season_points": 12800,
+      "current_tier":  8
+    },
+    {
+      "rank":          3,
+      "user_id":       "usr_ghi789",
+      "display_name":  "MotaFan",
+      "season_points": 10100,
+      "current_tier":  7
+    }
+  ],
+  "player_rank": {
+    "rank":          142,
+    "user_id":       "usr_xyz789",
+    "display_name":  "TuNombre",
+    "season_points": 4280,
+    "current_tier":  5
+  },
+  "top3_prizes": [
+    { "rank": 1, "prize_description": "Legendary skin + Gold Pass" },
+    { "rank": 2, "prize_description": "Gold Pass + 20 lives" },
+    { "rank": 3, "prize_description": "10 lives + profile frame" }
+  ],
+  "cached_at": "2026-06-22T15:00:00Z"
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `top_players` | array | Top 100 jugadores del leaderboard (primeras 100 posiciones) |
+| `player_rank` | object | Posición del jugador autenticado — siempre presente aunque no esté en top 100 |
+| `top3_prizes` | array | Premios de la temporada actual para posiciones 1, 2 y 3 |
+| `cached_at` | string ISO 8601 | Timestamp del último cálculo del leaderboard (CDN cache) |
+
+> **Friends tab:** Diferido a v1.1. Requiere sistema de amigos (fuera de scope MVP).
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `LEADERBOARD_INVALID_TYPE` | `type` no es `"global"` ni `"weekly"` |
+| `404` | `SEASON_NOT_FOUND` | `season_id` no existe |
+| `401` | `AUTH_JWT_*` | Token inválido |
+
+---
+
+#### `GET /season` — Temporada activa + progreso del jugador
+
+**Auth:** 🔒 JWT
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK`:**
+```json
+{
+  "season_id":    "season_001",
+  "season_name":  "Garden Rush",
+  "season_motif": "The garden's bursting — race the burrow, grab every fruit before the rivals do.",
+  "starts_at":    "2026-09-14T00:00:00Z",
+  "ends_at":      "2026-10-13T23:59:59Z",
+  "total_tiers":  10,
+  "player": {
+    "season_stars":          1240,
+    "current_tier":          5,
+    "has_gold_pass":         false,
+    "free_rewards_claimed":  [1, 2, 3, 4],
+    "gold_rewards_claimed":  []
+  }
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `season_id` | string | ID único de la temporada activa |
+| `starts_at` / `ends_at` | string ISO 8601 | Ventana de la temporada |
+| `total_tiers` | int | Siempre `10` en MVP |
+| `player.season_stars` | int | Season Stars ⭐ acumuladas — se actualizan en cada `POST /progress/level-complete` |
+| `player.current_tier` | int | Tier actual (1–10) calculado server-side por los stars acumulados |
+| `player.has_gold_pass` | bool | `true` si el jugador compró el Season Pass (Gold track) |
+| `player.free_rewards_claimed` | array int | Tiers del track Free ya reclamados |
+| `player.gold_rewards_claimed` | array int | Tiers del track Gold ya reclamados (vacío si no tiene Gold Pass) |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `404` | `SEASON_NOT_ACTIVE` | No hay temporada activa en este momento |
+| `401` | `AUTH_JWT_*` | Token inválido |
+
+---
+
+#### `POST /season/claim-reward` — Reclamar reward de un tier
+
+**Auth:** 🔒 JWT
+
+**Request body:**
+```json
+{
+  "tier":  5,
+  "track": "free"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `tier` | int | ✅ | Tier a reclamar (1–10) |
+| `track` | string | ✅ | `"free"` \| `"gold"` |
+
+**Validaciones server-side:**
+- `tier` ≤ `player.current_tier` (no puede reclamar tiers no alcanzados)
+- Si `track == "gold"`, verificar `has_gold_pass == true`
+- El reward de ese tier/track no debe estar ya en `*_rewards_claimed`
+
+**Response `200 OK`:**
+```json
+{
+  "tier":    5,
+  "track":   "free",
+  "reward": {
+    "type":     "lives",
+    "quantity": 3
+  },
+  "already_claimed": false,
+  "updated_claimed": [1, 2, 3, 4, 5]
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `reward.type` | string | `"lives"` \| `"skin"` \| `"cosmetic"` \| `"gold_pass"` (tier 10 free reward) |
+| `reward.quantity` | int \| null | Solo en `type == "lives"` |
+| `reward.item_id` | string \| null | Solo en `type == "skin"` o `"cosmetic"` — ID del item otorgado |
+| `already_claimed` | bool | `true` si ya fue reclamado (idempotencia — mismo response, no dobla el grant) |
+| `updated_claimed` | array int | Lista actualizada de tiers reclamados en este track |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `400` | `SEASON_REWARD_TIER_LOCKED` | El jugador no ha alcanzado el `tier` solicitado |
+| `400` | `SEASON_REWARD_NO_GOLD_PASS` | `track == "gold"` pero el jugador no tiene Gold Pass |
+| `400` | `SEASON_INVALID_TIER` | `tier` fuera del rango 1–10 |
+| `400` | `SEASON_INVALID_TRACK` | `track` no es `"free"` ni `"gold"` |
+| `404` | `SEASON_NOT_ACTIVE` | No hay temporada activa |
+| `401` | `AUTH_JWT_*` | Token inválido |
+
+---
+
+#### `GET /achievements` — Achievements + progreso + rarity
+
+**Auth:** 🔒 JWT
+
+**Request body:** ninguno (GET)
+
+**Response `200 OK`:**
+```json
+{
+  "achievements": [
+    {
+      "achievement_id":  "first_level",
+      "title":           "First Steps",
+      "description":     "Complete level 1",
+      "icon_id":         "badge_first_level",
+      "rarity":          "COMMON",
+      "rarity_percent":  78.4,
+      "unlocked":        true,
+      "unlocked_at":     "2026-09-15T10:30:00Z",
+      "progress":        null
+    },
+    {
+      "achievement_id":  "maze_master_10",
+      "title":           "Maze Master",
+      "description":     "Complete 10 levels with 3 stars",
+      "icon_id":         "badge_maze_master",
+      "rarity":          "RARE",
+      "rarity_percent":  12.1,
+      "unlocked":        false,
+      "unlocked_at":     null,
+      "progress": {
+        "current": 6,
+        "target":  10
+      }
+    }
+  ]
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `achievement_id` | string | ID único del achievement |
+| `icon_id` | string | Referencia al asset de badge (cohesive gold-rim badge set) |
+| `rarity` | string | `"COMMON"` (≥50%) \| `"UNCOMMON"` (20–49%) \| `"RARE"` (8–19%) \| `"EPIC"` (4–7%) \| `"LEGENDARY"` (<4%) |
+| `rarity_percent` | float | % de jugadores que han desbloqueado este achievement — calculado server-side vía BigQuery, actualizado cada 24h |
+| `unlocked` | bool | `true` si este jugador ya lo desbloqueó |
+| `unlocked_at` | string \| null | Timestamp del unlock. `null` si no desbloqueado |
+| `progress` | object \| null | `current` y `target` para achievements con progreso incremental. `null` si no aplica (binario) |
+
+> **Rarity computation:** El backend corre un job de Cloud Scheduler cada 24h que calcula el porcentaje de jugadores por achievement vía BigQuery y guarda el resultado en Firestore `achievement_rarities/{achievement_id}`. El endpoint lee de Firestore — no hay query a BQ en tiempo real.
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `401` | `AUTH_JWT_*` | Token inválido |
+
+---
+
 ### ST-07 — Error taxonomy ✅ Done (2026-06-17)
 
 ---
@@ -1460,6 +1721,20 @@ Aplican a cualquier endpoint protegido (🔒):
 
 ---
 
+#### Catálogo de error codes — Social & Meta *(agregado 2026-06-22)*
+
+| `error_code` | HTTP | Endpoint | Cuándo |
+|---|---|---|---|
+| `LEADERBOARD_INVALID_TYPE` | 400 | `GET /leaderboard` | `type` no es `"global"` ni `"weekly"` |
+| `SEASON_NOT_FOUND` | 404 | `GET /leaderboard` | `season_id` proporcionado no existe |
+| `SEASON_NOT_ACTIVE` | 404 | `GET /season`, `POST /season/claim-reward` | No hay temporada activa en este momento |
+| `SEASON_REWARD_TIER_LOCKED` | 400 | `POST /season/claim-reward` | El jugador no ha alcanzado el tier solicitado |
+| `SEASON_REWARD_NO_GOLD_PASS` | 400 | `POST /season/claim-reward` | `track == "gold"` pero el jugador no tiene Gold Pass |
+| `SEASON_INVALID_TIER` | 400 | `POST /season/claim-reward` | `tier` fuera del rango 1–10 |
+| `SEASON_INVALID_TRACK` | 400 | `POST /season/claim-reward` | `track` no es `"free"` ni `"gold"` |
+
+---
+
 #### Catálogo de error codes — Payments
 
 | `error_code` | HTTP | Endpoint | Cuándo |
@@ -1523,3 +1798,9 @@ Circularle el documento completo a Juan para revisión. Deadline: 2026-06-24.
 - **`/payments/android/refund-notification` y `/payments/ios/refund-notification`:** Estos endpoints no llevan JWT — son llamados por Google/Apple directamente. La autenticación es vía firma criptográfica (Pub/Sub push token para Android, JWS para iOS).
 - **`/store/catalog`:** Este endpoint devuelve los precios resueltos server-side — el cliente Godot nunca hardcodea precios. Remote Config puede modificar precios/promociones sin app update.
 - **Versioning:** No se implementa versioning (v1/, v2/) en el MVP. Si se necesita en el futuro, se agrega como prefijo (`/v2/auth/login`) sin romper los endpoints existentes.
+- **Season Stars en level-complete:** `POST /progress/level-complete` ya incluye `season_stars_earned` y `total_season_stars` en su response — el cliente no necesita llamar a `GET /season` después de cada nivel para refrescar el progreso de temporada.
+- **Leaderboard CDN cache:** `GET /leaderboard` emite `Cache-Control: public, max-age=300`. El cliente puede confiar en este cache — no necesita headers de revalidación.
+- **Rarity de achievements:** Calculado cada 24h via Cloud Scheduler + BigQuery → Firestore `achievement_rarities/{achievement_id}`. No hay query BQ en tiempo real en el endpoint.
+- **Season Pass Gold track:** El Gold Pass es un IAP `non_consumable` (`product_id: "season_pass_gold"`) — se compra vía `/payments/*/verify` y otorga `has_gold_pass: true` en Firestore. No requiere un endpoint dedicado.
+- **"Share score" OG URL:** Pendiente Studio Decision K (confirmación verbal de Juan). Si se confirma, se agrega como endpoint #25 `POST /share/score` en el Dominio 5. No incluido hasta confirmación.
+- **Conejo → Zas:** El nombre del NPC rabbit cambió de "Conejo" a "Zas" per `project_spec.md` 2026-06-22. `events[].npc_type` actualizado en ST-04 accordingly.
