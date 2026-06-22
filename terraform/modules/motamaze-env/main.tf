@@ -77,9 +77,10 @@ resource "google_firestore_database" "default" {
 # ────────────────────────────────────────────────────────────────────────────
 
 resource "google_bigquery_dataset" "analytics" {
-  project    = var.project_id
-  dataset_id = "motamaze_analytics"
-  location   = var.bq_location
+  project     = var.project_id
+  dataset_id  = "motamaze_analytics"
+  description = "MotaMaze MVP analytics: login, session, behavior, purchase, ad, entitlement, deletion events"
+  location    = var.bq_location
 
   labels = {
     environment = var.environment
@@ -97,7 +98,10 @@ resource "google_bigquery_table" "login_events" {
   dataset_id = google_bigquery_dataset.analytics.dataset_id
   table_id   = "login_events"
 
-  time_partitioning { type = "DAY"; field = "event_date" }
+  time_partitioning {
+    type  = "DAY"
+    field = "event_date"
+  }
   clustering      = ["user_id"]
   deletion_protection = false
 
@@ -122,7 +126,10 @@ resource "google_bigquery_table" "session_durations" {
   dataset_id = google_bigquery_dataset.analytics.dataset_id
   table_id   = "session_durations"
 
-  time_partitioning { type = "DAY"; field = "event_date" }
+  time_partitioning {
+    type  = "DAY"
+    field = "event_date"
+  }
   clustering      = ["user_id"]
   deletion_protection = false
 
@@ -146,7 +153,10 @@ resource "google_bigquery_table" "player_behavior" {
   dataset_id = google_bigquery_dataset.analytics.dataset_id
   table_id   = "player_behavior"
 
-  time_partitioning { type = "DAY"; field = "event_date" }
+  time_partitioning {
+    type  = "DAY"
+    field = "event_date"
+  }
   clustering      = ["user_id", "event_name"]
   deletion_protection = false
 
@@ -173,7 +183,10 @@ resource "google_bigquery_table" "purchase_events" {
   dataset_id = google_bigquery_dataset.analytics.dataset_id
   table_id   = "purchase_events"
 
-  time_partitioning { type = "DAY"; field = "event_date" }
+  time_partitioning {
+    type  = "DAY"
+    field = "event_date"
+  }
   clustering      = ["user_id"]
   deletion_protection = false
 
@@ -201,8 +214,11 @@ resource "google_bigquery_table" "ad_impressions" {
   dataset_id = google_bigquery_dataset.analytics.dataset_id
   table_id   = "ad_impressions"
 
-  time_partitioning { type = "DAY"; field = "event_date" }
-  clustering      = ["user_id"]
+  time_partitioning {
+    type  = "DAY"
+    field = "event_date"
+  }
+  clustering      = ["user_id", "ad_type"]
   deletion_protection = false
 
   schema = jsonencode([
@@ -226,7 +242,10 @@ resource "google_bigquery_table" "entitlement_grants" {
   dataset_id = google_bigquery_dataset.analytics.dataset_id
   table_id   = "entitlement_grants"
 
-  time_partitioning { type = "DAY"; field = "event_date" }
+  time_partitioning {
+    type  = "DAY"
+    field = "event_date"
+  }
   clustering      = ["user_id"]
   deletion_protection = false
 
@@ -251,8 +270,11 @@ resource "google_bigquery_table" "account_deletions" {
   dataset_id = google_bigquery_dataset.analytics.dataset_id
   table_id   = "account_deletions"
 
-  time_partitioning { type = "DAY"; field = "request_date" }
-  clustering      = ["user_id"]
+  time_partitioning {
+    type  = "DAY"
+    field = "request_date"
+  }
+  clustering          = ["user_id", "status"]
   deletion_protection = false
 
   schema = jsonencode([
@@ -273,8 +295,11 @@ resource "google_bigquery_table" "admob_daily_report" {
   dataset_id = google_bigquery_dataset.analytics.dataset_id
   table_id   = "admob_daily_report"
 
-  time_partitioning { type = "DAY"; field = "report_date" }
-  clustering      = ["ad_unit_id", "country"]
+  time_partitioning {
+    type  = "DAY"
+    field = "report_date"
+  }
+  clustering          = ["ad_unit_id", "country"]
   deletion_protection = false
 
   schema = jsonencode([
@@ -325,7 +350,9 @@ resource "google_secret_manager_secret" "secrets" {
   project   = var.project_id
   secret_id = each.key
 
-  replication { auto {} }
+  replication {
+    auto {}
+  }
 
   depends_on = [google_project_service.apis]
 }
