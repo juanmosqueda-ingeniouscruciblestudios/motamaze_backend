@@ -1785,7 +1785,7 @@ switch error_code:
 
 ---
 
-### ST-08 — Sign-off Juan ⬜ Pending
+### ST-08 — Sign-off Juan ✅ DONE
 
 Circularle el documento completo a Juan para revisión. Deadline: 2026-06-24.
 
