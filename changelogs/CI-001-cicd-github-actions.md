@@ -162,7 +162,7 @@ gcloud iam workload-identity-pools providers create-oidc "github-provider" \
   --display-name="GitHub Provider" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-  --attribute-condition="assertion.repository=='juanmosqueda-ingeniouscruciblestudios/motamaze-backend'"
+  --attribute-condition="assertion.repository=='juanmosqueda-ingeniouscruciblestudios/motamaze_backend'"
 
 # 3. Crear SA para GitHub Actions
 gcloud iam service-accounts create github-actions \
@@ -185,7 +185,7 @@ gcloud iam service-accounts add-iam-policy-binding \
   github-actions@motamaze.iam.gserviceaccount.com \
   --project=motamaze \
   --role=roles/iam.workloadIdentityUser \
-  --member="principalSet://iam.googleapis.com/projects/542009654415/locations/global/workloadIdentityPools/github-pool/attribute.repository/juanmosqueda-ingeniouscruciblestudios/motamaze-backend"
+  --member="principalSet://iam.googleapis.com/projects/542009654415/locations/global/workloadIdentityPools/github-pool/attribute.repository/juanmosqueda-ingeniouscruciblestudios/motamaze_backend"
 ```
 
 **Secrets en GitHub repo del backend:**
@@ -226,4 +226,4 @@ Ejecutar el primer push real al backend repo y verificar que todos los jobs pasa
 - **`roles/artifactregistry.writer` solo en `motamaze`:** AR vive en el proyecto prod — el SA solo necesita escribir ahí. Para leer la imagen en dev/staging/prod, Cloud Run usa el SA `game-api-backend` que necesita `roles/artifactregistry.reader` en `motamaze`.
 - **Cache `type=gha` vs `type=registry`:** Usamos cache de GitHub Actions (gratuito) en lugar de cache en AR (genera egress). Para MVP es la opción correcta.
 - **`pydantic-settings`:** Agregar como dependencia en `pyproject.toml` cuando se cree el backend repo (mencionado en INFRA-003 follow-ups).
-- **Nombre del backend repo:** Pendiente decidir con Juan — referenciado en el WIF `attribute-condition`. Usar `motamaze-backend` como nombre tentativo.
+- **Nombre del backend repo:** ✅ Confirmado 2026-06-22 — `juanmosqueda-ingeniouscruciblestudios/motamaze_backend` (guión bajo). WIF `attribute-condition` y `principalSet` actualizados. El repo ya existe y tiene acceso del equipo.

@@ -287,5 +287,5 @@ gcloud services list --enabled --filter="config.name:run.googleapis.com" --proje
 - **`pydantic-settings`:** Agregar como dependencia en ST-02 para manejar la config vía env vars con tipado fuerte.
 - **`min-instances` en prod:** Para el soft launch se recomienda `--min-instances=1` para eliminar cold starts. En desarrollo, `0` (escala a cero) para no incurrir costos.
 - **Variables de entorno en runtime:** Los secrets (JWT private key, etc.) se inyectarán vía Secret Manager en ST-04 usando `--set-secrets`. Detalle en INFRA-004.
-- **Repo independiente vs. monorepo:** El backend FastAPI vivirá en un repo separado (no en `motamaze_backend` que es el repo de documentación). Decidir el nombre del repo en el REST API contract meeting.
+- **Repo backend confirmado:** ✅ `juanmosqueda-ingeniouscruciblestudios/motamaze_backend` (guión bajo) — confirmado 2026-06-22. El scaffold FastAPI de INFRA-003 se crea dentro de ese repo. CI-001 ST-02 ya tiene el WIF `attribute-condition` apuntando a este repo exacto.
 - **`--allow-unauthenticated`:** Significa que Cloud Run no requiere un token Google IAM para recibir requests HTTP — el propio backend valida JWTs MotaMaze. Esto es correcto para un API público accedido desde el cliente Godot.
