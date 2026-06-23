@@ -285,4 +285,18 @@ gcloud services list --enabled --filter="config.name:run.googleapis.com" --proje
 - **`min-instances` en prod:** Para el soft launch se recomienda `--min-instances=1` para eliminar cold starts. En desarrollo, `0` (escala a cero) para no incurrir costos.
 - **Variables de entorno en runtime:** Los secrets (JWT private key, etc.) se inyectarán vía Secret Manager en ST-04 usando `--set-secrets`. Detalle en INFRA-004.
 - **Repo backend confirmado:** ✅ `juanmosqueda-ingeniouscruciblestudios/motamaze_backend` (guión bajo) — confirmado 2026-06-22. El scaffold FastAPI de INFRA-003 se crea dentro de ese repo. CI-001 ST-02 ya tiene el WIF `attribute-condition` apuntando a este repo exacto.
+- **Mapeo Monday subitems → STs del changelog** (los nombres en Monday son los de Juan — no modificar):
+
+  | Monday subitem | ST(s) en este changelog |
+  |---|---|
+  | Scaffold FastAPI (structure, config, DI) | ST-02 (parcial — estructura + config + DI) |
+  | Containerize as a single image | ST-02 (parcial — Dockerfile) |
+  | Deploy to Cloud Run (max-instances=10, ADC) | ST-04 + ST-05 (el "ADC" del nombre = ST-05) |
+  | Add /health + /ready (200) and wire CI deploy | ST-03 (/health) + CI-001 (wire CI) |
+  | Smoke-test the deployed /health | ST-06 |
+  | T-440: Share score backend | subtarea adicional, fuera de numeración ST |
+
+  ST-01 (habilitar `run.googleapis.com`) no tiene subitem en Monday — fue prerequisito implícito ejecutado 2026-06-17.
+
+- **Estructura de subitems en Monday:** Juan mantiene y controla los subitems del board. No agregar ni renombrar subitems sin coordinarlo con él — confirmado 2026-06-22 cuando eliminó un subitem agregado sin coordinación.
 - **`--allow-unauthenticated`:** Significa que Cloud Run no requiere un token Google IAM para recibir requests HTTP — el propio backend valida JWTs MotaMaze. Esto es correcto para un API público accedido desde el cliente Godot.
