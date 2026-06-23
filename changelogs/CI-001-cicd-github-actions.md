@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / CI-CD |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅ Build+push AR funciona, ST-04 ⬜ bloqueado billing motamaze-dev, ST-05 ⬜ |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅ AR+WIF+SA+Environments, ST-03 ✅ Build+push AR (5 runs), ST-04 ⬜ bloqueado billing motamaze-dev (Juan), ST-05 ⬜ |
 | **Fecha planeada** | 7/8–7/9/2026 |
 | **Fecha real inicio** | 2026-06-19 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
@@ -46,7 +46,7 @@ El `latest` apunta siempre al último merge a `main`. Los deploys usan el SHA pa
 - [x] Artifact Registry repo `backend` creado en `motamaze` us-central1 (2026-06-22)
 - [x] Workload Identity Federation configurado: GitHub → GCP — pool `github-pool`, provider `github-provider`, SA `github-actions@motamaze.iam.gserviceaccount.com` (2026-06-22)
 - [x] Secrets `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` agregados en GitHub repo `motamaze_backend` (Saul, 2026-06-22)
-- [ ] GitHub Environments `dev` y `prod` configurados con reviewers (pendiente — Juan debe crear, requiere admin)
+- [x] GitHub Environments `dev` y `prod` configurados (Juan, 2026-06-23) — `dev` sin reviewers, `prod` requiere aprobación Juan + Saul
 - [ ] Cloud Run Admin API habilitada en `motamaze-dev` (bloqueada en billing — Juan debe vincular billing)
 - [ ] Pipeline verde end-to-end: PR build ✅, merge deploy-dev ✅, prod ✅ (ST-05)
 
@@ -153,8 +153,9 @@ Los jobs `deploy-*` usan `google-github-actions/deploy-cloudrun@v2` con la misma
 - `WIF_PROVIDER` = `projects/542009654415/locations/global/workloadIdentityPools/github-pool/providers/github-provider`
 - `WIF_SERVICE_ACCOUNT` = `github-actions@motamaze.iam.gserviceaccount.com`
 
-**Pendiente (requiere admin del repo — Juan):**
-- Crear GitHub Environments `dev` (auto) y `prod` (aprobación Saul+Juan) en Settings → Environments
+**GitHub Environments:** ✅ Creados por Juan (2026-06-23)
+- `dev` — sin reviewers, auto-deploy (creado 03:17 UTC)
+- `prod` — required reviewers: Juan + Saul (creado 14:35 UTC)
 
 **Artifact Registry:**
 ```bash
