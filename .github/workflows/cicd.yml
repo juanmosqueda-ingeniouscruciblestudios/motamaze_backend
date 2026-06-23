@@ -87,14 +87,15 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          project_id: motamaze-dev
 
       - name: Deploy to Cloud Run (dev)
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: motamaze-backend
           region:  ${{ env.REGION }}
-          project: motamaze-dev
           image:   ${{ needs.build.outputs.image }}
+          flags: --allow-unauthenticated
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ST-03 — Promote to prod (same digest, manual approval required)
@@ -115,11 +116,12 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          project_id: motamaze
 
       - name: Deploy to Cloud Run (prod)
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: motamaze-backend
           region:  ${{ env.REGION }}
-          project: motamaze
           image:   ${{ needs.build.outputs.image }}
+          flags: --allow-unauthenticated
