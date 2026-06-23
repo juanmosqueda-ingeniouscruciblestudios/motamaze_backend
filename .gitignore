@@ -1,6 +1,12 @@
 # Credentials — never commit
 .env.local
 *.env
+.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
 
 # Excel exports (use Monday API instead)
 docs/*.xlsx
