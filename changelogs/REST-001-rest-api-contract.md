@@ -1959,3 +1959,21 @@ Circularle el documento completo a Juan para revisión. Deadline: 2026-06-24.
 - **Season Pass Gold track:** El Gold Pass es un IAP `non_consumable` (`product_id: "season_pass_gold"`) — se compra vía `/payments/*/verify` y otorga `has_gold_pass: true` en Firestore. No requiere un endpoint dedicado.
 - **"Share score" OG URL (T-440):** ✅ Studio Decision K confirmada 2026-06-22 — Share score está en MVP scope. Endpoints agregados: #25 `POST /leaderboard/score`, #26 `POST /share/create`, #27 `GET /s/{token}`. Implementación Saul: inicio 2026-08-05, ~5 días. Cloudinary free tier para OG image. Path `/s/*` debe cubrir `assetlinks.json` + AASA (T-124 + T-442).
 - **Conejo → Zas:** El nombre del NPC rabbit cambió de "Conejo" a "Zas" per `project_spec.md` 2026-06-22. `events[].npc_type` actualizado en ST-04 accordingly.
+- **Decision L — Tenjin deferred deep link para share score (T-445, pendiente junta 2026-06-24):**
+
+  Contexto: se envió correo a Tenjin preguntando si soporta atribución de deferred deep links para tráfico orgánico/referral (flujo: usuario comparte `newgame.com/s/{token}` → nuevo usuario instala → abre al contenido compartido, sin campaña de paid UA).
+
+  **Respuesta Tenjin AI (2026-06-23):** Sí es soportado, pero requiere que la URL compartida pase por un Tenjin tracking link con parámetro `deeplink_url`. Sin ese tracking link, el install se registra como orgánico sin atribución.
+
+  **Respuesta de Juan:** El modelo de rewards (vidas/premios al usuario que comparte) está atado a la atribución — sin Option A no hay forma de identificar quién compartió y otorgarle el beneficio, porque la atribución de premios se gestiona vía Google Play/Tenjin.
+
+  **Respuesta de Saul:** Se puede hacer Option B solo durante desarrollo/testing y adelantar Option A para el MVP, o ir por Option A desde el inicio.
+
+  **Opciones vigentes:**
+
+  | Opción | Descripción | Implicación backend |
+  |---|---|---|
+  | **A** | `POST /share/create` genera un Tenjin tracking link con `deeplink_url=newgame.com/s/{token}` | Requiere integración Tenjin API en backend — T-311 scope |
+  | **B** | `POST /share/create` genera URL directa `newgame.com/s/{token}` sin tracking link | Sin atribución de referral — no se puede premiar al usuario que comparte |
+
+  **Decisión:** Pendiente junta Juan + Saul, **2026-06-24**. Si se elige Option A, el scope de T-311 (Tenjin SDK + backend) debe incluir la integración de tracking links en `POST /share/create`.
