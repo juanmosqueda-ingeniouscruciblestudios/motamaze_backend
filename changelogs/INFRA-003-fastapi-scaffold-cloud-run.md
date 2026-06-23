@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / Backend Foundation |
 | **Prioridad** | Alta — desbloquea todo el backend |
-| **Status** | In Progress — ST-01 en ejecución 2026-06-17 |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅ scaffold + Dockerfile (2026-06-22), ST-03 ✅ /health + /ready implementados, ST-04–06 ⬜ bloqueados billing motamaze-dev |
 | **Fecha planeada** | 2026-06-25 – 2026-06-26 |
 | **Fecha real inicio** | 2026-06-17 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
@@ -49,8 +49,8 @@ INFRA-003 crea ese servidor desde cero: el scaffold mínimo viable — un conten
 ## Criterios de aceptación
 
 - [ ] `run.googleapis.com` habilitada en proyecto `motamaze`
-- [ ] Repo backend creado con estructura FastAPI + Dockerfile + `pyproject.toml`
-- [ ] Endpoint `GET /health` responde `{"status": "ok"}` con HTTP 200
+- [x] Repo backend creado con estructura FastAPI + Dockerfile + `pyproject.toml` (commit `1886ff4`, 2026-06-22)
+- [x] Endpoint `GET /health` responde `{"status": "ok"}` con HTTP 200 (implementado, pendiente smoke test post-deploy)
 - [ ] Cloud Run service desplegado en `us-central1` con service account `game-api-backend`
 - [ ] `GET /health` y `GET /ready` retornan 200 OK desde internet
 - [ ] Sin credenciales hardcodeadas — ADC vía service account asignado al servicio
@@ -88,39 +88,40 @@ run.googleapis.com  Cloud Run Admin API  ENABLED
 
 ---
 
-### ST-02 — Crear repo backend (FastAPI, Dockerfile, pyproject.toml) ⬜ Pending
+### ST-02 — Crear repo backend (FastAPI, Dockerfile, pyproject.toml) ✅ Done (2026-06-22)
 
-**Depende de:** REST API contract (para saber qué routers crear desde el inicio)
+**Commit:** `1886ff4` — pusheado a `juanmosqueda-ingeniouscruciblestudios/motamaze_backend`
 
-**Por qué:** El scaffold define la estructura de carpetas y las dependencias de Python. Hacerlo antes del REST API contract significa refactorizar dos veces.
-
-**Estructura objetivo:**
+**Estructura creada:**
 ```
-motamaze-backend/
+motamaze_backend/
 ├── app/
-│   ├── main.py              # FastAPI app instance + routers
-│   ├── dependencies.py      # DI: get_firestore_client(), get_bq_client(), get_settings()
-│   ├── config.py            # Settings via pydantic-settings (env vars + Secret Manager)
+│   ├── __init__.py
+│   ├── main.py              # FastAPI app + 5 routers incluidos
+│   ├── config.py            # Settings via pydantic-settings
+│   ├── dependencies.py      # DI: Firestore, BigQuery, Settings
 │   ├── routers/
-│   │   ├── health.py        # GET /health, GET /ready
-│   │   ├── auth.py          # POST /auth/login, DELETE /auth/account
-│   │   ├── sessions.py      # POST /sessions/start, /sessions/end
-│   │   ├── payments.py      # POST /payments/android/verify
-│   │   ├── lives.py         # GET /lives, POST /lives/grant/admob-ssv
-│   │   └── entitlements.py  # POST /entitlements/grant
+│   │   ├── __init__.py
+│   │   ├── health.py        # GET /health, GET /ready — implementados (ST-03)
+│   │   ├── auth.py          # stub — Dominio 1
+│   │   ├── game.py          # stub — Dominio 2
+│   │   ├── payments.py      # stub — Dominio 3
+│   │   └── social.py        # stub — Dominio 5
 │   └── services/
-│       └── bq_streaming.py  # DATA-002 — diseñado en DATA-002 changelog
-├── Dockerfile
-├── pyproject.toml
-└── .env.example
+│       ├── __init__.py
+│       └── bq_streaming.py  # placeholder — DATA-002 ST-03
+├── Dockerfile               # non-root, layer cache, provenance:false
+├── pyproject.toml           # dependencias con pydantic-settings
+├── .env.example
+└── .github/
+    └── workflows/
+        └── cicd.yml         # CI/CD pipeline (CI-001)
 ```
 
-**Patrón DI (Dependency Injection):**
-Los clientes GCP y la configuración se inyectan vía `Depends()` de FastAPI, no como singletons globales:
+**Patrón DI — `app/dependencies.py`:**
 ```python
-# app/dependencies.py
 from functools import lru_cache
-from google.cloud import firestore, bigquery
+from google.cloud import bigquery, firestore
 from app.config import Settings
 
 @lru_cache
@@ -133,12 +134,13 @@ def get_firestore_client() -> firestore.AsyncClient:
 def get_bq_client() -> bigquery.Client:
     return bigquery.Client()
 ```
-Esto permite mockar clientes en tests sin parchear módulos globales.
+`lru_cache` en Settings garantiza que `.env` se lee una sola vez. Los clientes Firestore/BQ se crean por request — Cloud Run no garantiza que una instancia persista entre requests.
 
-**`pyproject.toml` (dependencias mínimas):**
+**`pyproject.toml`:**
 ```toml
 [project]
 name = "motamaze-backend"
+version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.111",
@@ -147,35 +149,37 @@ dependencies = [
     "google-cloud-bigquery>=3.20",
     "google-auth>=2.29",
     "pydantic>=2.7",
+    "pydantic-settings>=2.2",
 ]
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx>=0.27"]
 ```
 
-**`Dockerfile`:**
+**Dockerfile:**
 ```dockerfile
 FROM python:3.11-slim
+RUN addgroup --system app && adduser --system --ingroup app app
 WORKDIR /app
 COPY pyproject.toml .
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 COPY app/ app/
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+USER app
+EXPOSE 8080
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
 ```
+
+**Verificado en CI (CI-001 run #1 y #2):** Build ✅ — imagen construida y pusheada a AR en ~16 s (cache hit).
 
 ---
 
-### ST-03 — Implementar endpoints `GET /health` y `GET /ready` ⬜ Pending
+### ST-03 — Implementar endpoints `GET /health` y `GET /ready` ✅ Done (2026-06-22)
 
-**Depende de:** ST-02
+Implementados dentro del mismo commit `1886ff4` junto con ST-02.
 
-**Por qué:** Cloud Run usa dos probes distintos:
-- `/health` (liveness) — ¿el proceso sigue vivo? Cloud Run reinicia el contenedor si falla.
-- `/ready` (readiness) — ¿el servicio está listo para recibir tráfico? Cloud Run no envía requests hasta que responda 200.
-
-**Código:**
 ```python
 # app/routers/health.py
 from fastapi import APIRouter
-
-router = APIRouter()
+router = APIRouter(tags=["infrastructure"])
 
 @router.get("/health")
 async def health():
@@ -186,14 +190,7 @@ async def ready():
     return {"status": "ready"}
 ```
 
-```python
-# app/main.py
-from fastapi import FastAPI
-from app.routers import health
-
-app = FastAPI(title="MotaMaze Backend")
-app.include_router(health.router)
-```
+Registrados en `app/main.py` junto con los otros 4 routers. Smoke test (curl → 200 OK) pendiente hasta que ST-04 complete el deploy en Cloud Run.
 
 ---
 
