@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / CI-CD |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅ Dockerfile + workflow, ST-02 ✅ AR repo + WIF + SA (2026-06-22), ST-03–05 pendientes INFRA-003 |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅ Build+push AR funciona, ST-04 ⬜ bloqueado billing motamaze-dev, ST-05 ⬜ |
 | **Fecha planeada** | 7/8–7/9/2026 |
 | **Fecha real inicio** | 2026-06-19 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
@@ -45,10 +45,10 @@ El `latest` apunta siempre al último merge a `main`. Los deploys usan el SHA pa
 - [x] Promoción dev→staging→prod con mismo digest documentada y estructurada
 - [x] Artifact Registry repo `backend` creado en `motamaze` us-central1 (2026-06-22)
 - [x] Workload Identity Federation configurado: GitHub → GCP — pool `github-pool`, provider `github-provider`, SA `github-actions@motamaze.iam.gserviceaccount.com` (2026-06-22)
-- [ ] Secrets `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` en GitHub repo del backend (pendiente — acceso al repo de Juan)
-- [ ] GitHub Environments `dev` y `prod` configurados con reviewers (pendiente — acceso al repo de Juan)
-- [ ] `terraform apply` exitoso en dev (ST-03/ST-04 — necesita INFRA-003 + billing)
-- [ ] Pipeline verde end-to-end: PR build ✅, merge deploy-dev ✅, staging ✅, prod ✅ (ST-05)
+- [x] Secrets `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` agregados en GitHub repo `motamaze_backend` (Saul, 2026-06-22)
+- [ ] GitHub Environments `dev` y `prod` configurados con reviewers (pendiente — Juan debe crear, requiere admin)
+- [ ] Cloud Run Admin API habilitada en `motamaze-dev` (bloqueada en billing — Juan debe vincular billing)
+- [ ] Pipeline verde end-to-end: PR build ✅, merge deploy-dev ✅, prod ✅ (ST-05)
 
 ---
 
@@ -149,8 +149,11 @@ Los jobs `deploy-*` usan `google-github-actions/deploy-cloudrun@v2` con la misma
 | IAM `run.developer` | ✅ en `motamaze-dev` + `motamaze` |
 | WIF → SA binding | ✅ `roles/iam.workloadIdentityUser` para `motamaze_backend` repo |
 
-**Pendiente (requiere acceso al repo de Juan):**
-- Agregar secrets `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` en Settings → Secrets del repo `motamaze_backend`
+**Secrets en `motamaze_backend`:** ✅ Agregados por Saul (2026-06-22)
+- `WIF_PROVIDER` = `projects/542009654415/locations/global/workloadIdentityPools/github-pool/providers/github-provider`
+- `WIF_SERVICE_ACCOUNT` = `github-actions@motamaze.iam.gserviceaccount.com`
+
+**Pendiente (requiere admin del repo — Juan):**
 - Crear GitHub Environments `dev` (auto) y `prod` (aprobación Saul+Juan) en Settings → Environments
 
 **Artifact Registry:**
@@ -217,19 +220,51 @@ WIF_SERVICE_ACCOUNT = github-actions@motamaze.iam.gserviceaccount.com
 
 ---
 
-### ST-03 — Push to Artifact Registry ⬜ Pending ST-02
+### ST-03 — Push to Artifact Registry ✅ Done (2026-06-22)
 
-Cubierto en el workflow — el build job hace push cuando `github.event_name == 'push'` (merge a main). Una vez que ST-02 configure WIF y AR, el push funciona sin cambios en el YAML.
+Verificado en CI run #1 (`1886ff4`) y #2 (`7889046`) — el job **Build** completó en 47 s y 16 s respectivamente (cache hit en el segundo). La imagen se construyó y publicó correctamente en Artifact Registry:
+
+```
+us-central1-docker.pkg.dev/motamaze/backend/motamaze-backend:{sha}
+us-central1-docker.pkg.dev/motamaze/backend/motamaze-backend:latest
+```
+
+El build job usa `push: ${{ github.event_name == 'push' }}` — solo hace push en merges a `main`, no en PRs.
 
 ---
 
-### ST-04 — Implement dev→staging→prod promotion ⬜ Pending ST-02 + billing INFRA-006
+### ST-04 — Implement dev→staging→prod promotion ⬜ Bloqueado — billing motamaze-dev
 
-Cubierto en el workflow — los jobs `deploy-staging` y `deploy-prod` usan `environment:` de GitHub con aprobación manual. El mismo digest del job `build` viaja a todos los entornos via `needs.build.outputs.image`.
+**Fix de workflow aplicado — commit `7889046` (2026-06-22):**
+
+El CI run #1 (`1886ff4`) reveló dos bugs en el YAML inicial del deploy job:
+
+| Bug | Error observado | Fix |
+|---|---|---|
+| `project:` input inválido en `deploy-cloudrun@v2` | `Unexpected input(s) 'project'` | Movido a `project_id:` en el step `auth@v2` |
+| `--allow-unauthenticated` faltante | `This service will require authentication to be invoked` | Agregado en `flags:` del deploy step |
+
+**CI run #2 (`7889046`) — resultado tras el fix:**
+
+| Job | Resultado | Detalle |
+|---|---|---|
+| Build | ✅ 16 s (cache hit) | Imagen publicada en AR |
+| Deploy → dev | ❌ PERMISSION_DENIED | Cloud Run Admin API no habilitada en `motamaze-dev` |
+| Deploy → prod | ⊘ Skipped | Depende de deploy-dev |
+
+**Error actual (bloqueador externo):**
+```
+PERMISSION_DENIED: Cloud Run Admin API has not been used in project motamaze-dev
+before or it is disabled.
+```
+
+El workflow apunta correctamente a `motamaze-dev` — el error confirma que el project targeting funciona. El bloqueador es que Cloud Run Admin API requiere billing activo en `motamaze-dev`.
+
+**Acción requerida:** Juan debe vincular billing a `motamaze-dev` → habilitar Cloud Run Admin API → re-run del CI.
 
 ---
 
-### ST-05 — Trigger deploy on merge and verify pipeline is green ⬜ Pending INFRA-003
+### ST-05 — Trigger deploy on merge and verify pipeline is green ⬜ Pending ST-04
 
 Ejecutar el primer push real al backend repo y verificar que todos los jobs pasan. Documentar la URL del primer deploy exitoso en Cloud Run.
 
@@ -243,3 +278,6 @@ Ejecutar el primer push real al backend repo y verificar que todos los jobs pasa
 - **Cache `type=gha` vs `type=registry`:** Usamos cache de GitHub Actions (gratuito) en lugar de cache en AR (genera egress). Para MVP es la opción correcta.
 - **`pydantic-settings`:** Agregar como dependencia en `pyproject.toml` cuando se cree el backend repo (mencionado en INFRA-003 follow-ups).
 - **Nombre del backend repo:** ✅ Confirmado 2026-06-22 — `juanmosqueda-ingeniouscruciblestudios/motamaze_backend` (guión bajo). WIF `attribute-condition` y `principalSet` actualizados. El repo ya existe y tiene acceso del equipo.
+- **`deploy-cloudrun@v2` — input `project` eliminado:** La v2 del action no acepta `project` — el proyecto se pasa como `project_id:` en el step `google-github-actions/auth@v2`. Fix aplicado en commit `7889046` (2026-06-22).
+- **Cloud Run Admin API en motamaze-dev:** Debe habilitarse antes del primer deploy. Requiere billing activo en el proyecto. Pendiente de Juan.
+- **`--allow-unauthenticated`:** Requerido explícitamente en `flags:` del deploy step. Sin este flag, Cloud Run despliega el servicio como privado (requiere token GCP para invocar) en lugar de público.
