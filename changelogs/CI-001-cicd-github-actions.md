@@ -262,6 +262,8 @@ El workflow apunta correctamente a `motamaze-dev` — el error confirma que el p
 
 **Acción requerida:** Juan debe vincular billing a `motamaze-dev` → habilitar Cloud Run Admin API → re-run del CI.
 
+**Runs #3–#5 (commits `9d392ba`, `59e8dd2`, `27e87d9` — 2026-06-22):** Todos markdown-only. Mismo resultado en los tres: Build ✅ (21–28 s cache hit), Deploy→dev ❌ mismo PERMISSION_DENIED, Deploy→prod ⊘. Confirma que el workflow es estable y el único bloqueador es billing.
+
 ---
 
 ### ST-05 — Trigger deploy on merge and verify pipeline is green ⬜ Pending ST-04
