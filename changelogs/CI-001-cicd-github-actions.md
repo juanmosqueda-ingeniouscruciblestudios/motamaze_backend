@@ -4,13 +4,13 @@
 |---|---|
 | **Tipo** | Infra/DevOps / CI-CD |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅ Dockerfile + workflow DEV+PROD (staging diferido 2026-06-22), ST-02–05 pendientes INFRA-003 (backend repo) |
+| **Status** | In Progress — ST-01 ✅ Dockerfile + workflow, ST-02 ✅ AR repo + WIF + SA (2026-06-22), ST-03–05 pendientes INFRA-003 |
 | **Fecha planeada** | 7/8–7/9/2026 |
 | **Fecha real inicio** | 2026-06-19 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
 | **Owner** | Saul Zavala Morin |
 | **Monday.com Item ID** | 12272268267 |
-| **Depends on** | INFRA-003 ⬜ (backend repo FastAPI — para ST-02+), INFRA-006 ✅ (proyectos GCP creados) |
+| **Depends on** | INFRA-003 ⬜ (backend repo FastAPI — para ST-03+), INFRA-006 ✅ (proyectos GCP creados) |
 | **Desbloquea** | Todos los deploys de backend: AUTH-001, PAY-001, DATA-002, etc. |
 
 ---
@@ -43,10 +43,10 @@ El `latest` apunta siempre al último merge a `main`. Los deploys usan el SHA pa
 - [x] Dockerfile producción-ready (non-root, single worker, layer cache)
 - [x] Workflow YAML con build job completo (build en PR, build+push en merge)
 - [x] Promoción dev→staging→prod con mismo digest documentada y estructurada
-- [ ] Artifact Registry repo `backend` creado en `motamaze` (ST-02)
-- [ ] Workload Identity Federation configurado: GitHub → GCP (ST-02)
-- [ ] Secrets `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` en GitHub repo del backend (ST-02)
-- [ ] GitHub Environments `dev`, `staging`, `prod` configurados con reviewers (ST-02)
+- [x] Artifact Registry repo `backend` creado en `motamaze` us-central1 (2026-06-22)
+- [x] Workload Identity Federation configurado: GitHub → GCP — pool `github-pool`, provider `github-provider`, SA `github-actions@motamaze.iam.gserviceaccount.com` (2026-06-22)
+- [ ] Secrets `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` en GitHub repo del backend (pendiente — acceso al repo de Juan)
+- [ ] GitHub Environments `dev` y `prod` configurados con reviewers (pendiente — acceso al repo de Juan)
 - [ ] `terraform apply` exitoso en dev (ST-03/ST-04 — necesita INFRA-003 + billing)
 - [ ] Pipeline verde end-to-end: PR build ✅, merge deploy-dev ✅, staging ✅, prod ✅ (ST-05)
 
@@ -133,9 +133,25 @@ Los jobs `deploy-*` usan `google-github-actions/deploy-cloudrun@v2` con la misma
 
 ---
 
-### ST-02 — Create AR repo + configure Workload Identity Federation ⬜ Pending INFRA-003
+### ST-02 — Create AR repo + configure Workload Identity Federation ✅ Done (2026-06-22)
 
-**Depende de:** Backend repo FastAPI creado (INFRA-003 ST-02)
+**Depende de:** Repo backend confirmado — `juanmosqueda-ingeniouscruciblestudios/motamaze_backend` ✅
+
+**Resultados verificados:**
+
+| Recurso | Resultado |
+|---|---|
+| AR repo `backend` | ✅ `projects/motamaze/locations/us-central1/repositories/backend` (DOCKER, 0 MB) |
+| WIF Pool `github-pool` | ✅ `projects/542009654415/locations/global/workloadIdentityPools/github-pool` ACTIVE |
+| WIF Provider `github-provider` | ✅ OIDC, condition: `assertion.repository=='juanmosqueda-ingeniouscruciblestudios/motamaze_backend'` |
+| SA `github-actions` | ✅ `github-actions@motamaze.iam.gserviceaccount.com` |
+| IAM `artifactregistry.writer` | ✅ en `motamaze` |
+| IAM `run.developer` | ✅ en `motamaze-dev` + `motamaze` |
+| WIF → SA binding | ✅ `roles/iam.workloadIdentityUser` para `motamaze_backend` repo |
+
+**Pendiente (requiere acceso al repo de Juan):**
+- Agregar secrets `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` en Settings → Secrets del repo `motamaze_backend`
+- Crear GitHub Environments `dev` (auto) y `prod` (aprobación Saul+Juan) en Settings → Environments
 
 **Artifact Registry:**
 ```bash
