@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Planning / Backend Contract |
 | **Prioridad** | Alta ★ CRITICAL |
-| **Status** | In Progress — ST-01–07 ✅ (actualizados 2026-06-22: +Dominio 5 Leaderboard/Season/Achievements), ST-08 🔴 Pending sign-off Juan |
+| **Status** | ✅ Done — ST-01–08 ✅ (sign-off Juan commit 9216611, 2026-06-22). 27 endpoints en 5 dominios (actualizado 2026-06-22: +T-440 Share Score, +POST /leaderboard/score) |
 | **Fecha planeada** | 2026-06-19 – 2026-06-24 |
 | **Workstream** | Planning |
 | **Owner** | Saul Zavala Morin (derivar contrato) + Juan Mosqueda (sign-off) |
@@ -41,7 +41,7 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 
 ### ST-01 — Lista completa de endpoints por dominio ✅ Done (2026-06-17)
 
-**24 endpoints en 5 dominios.** Derivados del architecture spec + `docs/project_spec.md` de Juan (actualizado 2026-06-22: +4 endpoints Dominio 5).
+**27 endpoints en 5 dominios.** Derivados del architecture spec + `docs/project_spec.md` de Juan (actualizado 2026-06-22: +4 endpoints Dominio 5; +3 endpoints 2026-06-22: POST /leaderboard/score, POST /share/create, GET /s/{token} — T-440 confirmado + POST /leaderboard/score separado per decisión defensiva).
 
 #### Convenciones globales
 
@@ -106,9 +106,11 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 
 ---
 
-#### Dominio 5 — Social & Meta (4 endpoints) *(agregado 2026-06-22)*
+#### Dominio 5 — Social & Meta (7 endpoints) *(agregado 2026-06-22; ampliado 2026-06-22)*
 
 > Confirmado en scope v1.0 vía `docs/project_spec.md` de Juan: Season Leaderboard, Season Pass y Achievements son MVP. Friends tab del leaderboard diferido a v1.1 (requiere sistema de amigos).
+>
+> **2026-06-22:** T-440 Share Score confirmado MVP (Decision K). POST /leaderboard/score agregado como endpoint separado (App Check mandatory, diseño defensivo).
 
 | # | Método | Path | Auth | Descripción | Monday task |
 |---|---|---|---|---|---|
@@ -116,6 +118,9 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 | 22 | `GET` | `/season` | 🔒 JWT | Info de la temporada activa + progreso del jugador: Season Stars ⭐, tier actual, rewards reclamados, si tiene Gold Pass | Social-001 |
 | 23 | `POST` | `/season/claim-reward` | 🔒 JWT | Reclamar el reward de un tier específico (track `free` o `gold`). Idempotente — reclamar dos veces devuelve el mismo resultado. | Social-001 |
 | 24 | `GET` | `/achievements` | 🔒 JWT | Lista completa de achievements + progreso del jugador + rarity data-driven (% de jugadores que lo desbloquearon). | Social-002 |
+| 25 | `POST` | `/leaderboard/score` | 🔒 JWT + App Check | Registra el score del jugador en el leaderboard de la temporada activa. App Check obligatorio en cada write. Validado server-side contra `season_stars` en Firestore — no acepta score arbitrario del cliente. Log en BigQuery por evento para anomaly detection. Niños (`restricted_features=true`) excluidos. | T-443 |
+| 26 | `POST` | `/share/create` | 🔒 JWT | Crea un share token (12-char base62) para compartir el score del jugador. Genera imagen OG vía Cloudinary. Guarda en Firestore `shares/{token}`. Token no contiene player ID — LGPD compliance. | T-440 |
+| 27 | `GET` | `/s/{token}` | 🔓 público | Devuelve HTML con OG meta tags (no JSON). Usado por WhatsApp/Facebook/X/Instagram al previsualizar el link. Redirige al deep link `/s/*` si hay app instalada. | T-440 |
 
 ---
 
@@ -127,8 +132,8 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 | Game Services | 8 | 0 | 8 |
 | Payments | 4 | 2 (firmados por store) | 2 |
 | Infrastructure | 2 | 2 | 0 |
-| Social & Meta | 4 | 0 | 4 |
-| **Total** | **24** | **7** | **16** |
+| Social & Meta | 7 | 1 | 6 |
+| **Total** | **27** | **8** | **18** |
 
 ---
 
@@ -1594,6 +1599,152 @@ readinessProbe:
 
 ---
 
+#### `POST /leaderboard/score` — Registrar score en leaderboard *(agregado 2026-06-22)*
+
+**Auth:** 🔒 JWT + Firebase App Check (obligatorio — No-Go item 15)
+
+**Request body:**
+
+```json
+{
+  "season_id": "season_2026_q3",
+  "score": 4200
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `season_id` | string | ✅ | ID de la temporada activa |
+| `score` | integer | ✅ | Score del jugador — validado server-side contra `season_stars` en Firestore |
+
+> **Validación server-side:** El backend no acepta el `score` del request directamente. Lee `season_stars` de Firestore `season_progress/{uid}` y usa ese valor como score autoritativo. El campo `score` en el request es solo para detectar discrepancias (log de anomalía en BigQuery si no coincide).
+> **App Check:** Cada write a `/leaderboard/score` requiere un Firebase App Check token válido en el header `X-Firebase-AppCheck`. Sin él: 401.
+> **Niños excluidos:** Si `restricted_features=true` en el perfil del usuario, devuelve 403 `LEADERBOARD_RESTRICTED`.
+
+**Response 200:**
+
+```json
+{
+  "updated": true,
+  "season_id": "season_2026_q3",
+  "rank": 42,
+  "season_stars": 4200
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `updated` | boolean | `true` si el score era mejor que el anterior y se actualizó |
+| `rank` | integer | Posición actual del jugador (aproximada — leaderboard CDN-cached) |
+| `season_stars` | integer | Score autoritativo leído de Firestore |
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `401` | `AUTH_JWT_*` | Token JWT inválido o expirado |
+| `401` | `LEADERBOARD_APPCHECK_MISSING` | Header `X-Firebase-AppCheck` ausente o inválido |
+| `403` | `LEADERBOARD_RESTRICTED` | Usuario con `restricted_features=true` (menor de edad) |
+| `404` | `SEASON_NOT_ACTIVE` | No hay temporada activa |
+
+---
+
+#### `POST /share/create` — Crear share token *(agregado 2026-06-22 — T-440)*
+
+**Auth:** 🔒 JWT
+
+**Request body:**
+
+```json
+{
+  "score": 4200,
+  "level_reached": 15,
+  "season_id": "season_2026_q3"
+}
+```
+
+| Campo | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `score` | integer | ✅ | Score a mostrar en la share card |
+| `level_reached` | integer | ✅ | Nivel alcanzado (1–30) para el copy de la card |
+| `season_id` | string | ✅ | ID de temporada — aparece en el título de la OG card |
+
+**Response 200:**
+
+```json
+{
+  "share_url": "https://motamaze.com/s/aB3kR7xP2mQz",
+  "token": "aB3kR7xP2mQz",
+  "og_image_url": "https://res.cloudinary.com/motamaze/image/upload/v1234/shares/aB3kR7xP2mQz.webp",
+  "expires_at": "2026-09-14T23:59:59Z"
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `share_url` | string | URL completa para compartir — no contiene player ID (LGPD) |
+| `token` | string | Token base62 de 12 caracteres |
+| `og_image_url` | string | URL pública de la OG image generada en Cloudinary (< 600 KB WebP) |
+| `expires_at` | string ISO 8601 | Expiración del share (fin de la temporada activa) |
+
+> **LGPD compliance:** El `token` es aleatorio (12-char base62) — no deriva del `user_id` ni del `uid`. El mapping token→uid solo existe en Firestore `shares/{token}` que no es expuesto públicamente.
+> **Cloudinary free tier:** Imagen de 1200×630 px con score, nivel, nombre de temporada y character art de Mota. Generada via Cloudinary Upload API — no hay procesamiento en Cloud Run.
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `401` | `AUTH_JWT_*` | Token JWT inválido |
+| `404` | `SEASON_NOT_ACTIVE` | No hay temporada activa |
+| `400` | `SHARE_INVALID_LEVEL` | `level_reached` fuera del rango 1–30 |
+
+---
+
+#### `GET /s/{token}` — Página OG de share *(agregado 2026-06-22 — T-440)*
+
+**Auth:** 🔓 Público (no requiere JWT)
+
+**Path param:**
+
+| Parámetro | Tipo | Descripción |
+|---|---|---|
+| `token` | string | Token base62 de 12 caracteres generado por `POST /share/create` |
+
+**Response 200 — HTML (no JSON):**
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta property="og:title"       content="¡Llegué al nivel 15 en MotaMaze! ⭐ 4200 estrellas" />
+  <meta property="og:description" content="¿Puedes superarme? Descarga MotaMaze y a ver quién llega más lejos." />
+  <meta property="og:image"       content="https://res.cloudinary.com/.../aB3kR7xP2mQz.webp" />
+  <meta property="og:url"         content="https://motamaze.com/s/aB3kR7xP2mQz" />
+  <meta name="twitter:card"       content="summary_large_image" />
+</head>
+<body>
+  <!-- Redirect al deep link si app instalada -->
+  <script>window.location = "motamaze://share/aB3kR7xP2mQz";</script>
+  <!-- Fallback: link a Play Store -->
+  <a href="https://play.google.com/store/apps/details?id=com.ingeniouscruciblestudios.motamaze">
+    Descargar MotaMaze
+  </a>
+</body>
+</html>
+```
+
+> **Content-Type:** `text/html; charset=utf-8` — no `application/json`.
+> **Deep link path:** El path `/s/*` debe estar cubierto en `assetlinks.json` y `apple-app-site-association` (T-124 extendido, T-442).
+> **OG preview validation:** Debe pasar WhatsApp preview + Facebook Sharing Debugger + X Card Validator antes de cerrar T-441 (criterio de aceptación de Juan).
+
+**Errores:**
+
+| HTTP | `error_code` | Cuándo |
+|---|---|---|
+| `404` | `SHARE_TOKEN_NOT_FOUND` | Token no existe o la temporada ya expiró |
+
+---
+
 ### ST-07 — Error taxonomy ✅ Done (2026-06-17)
 
 ---
@@ -1727,11 +1878,15 @@ Aplican a cualquier endpoint protegido (🔒):
 |---|---|---|---|
 | `LEADERBOARD_INVALID_TYPE` | 400 | `GET /leaderboard` | `type` no es `"global"` ni `"weekly"` |
 | `SEASON_NOT_FOUND` | 404 | `GET /leaderboard` | `season_id` proporcionado no existe |
-| `SEASON_NOT_ACTIVE` | 404 | `GET /season`, `POST /season/claim-reward` | No hay temporada activa en este momento |
+| `SEASON_NOT_ACTIVE` | 404 | `GET /season`, `POST /season/claim-reward`, `POST /leaderboard/score`, `POST /share/create` | No hay temporada activa en este momento |
 | `SEASON_REWARD_TIER_LOCKED` | 400 | `POST /season/claim-reward` | El jugador no ha alcanzado el tier solicitado |
 | `SEASON_REWARD_NO_GOLD_PASS` | 400 | `POST /season/claim-reward` | `track == "gold"` pero el jugador no tiene Gold Pass |
 | `SEASON_INVALID_TIER` | 400 | `POST /season/claim-reward` | `tier` fuera del rango 1–10 |
 | `SEASON_INVALID_TRACK` | 400 | `POST /season/claim-reward` | `track` no es `"free"` ni `"gold"` |
+| `LEADERBOARD_APPCHECK_MISSING` | 401 | `POST /leaderboard/score` | Header `X-Firebase-AppCheck` ausente o token App Check inválido |
+| `LEADERBOARD_RESTRICTED` | 403 | `POST /leaderboard/score` | Usuario con `restricted_features=true` (menor de edad) — excluido del leaderboard |
+| `SHARE_INVALID_LEVEL` | 400 | `POST /share/create` | `level_reached` fuera del rango 1–30 |
+| `SHARE_TOKEN_NOT_FOUND` | 404 | `GET /s/{token}` | Token no existe en Firestore o la temporada ya expiró |
 
 ---
 
@@ -1802,5 +1957,5 @@ Circularle el documento completo a Juan para revisión. Deadline: 2026-06-24.
 - **Leaderboard CDN cache:** `GET /leaderboard` emite `Cache-Control: public, max-age=300`. El cliente puede confiar en este cache — no necesita headers de revalidación.
 - **Rarity de achievements:** Calculado cada 24h via Cloud Scheduler + BigQuery → Firestore `achievement_rarities/{achievement_id}`. No hay query BQ en tiempo real en el endpoint.
 - **Season Pass Gold track:** El Gold Pass es un IAP `non_consumable` (`product_id: "season_pass_gold"`) — se compra vía `/payments/*/verify` y otorga `has_gold_pass: true` en Firestore. No requiere un endpoint dedicado.
-- **"Share score" OG URL:** Pendiente Studio Decision K (confirmación verbal de Juan). Si se confirma, se agrega como endpoint #25 `POST /share/score` en el Dominio 5. No incluido hasta confirmación.
+- **"Share score" OG URL (T-440):** ✅ Studio Decision K confirmada 2026-06-22 — Share score está en MVP scope. Endpoints agregados: #25 `POST /leaderboard/score`, #26 `POST /share/create`, #27 `GET /s/{token}`. Implementación Saul: inicio 2026-08-05, ~5 días. Cloudinary free tier para OG image. Path `/s/*` debe cubrir `assetlinks.json` + AASA (T-124 + T-442).
 - **Conejo → Zas:** El nombre del NPC rabbit cambió de "Conejo" a "Zas" per `project_spec.md` 2026-06-22. `events[].npc_type` actualizado en ST-04 accordingly.

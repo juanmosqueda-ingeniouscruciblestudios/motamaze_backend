@@ -364,6 +364,45 @@ Rankings precalculados del leaderboard por temporada y tipo. Poblado cada 5 minu
 
 ---
 
+### `shares/{token}` *(agregado 2026-06-22 — T-440)*
+
+Token de share de score creado por `POST /share/create`. El `token` es el document ID (base62, 12 caracteres aleatorios — no derivado del `user_id`).
+
+```
+shares/{token}
+  uid                 string       ← user_id del creador (no expuesto en la URL pública)
+  score               integer      ← score al momento de compartir
+  level_reached       integer      ← nivel alcanzado (1–30)
+  season_id           string       ← ID de la temporada activa
+  og_image_url        string       ← URL de Cloudinary (<600 KB WebP, 1200×630 px)
+  created_at          timestamp
+  expires_at          timestamp    ← fin de la temporada activa
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `uid` | string | UID del jugador creador — solo para auditoría interna, nunca en respuesta pública |
+| `score` | integer | Season stars al momento de crear el share |
+| `level_reached` | integer | Nivel alcanzado, para el copy de la OG card |
+| `season_id` | string | Vincula el share a la temporada — el documento expira con ella |
+| `og_image_url` | string | URL Cloudinary de la imagen generada |
+| `created_at` | timestamp | Cuándo se creó el share |
+| `expires_at` | timestamp | Fin de la temporada — after this, `GET /s/{token}` devuelve 404 |
+
+**Escritores:**
+
+| Proceso | Operación |
+|---|---|
+| `POST /share/create` | `set` — crea el documento con el token como ID |
+
+**Lectores:**
+
+| Endpoint | Operación |
+|---|---|
+| `GET /s/{token}` | `get` — lee el documento para generar el HTML con OG tags |
+
+---
+
 ## Índices
 
 Para MVP, todos los accesos son por document ID (lookups O(1)). **No se requieren índices compuestos.** Firestore auto-indexa todos los campos individuales por defecto.
@@ -389,6 +428,7 @@ Para MVP, todos los accesos son por document ID (lookups O(1)). **No se requiere
 | `achievement_progress` | Indefinido | Acumulativo — no se borra entre temporadas |
 | `achievement_rarities` | Indefinido | Sobreescrito cada 24h por Cloud Scheduler |
 | `leaderboard_cache` | Por temporada | Sobreescrito cada 5 min durante la temporada activa; archivado al terminar |
+| `shares` | Fin de temporada | `expires_at` en el documento; Cloud Scheduler batch delete post-temporada |
 
 ---
 
@@ -428,6 +468,12 @@ leaderboard_cache/{cache_key}  ← agregado 2026-06-22
   └── cache_key = {season_id}_{type}
   └── escrito por Cloud Scheduler (5 min)
   └── leído por GET /leaderboard
+
+shares/{token}                 ← agregado 2026-06-22 (T-440)
+  └── token = base62 12-char aleatorio (no contiene uid — LGPD)
+  └── escrito por POST /share/create
+  └── leído por GET /s/{token}
+  └── expira con la temporada (expires_at)
 ```
 
 ---
