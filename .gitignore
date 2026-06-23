@@ -4,3 +4,9 @@
 
 # Excel exports (use Monday API instead)
 docs/*.xlsx
+
+# Terraform — provider binaries and local state cache
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
