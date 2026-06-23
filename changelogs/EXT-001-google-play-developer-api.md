@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | External Services / Setup |
 | **Prioridad** | Alta — 24h lag de activación |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ⬜ desbloqueado (verificación Google completada 2026-06-23), ST-04–06 ⬜ |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 🔄 parcial (app draft creada, vínculo GCP bloqueado — Juan owner requerido), ST-04–06 ⬜ |
 | **Fecha planeada** | 2026-06-15 |
 | **Fecha real inicio** | 2026-06-16 |
 | **Workstream** | External Services |
@@ -103,6 +103,10 @@ androidpublisher.googleapis.com  Google Play Android Developer API  ENABLED
 - 2026-06-17: Botón "Create app" deshabilitado — Google verificando identidad de ICS
 - 2026-06-22: Juan completó "Verify organization's website" + "Verify phone numbers" — bloqueador 100% externo
 - **2026-06-23: ✅ Google completó la verificación** — botón "Create app" activo confirmado por Saul (Play Console → Home, org "Ingenious Crucible Studios", Account ID `5099504302304988454`)
+
+**App draft creada (2026-06-23):** MotaMaze / `com.ingeniouscruciblestudios.motamaze` / Game / Free — app visible en Play Console Dashboard.
+
+**Paso 2 bloqueado — API access requiere owner:** La sección Settings → Developer account → API access no aparece para colaboradores, solo para el owner de la cuenta (Juan). Juan debe vincular el proyecto GCP `motamaze` desde su sesión.
 
 **Flujo en consola (manual — una vez desbloqueado):**
 1. Crear app draft: Play Console → Home → "Create app" → MotaMaze / Game / Free / `com.ingeniouscruciblestudios.motamaze`
