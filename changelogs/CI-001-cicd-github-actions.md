@@ -174,11 +174,11 @@ gcloud projects add-iam-policy-binding motamaze \
   --member="serviceAccount:github-actions@motamaze.iam.gserviceaccount.com" \
   --role="roles/artifactregistry.writer"
 
-# Para deploy en dev/staging/prod (Cloud Run):
+# Para deploy en dev y prod (Cloud Run) — staging diferido a post-lanzamiento:
 gcloud projects add-iam-policy-binding motamaze-dev \
   --member="serviceAccount:github-actions@motamaze.iam.gserviceaccount.com" \
   --role="roles/run.developer"
-# (repetir para motamaze-staging y motamaze)
+# (repetir para motamaze — motamaze-staging se agrega cuando staging se active)
 
 # 5. Enlazar WIF Pool → SA
 gcloud iam service-accounts add-iam-policy-binding \

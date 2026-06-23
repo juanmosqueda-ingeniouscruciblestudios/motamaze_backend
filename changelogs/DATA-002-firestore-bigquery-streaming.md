@@ -190,6 +190,7 @@ async def login(background_tasks: BackgroundTasks, ...):
 ### Tabla de endpoints → tablas BQ
 
 > **Actualizado 2026-06-18 (ST-02):** Mapping reconciliado con REST-001 contract. 3 endpoints originales no existían en REST-001 — ver análisis ST-02 abajo.
+> **Actualizado 2026-06-22:** +2 endpoints de Dominio 5 con escritura BQ: `POST /leaderboard/score` y `POST /season/claim-reward`. Los otros 5 endpoints de Dominio 5 son read-only (no escriben a BQ).
 
 | Endpoint FastAPI | Tabla(s) BQ | Cuándo se dispara |
 |---|---|---|
@@ -202,6 +203,8 @@ async def login(background_tasks: BackgroundTasks, ...):
 | `POST /lives/grant` (source: rewarded_ad_ssv) | `ad_impressions`, `entitlement_grants` | SSV de AdMob — registra impresión + vidas otorgadas |
 | `POST /lives/grant` (source: iap \| promo) | `entitlement_grants` | Grant directo de vidas — solo entitlement, no ad_impressions |
 | `DELETE /auth/account` | `account_deletions` | Solicitud de borrado GDPR |
+| `POST /leaderboard/score` *(REST-001 #25)* | `player_behavior` (event_name: leaderboard_score_submitted) | Siempre. `extra_json` incluye `{"season_id": "...", "submitted_score": N, "actual_stars": N, "anomaly": true/false}`. `anomaly: true` cuando submitted_score ≠ actual_stars — permite detección de manipulación. T-443. |
+| `POST /season/claim-reward` *(REST-001 #23)* | `entitlement_grants` (entitlement_type: season_reward) | Cada reward de Season Pass reclamado — `entitlement_id` = `"season_{season_id}_tier_{tier}_{track}"`, `source` = `"season_pass"`. |
 
 ---
 
@@ -210,7 +213,7 @@ async def login(background_tasks: BackgroundTasks, ...):
 | # | Subtarea | Status | Dependencias | Notas |
 |---|---|---|---|---|
 | ST-01 | Diseño de arquitectura: BackgroundTasks + BQ Streaming Insert | ✅ Done 2026-06-17 | DATA-001 ✅ | Descartadas Pub/Sub y Firebase Extension para MVP |
-| ST-02 | Alinear endpoint → tabla mapping con REST-001 | ✅ Done 2026-06-18 | REST-001 ✅ | 3 gaps resueltos: `session_durations` vía auth/login+logout, `player_behavior` vía nuevo endpoint `/events/behavior` (REST-001 #14), `entitlement_grants` via endpoints existentes de payments+lives |
+| ST-02 | Alinear endpoint → tabla mapping con REST-001 | ✅ Done 2026-06-18 (actualizado 2026-06-22) | REST-001 ✅ | 3 gaps resueltos (2026-06-18). +2 endpoints Dominio 5 (2026-06-22): `POST /leaderboard/score` → `player_behavior` (anomaly detection), `POST /season/claim-reward` → `entitlement_grants` |
 | ST-03 | Implementar `app/services/bq_streaming.py` con retry logic | ⬜ Pending | INFRA-003 repo | Código pre-diseñado en doc — integrar cuando exista el repo |
 | ST-04 | Definir dedup keys y backfill-safety strategy | ⬜ Pending | ST-03 | |
 | ST-05 | Integrar `POST /auth/login` → `login_events` + `session_durations` (session_start) | ⬜ Pending | ST-03, INFRA-003 | |
@@ -259,6 +262,7 @@ No se necesita un endpoint independiente `POST /entitlements/grant`.
 ## Follow-ups / Notes
 
 - **INFRA-003 bloqueante:** ST-02 en adelante requiere el repo FastAPI. El código de `bq_streaming.py` está diseñado aquí — cuando exista el repo se copia directamente.
+- **Dominio 5 endpoints read-only (sin escritura BQ):** `GET /leaderboard`, `GET /season`, `GET /achievements`, `POST /share/create`, `GET /s/{token}` — no escriben a BigQuery. `POST /share/create` escribe solo a Firestore `shares/{token}`.
 - **Migración a Pub/Sub post-MVP:** Si en producción se observan eventos perdidos por reinicios de Cloud Run, agregar un Pub/Sub topic como buffer durable. El helper `bq_streaming.py` se reemplaza por un publisher, sin cambiar los endpoints.
 - **`account_deletions` y GDPR:** Cuando `DELETE /auth/account` inserta en `account_deletions`, también debe iniciar el proceso de purge en Firestore. Ese flujo detallado es de COMP-001 (Compliance, 7/27) — aquí solo se inserta la fila en BQ.
 - **Costo BQ Streaming:** A $0.01/200MB y con < 1,000 usuarios en soft launch, el costo mensual de streaming será < $1 USD.
