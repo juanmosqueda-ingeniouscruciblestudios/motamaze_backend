@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | External Services / Setup |
 | **Prioridad** | Alta — 24h lag de activación |
-| **Status** | In Progress — iniciado 2026-06-16 (1 día de retraso sobre plan) |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ⬜ desbloqueado (verificación Google completada 2026-06-23), ST-04–06 ⬜ |
 | **Fecha planeada** | 2026-06-15 |
 | **Fecha real inicio** | 2026-06-16 |
 | **Workstream** | External Services |
@@ -41,11 +41,12 @@ Google Play Console tarda **hasta 24 horas** en propagar los permisos de un serv
 
 ## Criterios de aceptación
 
-- [ ] `androidpublisher.googleapis.com` habilitada en proyecto `motamaze`
-- [ ] SA `game-api-backend` invitado en Play Console con permisos de verificación de compras
-- [ ] Confirmación de que Play Console está vinculado al proyecto GCP `motamaze` (o al proyecto correcto)
-- [ ] 24h de espera transcurridas desde el invite
-- [ ] Llamada de prueba a la API retorna 200 (no 401/403)
+- [x] `androidpublisher.googleapis.com` habilitada en proyecto `motamaze` (2026-06-16)
+- [x] Cuenta Google Play Developer verificada por Google (2026-06-23) — botón "Create app" activo
+- [ ] App draft creada en Play Console + proyecto GCP `motamaze` vinculado (ST-03 — listo para ejecutar)
+- [ ] SA `game-api-backend` invitado en Play Console con permisos de verificación de compras (ST-04)
+- [ ] 24h de espera transcurridas desde el invite (ST-05)
+- [ ] Llamada de prueba a la API retorna 200 (no 401/403) (ST-06)
 
 ---
 
@@ -94,15 +95,14 @@ androidpublisher.googleapis.com  Google Play Android Developer API  ENABLED
 
 ---
 
-### ST-03 — Vincular proyecto GCP a Play Console 🔴 Bloqueado — verificación de Google pendiente (externo)
+### ST-03 — Vincular proyecto GCP a Play Console ⬜ Listo para ejecutar (desbloqueado 2026-06-23)
 
 **Por qué:** Play Console necesita saber qué proyecto GCP puede hacer llamadas a la API en nombre de la cuenta. Esto se configura en Settings → API access (la sección aparece solo cuando hay al menos una app registrada).
 
-**Bloqueador encontrado (2026-06-17):** La sección "API access" en Settings no aparece hasta que exista al menos una app registrada como draft. El botón "Create app" está deshabilitado con el mensaje: *"Complete account verifications to create new apps"* — Google está verificando los documentos de identidad de Ingenious Crucible Studios (subidos en ST-02). Hasta que la verificación concluya, no se puede crear la app draft ni acceder a API access.
-
-**Estado al 2026-06-22:** Todas las acciones del equipo están completas. Juan proporcionó "Verify organization's website" y "Verify phone numbers" en Play Console. El botón "Create app" sigue deshabilitado — el bloqueador es ahora 100% externo (Google procesando la verificación de identidad de ICS). Sin ETA — Google puede tardar días. No hay acción pendiente del equipo.
-
-**Indicador de desbloqueo:** Cuando Google complete la verificación, el botón "Create app" se habilitará en Play Console → Home. Verificar periódicamente.
+**Historial del bloqueador:**
+- 2026-06-17: Botón "Create app" deshabilitado — Google verificando identidad de ICS
+- 2026-06-22: Juan completó "Verify organization's website" + "Verify phone numbers" — bloqueador 100% externo
+- **2026-06-23: ✅ Google completó la verificación** — botón "Create app" activo confirmado por Saul (Play Console → Home, org "Ingenious Crucible Studios", Account ID `5099504302304988454`)
 
 **Flujo en consola (manual — una vez desbloqueado):**
 1. Crear app draft: Play Console → Home → "Create app" → MotaMaze / Game / Free / `com.ingeniouscruciblestudios.motamaze`
