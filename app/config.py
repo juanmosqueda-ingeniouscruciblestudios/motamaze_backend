@@ -8,5 +8,8 @@ class Settings(BaseSettings):
     log_level: str = "info"
     jwt_issuer: str = "https://api.motamaze.com"
     jwks_url: str = "https://api.motamaze.com/.well-known/jwks.json"
+    google_oauth_client_id: str = ""
+    jwt_key_id: str = "motamaze-key-v1"
+    jwt_secret_name: str = "jwt-private-key"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

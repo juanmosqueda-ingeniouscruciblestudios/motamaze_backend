@@ -7,9 +7,13 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     "google-cloud-firestore>=2.16",
     "google-cloud-bigquery>=3.20",
+    "google-cloud-secret-manager>=2.20",
     "google-auth>=2.29",
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
+    "python-jose[cryptography]>=3.3",
+    "bcrypt>=4.1",
+    "cachetools>=5.3",
 ]
 
 [project.optional-dependencies]
