@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / CI-CD |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅ AR+WIF+SA+Environments, ST-03 ✅ Build+push AR (5 runs), ST-04 ⬜ bloqueado billing motamaze-dev (Juan), ST-05 ⬜ |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅ AR+WIF+SA+Environments, ST-03 ✅ Build+push AR (5 runs), ST-04 🔄 billing desbloqueado + run.googleapis.com habilitada (2026-06-24), ST-05 ⬜ |
 | **Fecha planeada** | 7/8–7/9/2026 |
 | **Fecha real inicio** | 2026-06-19 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
@@ -47,7 +47,7 @@ El `latest` apunta siempre al último merge a `main`. Los deploys usan el SHA pa
 - [x] Workload Identity Federation configurado: GitHub → GCP — pool `github-pool`, provider `github-provider`, SA `github-actions@motamaze.iam.gserviceaccount.com` (2026-06-22)
 - [x] Secrets `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` agregados en GitHub repo `motamaze_backend` (Saul, 2026-06-22)
 - [x] GitHub Environments `dev` y `prod` configurados (Juan, 2026-06-23) — `dev` sin reviewers, `prod` requiere aprobación Juan + Saul
-- [ ] Cloud Run Admin API habilitada en `motamaze-dev` (bloqueada en billing — Juan debe vincular billing)
+- [x] Cloud Run Admin API habilitada en `motamaze-dev` (billing vinculado por Juan 2026-06-24, API habilitada por Saul 2026-06-24)
 - [ ] Pipeline verde end-to-end: PR build ✅, merge deploy-dev ✅, prod ✅ (ST-05)
 
 ---
@@ -234,7 +234,7 @@ El build job usa `push: ${{ github.event_name == 'push' }}` — solo hace push e
 
 ---
 
-### ST-04 — Implement dev→staging→prod promotion ⬜ Bloqueado — billing motamaze-dev
+### ST-04 — Implement dev→staging→prod promotion 🔄 En progreso (billing desbloqueado 2026-06-24)
 
 **Fix de workflow aplicado — commit `7889046` (2026-06-22):**
 
@@ -264,6 +264,12 @@ El workflow apunta correctamente a `motamaze-dev` — el error confirma que el p
 **Acción requerida:** Juan debe vincular billing a `motamaze-dev` → habilitar Cloud Run Admin API → re-run del CI.
 
 **Runs #3–#5 (commits `9d392ba`, `59e8dd2`, `27e87d9` — 2026-06-22):** Todos markdown-only. Mismo resultado en los tres: Build ✅ (21–28 s cache hit), Deploy→dev ❌ mismo PERMISSION_DENIED, Deploy→prod ⊘. Confirma que el workflow es estable y el único bloqueador es billing.
+
+**Desbloqueado — 2026-06-24:**
+- Causa raíz identificada: `motamaze-dev` creado con cuenta de Saul — Juan no tenía acceso para vincular billing. Saul agregó a Juan como Owner → Juan vinculó billing account `01A127-C8B7E6-B6DEE7`.
+- `billingEnabled: true` confirmado vía `gcloud billing projects describe motamaze-dev`.
+- `run.googleapis.com` habilitada en `motamaze-dev` — 2026-06-24 (Saul).
+- Próximo paso: push a `main` → CI run → Deploy→dev esperado ✅.
 
 ---
 

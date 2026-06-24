@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / IaC |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅ proyectos creados + estado remoto, ST-02 ✅ módulo Terraform escrito, ST-03 ✅ remote state configurado, ST-04 ⬜ apply pendiente billing dev + INFRA-003. Staging diferido a post-lanzamiento (2026-06-22). |
+| **Status** | In Progress — ST-01 ✅ proyectos creados + estado remoto, ST-02 ✅ módulo Terraform escrito, ST-03 ✅ remote state configurado, ST-04 🔄 billing motamaze-dev vinculado (Juan 2026-06-24) — apply dev pendiente. Staging diferido a post-lanzamiento (2026-06-22). |
 | **Fecha planeada** | 6/27–6/28/2026 |
 | **Fecha real inicio** | 2026-06-19 (adelantado) |
 | **Workstream** | Infra/DevOps |
