@@ -269,7 +269,37 @@ El workflow apunta correctamente a `motamaze-dev` — el error confirma que el p
 - Causa raíz identificada: `motamaze-dev` creado con cuenta de Saul — Juan no tenía acceso para vincular billing. Saul agregó a Juan como Owner → Juan vinculó billing account `01A127-C8B7E6-B6DEE7`.
 - `billingEnabled: true` confirmado vía `gcloud billing projects describe motamaze-dev`.
 - `run.googleapis.com` habilitada en `motamaze-dev` — 2026-06-24 (Saul).
-- Próximo paso: push a `main` → CI run → Deploy→dev esperado ✅.
+
+**Run #15 — deploy-dev falla (2026-06-24, commit `f974e5a`):**
+
+| Job | Resultado | Error |
+|---|---|---|
+| Build | ✅ 22 s | — |
+| Deploy → dev | ❌ | `failed Deployment` — container startup crash (causa: `GCP_PROJECT_ID` no pasado como env var) |
+| Deploy → prod | ⊘ | — |
+
+**Run #16 — deploy-dev falla con nuevo error (2026-06-24, commit `6f1394c`):**
+
+Fix aplicado: SA `game-api-backend@motamaze-dev` creado con `roles/artifactregistry.reader` en `motamaze`. `cicd.yml` actualizado con `--service-account` y `env_vars: GCP_PROJECT_ID / ENVIRONMENT`.
+
+| Job | Resultado | Error |
+|---|---|---|
+| Build | ✅ 15 s | — |
+| Deploy → dev | ❌ | `Permission 'iam.serviceaccounts.actAs' denied on service account game-api-backend@motamaze-dev.iam.gserviceaccount.com` |
+| Deploy → prod | ⊘ | — |
+
+Causa: al especificar `--service-account`, el deployer (`github-actions@motamaze`) necesita `iam.serviceaccounts.actAs` sobre ese SA (= `roles/iam.serviceAccountUser` en el SA objetivo).
+
+**Fix aplicado (2026-06-24):**
+```bash
+gcloud iam service-accounts add-iam-policy-binding \
+  game-api-backend@motamaze-dev.iam.gserviceaccount.com \
+  --project=motamaze-dev \
+  --member="serviceAccount:github-actions@motamaze.iam.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser"
+```
+
+**Run #17 — esperado ✅ (commit `...`):**
 
 ---
 
