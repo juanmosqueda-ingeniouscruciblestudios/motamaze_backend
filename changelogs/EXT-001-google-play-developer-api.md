@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | External Services / Setup |
 | **Prioridad** | Alta — 24h lag de activación |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 🔄 parcial (app draft creada, vínculo GCP bloqueado — Juan owner requerido), ST-04–06 ⬜ |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅ (app draft + flujo actualizado), ST-04 ✅ SA invitado (2026-06-24), ST-05 🕐 propagación 24h (verificar 2026-06-25), ST-06 ⬜ |
 | **Fecha planeada** | 2026-06-15 |
 | **Fecha real inicio** | 2026-06-16 |
 | **Workstream** | External Services |
@@ -95,48 +95,36 @@ androidpublisher.googleapis.com  Google Play Android Developer API  ENABLED
 
 ---
 
-### ST-03 — Vincular proyecto GCP a Play Console ⬜ Listo para ejecutar (desbloqueado 2026-06-23)
+### ST-03 — Vincular proyecto GCP a Play Console ✅ Done (2026-06-24 — flujo actualizado)
 
-**Por qué:** Play Console necesita saber qué proyecto GCP puede hacer llamadas a la API en nombre de la cuenta. Esto se configura en Settings → API access (la sección aparece solo cuando hay al menos una app registrada).
+**Nota:** La sección "API access" fue eliminada de Play Console (confirmado por Google Community threads, 2024). El vínculo GCP ya no se configura desde Play Console — el flujo actual consiste en invitar el SA directamente como usuario con permisos de Financial data. ST-03 queda obsoleto como paso separado; cubierto dentro de ST-04.
 
 **Historial del bloqueador:**
 - 2026-06-17: Botón "Create app" deshabilitado — Google verificando identidad de ICS
 - 2026-06-22: Juan completó "Verify organization's website" + "Verify phone numbers" — bloqueador 100% externo
-- **2026-06-23: ✅ Google completó la verificación** — botón "Create app" activo confirmado por Saul (Play Console → Home, org "Ingenious Crucible Studios", Account ID `5099504302304988454`)
-
-**App draft creada (2026-06-23):** MotaMaze / `com.ingeniouscruciblestudios.motamaze` / Game / Free — app visible en Play Console Dashboard.
-
-**Paso 2 bloqueado — API access requiere owner:** La sección Settings → Developer account → API access no aparece para colaboradores, solo para el owner de la cuenta (Juan). Juan debe vincular el proyecto GCP `motamaze` desde su sesión.
-
-**Flujo en consola (manual — una vez desbloqueado):**
-1. Crear app draft: Play Console → Home → "Create app" → MotaMaze / Game / Free / `com.ingeniouscruciblestudios.motamaze`
-2. Play Console → **Settings** → **API access**
-3. Sección "Link to a Google Cloud Project" → seleccionar proyecto `motamaze`
-4. Confirmar el vínculo
-
-**Nota importante:** Solo se puede vincular **un proyecto GCP por cuenta de Play Console**. Si Juan ya vinculó otro proyecto, hay que evaluarlo.
+- **2026-06-23: ✅ Google completó la verificación** — botón "Create app" activo
+- **2026-06-23: ✅ App draft creada** — MotaMaze / `com.ingeniouscruciblestudios.motamaze` / Game / Free
 
 ---
 
-### ST-04 — Invitar `game-api-backend` SA a Play Console ⬜ Pending
+### ST-04 — Invitar `game-api-backend` SA a Play Console ✅ Done (2026-06-24)
 
-**Por qué:** Habilitar la API en GCP no es suficiente — Play Console tiene su propio sistema de permisos sobre quién puede llamar a la API. El SA debe ser "invitado" explícitamente con los permisos mínimos necesarios.
+**Flujo ejecutado (actualizado — sin "API access" page):**
+1. Play Console → **Users and permissions** → **Invite new users**
+2. Email: `game-api-backend@motamaze.iam.gserviceaccount.com`
+3. Pestaña **App permissions** → Add app → **MotaMaze**
+4. Permisos seleccionados (scoped a MotaMaze):
 
-**Permisos requeridos para verificación de IAP:**
+| Permiso | Sección | Para qué |
+|---|---|---|
+| ✅ View app information (read-only) | App access | Ver info de la app |
+| ✅ View app quality information (read-only) | App access | Auto-seleccionado |
+| ✅ View financial data | Financial data | Acceso a Purchases API |
+| ✅ Manage orders and subscriptions | Financial data | Acknowledge compras, refunds |
 
-| Permiso en Play Console | Para qué |
-|---|---|
-| View app information (read-only) | Listar apps, ver package names |
-| Manage orders and subscriptions | Verificar tokens, acknowledge compras, detectar refunds |
+**Resultado:** 4 permisos aplicados a MotaMaze (`com.ingeniouscruciblestudios.motamaze`).
 
-**Flujo en consola (manual):**
-1. Play Console → **Setup** → **API access** → **Service Accounts**
-2. Buscar `game-api-backend@motamaze.iam.gserviceaccount.com`
-3. Clic en **"Grant access"**
-4. Seleccionar permisos: **"Manage orders and subscriptions"**
-5. Aplicar a la app MotaMaze
-
-**⏱ A partir de aquí comienzan las 24h de propagación.**
+**⏱ Propagación iniciada 2026-06-24 — no verificar antes de 2026-06-25.**
 
 ---
 
