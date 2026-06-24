@@ -95,7 +95,12 @@ jobs:
           service: motamaze-backend
           region:  ${{ env.REGION }}
           image:   ${{ needs.build.outputs.image }}
-          flags: --allow-unauthenticated
+          flags: >-
+            --allow-unauthenticated
+            --service-account=game-api-backend@motamaze-dev.iam.gserviceaccount.com
+          env_vars: |
+            GCP_PROJECT_ID=motamaze-dev
+            ENVIRONMENT=dev
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ST-03 — Promote to prod (same digest, manual approval required)
@@ -124,4 +129,9 @@ jobs:
           service: motamaze-backend
           region:  ${{ env.REGION }}
           image:   ${{ needs.build.outputs.image }}
-          flags: --allow-unauthenticated
+          flags: >-
+            --allow-unauthenticated
+            --service-account=game-api-backend@motamaze.iam.gserviceaccount.com
+          env_vars: |
+            GCP_PROJECT_ID=motamaze
+            ENVIRONMENT=prod
