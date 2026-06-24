@@ -1,17 +1,23 @@
 import logging
+import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from google.cloud.firestore import AsyncClient
 from pydantic import BaseModel
 
 from app.config import Settings
-from app.dependencies import get_firestore_client, get_settings
+from app.dependencies import get_firestore_client, get_settings, verify_jwt
 from app.services import auth_service, jwt_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
 
 class LoginRequest(BaseModel):
     provider: str
@@ -31,6 +37,21 @@ class LoginResponse(BaseModel):
     user_id: str
     is_new_user: bool
 
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "Bearer"
+    expires_in: int = 900
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/login
+# ---------------------------------------------------------------------------
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
@@ -74,11 +95,13 @@ async def login(
         db, sub, email, display_name, photo_url, body.provider
     )
 
-    refresh_tok = jwt_service.create_refresh_token()
-    token_hash = jwt_service.hash_refresh_token(refresh_tok)
+    session_id = str(uuid.uuid4())
+    refresh_tok = jwt_service.create_refresh_token(session_id)
+    _, secret = jwt_service.extract_session_and_secret(refresh_tok)
+    token_hash = jwt_service.hash_refresh_token(secret)
 
-    session_id = await auth_service.create_session(
-        db, user_id, token_hash, body.platform, body.os_version, body.app_version
+    await auth_service.create_session(
+        db, user_id, session_id, token_hash, body.platform, body.os_version, body.app_version
     )
 
     access_tok, _jti = jwt_service.create_access_token(
@@ -99,7 +122,95 @@ async def login(
     )
 
 
-# POST /auth/refresh           — T-122
-# GET  /auth/pending/{state}   — T-122
-# POST /auth/logout            — T-122
+# ---------------------------------------------------------------------------
+# POST /auth/refresh
+# ---------------------------------------------------------------------------
+
+@router.post("/refresh", response_model=RefreshResponse)
+async def refresh(
+    body: RefreshRequest,
+    db: AsyncClient = Depends(get_firestore_client),
+    settings: Settings = Depends(get_settings),
+):
+    if not body.refresh_token:
+        raise HTTPException(
+            400,
+            detail={"error_code": "AUTH_MISSING_FIELDS", "message": "refresh_token is required"},
+        )
+
+    try:
+        uid, old_session = await auth_service.consume_refresh_session(db, body.refresh_token)
+    except ValueError as exc:
+        error_code = str(exc)
+        status = 401
+        raise HTTPException(status, detail={"error_code": error_code, "message": error_code})
+
+    provider = old_session.get("device", {}) and "google"  # provider not stored in session — default google for MVP
+
+    new_session_id = str(uuid.uuid4())
+    new_refresh = jwt_service.create_refresh_token(new_session_id)
+    _, secret = jwt_service.extract_session_and_secret(new_refresh)
+    token_hash = jwt_service.hash_refresh_token(secret)
+
+    device = old_session.get("device") or {}
+    await auth_service.create_session(
+        db,
+        uid,
+        new_session_id,
+        token_hash,
+        device.get("platform"),
+        device.get("os_version"),
+        device.get("app_version"),
+    )
+
+    access_tok, _jti = jwt_service.create_access_token(
+        user_id=uid,
+        provider="google",
+        session_id=new_session_id,
+        project_id=settings.gcp_project_id,
+        secret_name=settings.jwt_secret_name,
+        key_id=settings.jwt_key_id,
+        issuer=settings.jwt_issuer,
+    )
+
+    return RefreshResponse(access_token=access_tok, refresh_token=new_refresh)
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/logout
+# ---------------------------------------------------------------------------
+
+@router.post("/logout")
+async def logout(
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    jti = claims["jti"]
+    session_id = claims.get("sid", "")
+    exp_ts = claims.get("exp", 0)
+    jti_exp = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+
+    await auth_service.revoke_session(db, session_id, jti, jti_exp)
+
+    return {"message": "Session revoked"}
+
+
+# ---------------------------------------------------------------------------
+# GET /auth/pending/{state_token}
+# ---------------------------------------------------------------------------
+
+@router.get("/pending/{state_token}")
+async def pending(
+    state_token: str,
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    state = await auth_service.get_pending_oauth(db, state_token)
+    if state is None:
+        raise HTTPException(
+            404,
+            detail={"error_code": "AUTH_STATE_NOT_FOUND", "message": "State token not found or expired"},
+        )
+    return state
+
+
 # DELETE /auth/account         — T-123

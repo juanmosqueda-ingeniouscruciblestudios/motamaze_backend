@@ -3,16 +3,20 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from cachetools import TTLCache
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    PublicFormat,
+    load_pem_private_key,
+)
 from google.cloud import secretmanager
 from jose import jwt
 
 # Private key cached for 5 min — avoids Secret Manager round-trip on every request.
-# maxsize=1: we only ever cache one key (the current active version).
-_key_cache: TTLCache = TTLCache(maxsize=1, ttl=300)
+_key_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
 
 
 def _get_private_key(project_id: str, secret_name: str) -> str:
-    cache_key = f"{project_id}/{secret_name}"
+    cache_key = f"{project_id}/{secret_name}/private"
     cached = _key_cache.get(cache_key)
     if cached:
         return cached
@@ -22,6 +26,20 @@ def _get_private_key(project_id: str, secret_name: str) -> str:
     pem = response.payload.data.decode("utf-8")
     _key_cache[cache_key] = pem
     return pem
+
+
+def get_public_key_pem(project_id: str, secret_name: str) -> str:
+    cache_key = f"{project_id}/{secret_name}/public"
+    cached = _key_cache.get(cache_key)
+    if cached:
+        return cached
+    private_pem = _get_private_key(project_id, secret_name)
+    private_key_obj = load_pem_private_key(private_pem.encode(), password=None)
+    pub_pem = private_key_obj.public_key().public_bytes(
+        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
+    ).decode()
+    _key_cache[cache_key] = pub_pem
+    return pub_pem
 
 
 def create_access_token(
@@ -51,13 +69,39 @@ def create_access_token(
     return token, jti
 
 
-def create_refresh_token() -> str:
-    return str(uuid.uuid4())
+def decode_access_token(
+    token: str,
+    project_id: str,
+    secret_name: str,
+    issuer: str,
+) -> dict:
+    """Verifies signature, aud, iss, exp. Raises jose.JWTError on failure."""
+    public_key = get_public_key_pem(project_id, secret_name)
+    return jwt.decode(
+        token,
+        public_key,
+        algorithms=["RS256"],
+        audience="motamaze-api",
+        issuer=issuer,
+        options={"leeway": 30},
+    )
 
 
-def hash_refresh_token(token: str) -> str:
-    return bcrypt.hashpw(token.encode(), bcrypt.gensalt(rounds=12)).decode()
+def create_refresh_token(session_id: str) -> str:
+    """Returns '{session_id}.{random_secret}' — prefix enables O(1) session lookup."""
+    return f"{session_id}.{uuid.uuid4()}"
 
 
-def verify_refresh_token(token: str, token_hash: str) -> bool:
-    return bcrypt.checkpw(token.encode(), token_hash.encode())
+def extract_session_and_secret(refresh_token: str) -> tuple[str, str]:
+    parts = refresh_token.split(".", 1)
+    if len(parts) != 2:
+        raise ValueError("Invalid refresh token format")
+    return parts[0], parts[1]
+
+
+def hash_refresh_token(secret: str) -> str:
+    return bcrypt.hashpw(secret.encode(), bcrypt.gensalt(rounds=12)).decode()
+
+
+def verify_refresh_token(secret: str, token_hash: str) -> bool:
+    return bcrypt.checkpw(secret.encode(), token_hash.encode())

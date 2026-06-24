@@ -2,10 +2,11 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from google.auth.exceptions import TransportError
 from google.auth.transport import requests as google_requests
 from google.cloud.firestore import AsyncClient
 from google.oauth2 import id_token as google_id_token
+
+from app.services import jwt_service
 
 
 def _verify_google_token_sync(token: str, client_id: str) -> dict:
@@ -64,14 +65,14 @@ async def upsert_user(
 async def create_session(
     db: AsyncClient,
     uid: str,
+    session_id: str,
     token_hash: str,
     platform: str | None,
     os_version: str | None,
     app_version: str | None,
-) -> str:
-    session_id = str(uuid.uuid4())
+) -> None:
     now = datetime.now(timezone.utc)
-    device: dict | None = {}
+    device: dict = {}
     if platform:
         device["platform"] = platform
     if os_version:
@@ -88,4 +89,68 @@ async def create_session(
         "duration_secs": None,
         "device": device or None,
     })
-    return session_id
+
+
+async def consume_refresh_session(
+    db: AsyncClient, refresh_token: str
+) -> tuple[str, dict]:
+    """Validates and deletes the session atomically. Returns (uid, session_data).
+    Raises ValueError on invalid, expired, or mismatched token."""
+    try:
+        session_id, secret = jwt_service.extract_session_and_secret(refresh_token)
+    except ValueError:
+        raise ValueError("AUTH_REFRESH_INVALID")
+
+    snap = await db.collection("sessions").document(session_id).get()
+    if not snap.exists:
+        raise ValueError("AUTH_REFRESH_INVALID")
+
+    session = snap.to_dict()
+
+    if datetime.now(timezone.utc) > session["expires_at"]:
+        raise ValueError("AUTH_REFRESH_EXPIRED")
+
+    if not jwt_service.verify_refresh_token(secret, session["token_hash"]):
+        raise ValueError("AUTH_REFRESH_INVALID")
+
+    # Delete old session immediately — prevents replay attacks.
+    await db.collection("sessions").document(session_id).delete()
+
+    return session["uid"], session
+
+
+async def revoke_session(
+    db: AsyncClient,
+    session_id: str,
+    jti: str,
+    jti_exp: datetime,
+) -> None:
+    """Marks session as ended and adds JTI to the revocation list."""
+    now = datetime.now(timezone.utc)
+
+    snap = await db.collection("sessions").document(session_id).get()
+    if snap.exists:
+        data = snap.to_dict()
+        started_at = data.get("started_at")
+        duration = int((now - started_at).total_seconds()) if started_at else None
+        await db.collection("sessions").document(session_id).update({
+            "ended_at": now,
+            "duration_secs": duration,
+        })
+
+    # expires_at drives the Firestore TTL policy — auto-deletes after token expiry.
+    await db.collection("revoked_jtis").document(jti).set({
+        "revoked_at": now,
+        "expires_at": jti_exp,
+    })
+
+
+async def get_pending_oauth(db: AsyncClient, state_token: str) -> dict | None:
+    """Returns the OAuth pending state, or None if not found / expired."""
+    snap = await db.collection("oauth_pending").document(state_token).get()
+    if not snap.exists:
+        return None
+    data = snap.to_dict()
+    if datetime.now(timezone.utc) > data.get("expires_at", datetime.min.replace(tzinfo=timezone.utc)):
+        return None
+    return data
