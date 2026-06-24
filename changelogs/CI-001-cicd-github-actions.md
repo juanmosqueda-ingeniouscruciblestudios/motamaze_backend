@@ -299,7 +299,26 @@ gcloud iam service-accounts add-iam-policy-binding \
   --role="roles/iam.serviceAccountUser"
 ```
 
-**Run #17 — esperado ✅ (commit `...`):**
+**Run #17 — deploy-dev falla con AR pull + IAM policy (2026-06-24, commit `7e46924`):**
+
+| Problema | Error | Fix |
+|---|---|---|
+| Cloud Run Service Agent sin acceso al AR | `service-1072330724928@serverless-robot-prod.iam.gserviceaccount.com` — `artifactregistry.repositories.downloadArtifacts` denied en `motamaze` | `roles/artifactregistry.reader` a ese SA en `motamaze` |
+| `--allow-unauthenticated` falla | `Setting IAM policy failed` — `roles/run.developer` no incluye `run.services.setIamPolicy` | `roles/run.admin` a `github-actions@motamaze` en `motamaze-dev` |
+
+```bash
+# Fix 1: Cloud Run Service Agent → AR reader en motamaze
+gcloud projects add-iam-policy-binding motamaze \
+  --member="serviceAccount:service-1072330724928@serverless-robot-prod.iam.gserviceaccount.com" \
+  --role="roles/artifactregistry.reader"
+
+# Fix 2: github-actions → run.admin en motamaze-dev (incluye setIamPolicy)
+gcloud projects add-iam-policy-binding motamaze-dev \
+  --member="serviceAccount:github-actions@motamaze.iam.gserviceaccount.com" \
+  --role="roles/run.admin"
+```
+
+**Run #18 — esperado ✅ (commit `...`):**
 
 ---
 
