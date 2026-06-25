@@ -60,3 +60,46 @@ async def stream_event(
         "BQ streaming failed after %d attempts [table=%s]",
         max_retries, table_id,
     )
+
+
+async def stream_events(
+    table_id: str,
+    rows: list[dict],
+    project_id: str,
+    dataset_id: str = "motamaze_analytics",
+    *,
+    row_ids: list[str] | None = None,
+    max_retries: int = 3,
+) -> None:
+    """Batch variant of stream_event. Inserts multiple rows in a single BQ API call."""
+    if not rows:
+        return
+    table_ref = f"{project_id}.{dataset_id}.{table_id}"
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            errors = await asyncio.to_thread(
+                _get_bq_client().insert_rows_json,
+                table_ref,
+                rows,
+                row_ids=row_ids,
+            )
+            if not errors:
+                return
+            logger.error(
+                "BQ batch insert errors [table=%s attempt=%d rows=%d]: %s",
+                table_id, attempt, len(rows), errors,
+            )
+        except GoogleAPIError as exc:
+            logger.error(
+                "BQ API error [table=%s attempt=%d]: %s",
+                table_id, attempt, exc,
+            )
+
+        if attempt < max_retries:
+            await asyncio.sleep(2 ** attempt)
+
+    logger.error(
+        "BQ batch streaming failed after %d attempts [table=%s rows=%d]",
+        max_retries, table_id, len(rows),
+    )
