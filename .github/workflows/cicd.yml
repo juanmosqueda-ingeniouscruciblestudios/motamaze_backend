@@ -98,6 +98,8 @@ jobs:
           flags: >-
             --allow-unauthenticated
             --service-account=game-api-backend@motamaze-dev.iam.gserviceaccount.com
+            --max-instances=3
+            --min-instances=0
           env_vars: |
             GCP_PROJECT_ID=motamaze-dev
             ENVIRONMENT=dev
@@ -132,6 +134,8 @@ jobs:
           flags: >-
             --allow-unauthenticated
             --service-account=game-api-backend@motamaze.iam.gserviceaccount.com
+            --max-instances=10
+            --min-instances=1
           env_vars: |
             GCP_PROJECT_ID=motamaze
             ENVIRONMENT=prod
