@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | External Services / Setup |
 | **Prioridad** | Alta — 24h lag de activación |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅ (app draft + flujo actualizado), ST-04 ✅ SA invitado (2026-06-24), ST-05 🕐 propagación 24h (verificar 2026-06-25), ST-06 ⬜ |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅, ST-04 ✅ SA invitado (2026-06-24), ST-05 🕐 propagación en curso (reintentar 2026-06-26), ST-06 ⬜ pendiente propagación |
 | **Fecha planeada** | 2026-06-15 |
 | **Fecha real inicio** | 2026-06-16 |
 | **Workstream** | External Services |
@@ -128,29 +128,54 @@ androidpublisher.googleapis.com  Google Play Android Developer API  ENABLED
 
 ---
 
-### ST-05 — Esperar 24h de propagación ⬜ Pending
+### ST-05 — Esperar 24h de propagación 🕐 En curso
 
-Google documenta que los cambios de permisos en Play Console pueden tardar hasta 24 horas en ser efectivos para llamadas a la API. No hay forma de acelerar esto.
+Google documenta que los cambios de permisos en Play Console pueden tardar hasta 24 horas en ser efectivos para llamadas a la API. Reportes de comunidad indican hasta 48h en algunos casos.
 
-**Acción:** Registrar el timestamp exacto del invite (ST-04) y no intentar la verificación hasta 24h después.
+**Invite realizado:** 2026-06-24. **Ventana segura:** 2026-06-26.
 
 ---
 
-### ST-06 — Verificar llamada de prueba a Play Developer API ⬜ Pending
+### ST-06 — Verificar llamada de prueba a Play Developer API ⬜ Pending (propagación en curso)
 
-**Después de las 24h**, hacer una llamada de prueba para confirmar que el SA tiene acceso:
+**Prueba ejecutada el 2026-06-25:**
 
 ```bash
-# Obtener token del SA via ADC impersonation
-gcloud auth print-access-token \
-  --impersonate-service-account=game-api-backend@motamaze.iam.gserviceaccount.com
+# Paso 1 — Token con scope correcto (androidpublisher)
+TOKEN=$(gcloud auth print-access-token \
+  --impersonate-service-account=game-api-backend@motamaze.iam.gserviceaccount.com \
+  --scopes=https://www.googleapis.com/auth/androidpublisher)
 
-# Llamada de prueba: listar APKs del app (requiere packageName real)
-curl -H "Authorization: Bearer TOKEN" \
-  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/PACKAGE_NAME/purchases/products/TEST_SKU/tokens/TEST_TOKEN"
+# Prueba 1 — purchases.products.get con valores dummy
+curl -s -w "\nHTTP_STATUS: %{http_code}\n" \
+  -H "Authorization: Bearer $TOKEN" \
+  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.ingeniouscruciblestudios.motamaze/purchases/products/test_sku/tokens/test_token"
+
+# Prueba 2 — inappproducts.list
+curl -s -w "\nHTTP_STATUS: %{http_code}\n" \
+  -H "Authorization: Bearer $TOKEN" \
+  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.ingeniouscruciblestudios.motamaze/inappproducts"
 ```
 
-**Resultado esperado:** `404` (producto no encontrado) o `400` (token inválido) — NO `401` ni `403`. Un 4xx de "not found" confirma que la autenticación funciona.
+**Resultados obtenidos:**
+
+| Llamada | HTTP | Error code | Mensaje |
+|---|---|---|---|
+| `purchases.products.get` (dummy values) | **404** | `applicationNotFound` | "No application was found for the given package name." |
+| `inappproducts.list` | **403** | `PERMISSION_DENIED` | "The caller does not have permission" |
+
+**Diagnóstico:**
+
+| Punto | Estado |
+|---|---|
+| Obtención de token SA con scope `androidpublisher` | ✅ Exitoso |
+| Error `ACCESS_TOKEN_SCOPE_INSUFFICIENT` | ✅ Resuelto (scope explícito) |
+| `applicationNotFound` (404) en `purchases.products.get` | 🕐 Propagación de permisos Play Console aún en curso |
+| `PERMISSION_DENIED` (403) en `inappproducts.list` | ✅ Esperado — ese endpoint requiere "Manage in-app products", no otorgado |
+
+**Interpretación:** Google retorna 404 (`applicationNotFound`) en lugar de 403 cuando el SA no tiene acceso al app todavía — comportamiento de seguridad intencional para no revelar si el package existe. El invite fue 2026-06-24 y la propagación puede tomar hasta 48h.
+
+**Acción pendiente:** Reintentar el 2026-06-26. El resultado exitoso será un `404` con error `productNotFound` o `purchaseTokenNotFound` (ya no `applicationNotFound`), confirmando que el SA ve el app y la autenticación funciona end-to-end.
 
 ---
 
