@@ -108,7 +108,7 @@ jobs:
 # ─────────────────────────────────────────────────────────────────────────────
   deploy-prod:
     name: Deploy → prod
-    needs: deploy-dev
+    needs: [build, deploy-dev]
     runs-on: ubuntu-latest
     environment: prod      # requires manual approval in GitHub → Settings → Environments
     permissions:
