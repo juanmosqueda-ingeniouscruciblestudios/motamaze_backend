@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_settings, verify_jwt
-from app.services.bq_streaming import stream_events
+from app.services.bq_streaming import stream_event, stream_events
 
 router = APIRouter(tags=["game"])
 
@@ -31,6 +31,15 @@ class BehaviorEvent(BaseModel):
 
 class BehaviorBatchRequest(BaseModel):
     events: list[BehaviorEvent]
+
+
+class LivesGrantRequest(BaseModel):
+    source: str                     # "iap" | "rewarded_ad_ssv" | "promo"
+    session_id: str
+    product_id: str | None = None   # required for source == "iap"
+    reward_token: str | None = None # required for source == "rewarded_ad_ssv"
+    ad_unit_id: str | None = None   # required for source == "rewarded_ad_ssv"
+    promo_code: str | None = None   # required for source == "promo"
 
 
 # ---------------------------------------------------------------------------
@@ -82,11 +91,122 @@ async def events_behavior(
     return Response(status_code=204)
 
 
+# ---------------------------------------------------------------------------
+# POST /lives/grant  (DATA-002 ST-09)
+# ---------------------------------------------------------------------------
+
+@router.post("/lives/grant")
+async def lives_grant(
+    body: LivesGrantRequest,
+    background_tasks: BackgroundTasks,
+    claims: dict = Depends(verify_jwt),
+    settings: Settings = Depends(get_settings),
+):
+    from fastapi import HTTPException
+
+    valid_sources = {"iap", "rewarded_ad_ssv", "promo"}
+    if body.source not in valid_sources:
+        raise HTTPException(400, detail={"error_code": "LIVES_GRANT_INVALID_SOURCE", "message": f"source must be one of {sorted(valid_sources)}"})
+
+    if body.source == "rewarded_ad_ssv" and (not body.reward_token or not body.ad_unit_id):
+        raise HTTPException(400, detail={"error_code": "LIVES_GRANT_MISSING_FIELDS", "message": "reward_token and ad_unit_id required for rewarded_ad_ssv"})
+    if body.source == "iap" and not body.product_id:
+        raise HTTPException(400, detail={"error_code": "LIVES_GRANT_MISSING_FIELDS", "message": "product_id required for iap"})
+    if body.source == "promo" and not body.promo_code:
+        raise HTTPException(400, detail={"error_code": "LIVES_GRANT_MISSING_FIELDS", "message": "promo_code required for promo"})
+
+    user_id = claims.get("uid", "")
+    now = datetime.now(timezone.utc)
+
+    # Determine BQ fields per source
+    entitlement_type = "life_pack"
+    quantity: int | None = 1
+
+    if body.source == "rewarded_ad_ssv":
+        # AdMob SSV token verification stub — GAME-002 will add cryptographic check
+        background_tasks.add_task(
+            stream_event, "ad_impressions",
+            {
+                "event_timestamp": now.isoformat(),
+                "event_date": now.date().isoformat(),
+                "user_id": user_id,
+                "session_id": body.session_id,
+                "platform": None,
+                "app_version": None,
+                "country": None,
+                "ad_unit_id": body.ad_unit_id,
+                "ad_type": "rewarded",
+                "event_type": "reward_earned",
+                "revenue_usd": None,
+                "ad_network": "admob",
+            },
+            settings.gcp_project_id, settings.bq_dataset,
+            row_id=f"ad_impression_{body.reward_token}",
+        )
+        entitlement_id = body.ad_unit_id
+        source_bq = "rewarded_ad_ssv"
+        granted_by = "admob_ssv"
+        dedup_entitlement = f"entitlement_ssv_{body.reward_token}"
+
+    elif body.source == "iap":
+        pid = body.product_id
+        if pid.startswith("lives_pack_"):
+            try:
+                quantity = int(pid.split("_")[-1])
+            except ValueError:
+                quantity = 0
+            entitlement_type = "life_pack"
+        elif pid == "no_ads":
+            entitlement_type = "no_ads"
+            quantity = None
+        elif pid.startswith("skin_"):
+            entitlement_type = "skin"
+            quantity = None
+        entitlement_id = pid
+        source_bq = "iap"
+        granted_by = "payment_verify"
+        dedup_entitlement = f"entitlement_iap_{pid}_{body.session_id}"
+
+    else:  # promo
+        entitlement_id = body.promo_code
+        source_bq = "promo_code"
+        granted_by = "backend_promo"
+        dedup_entitlement = f"entitlement_promo_{body.promo_code}_{user_id}"
+
+    background_tasks.add_task(
+        stream_event, "entitlement_grants",
+        {
+            "event_timestamp": now.isoformat(),
+            "event_date": now.date().isoformat(),
+            "user_id": user_id,
+            "session_id": body.session_id,
+            "platform": None,
+            "app_version": None,
+            "country": None,
+            "entitlement_type": entitlement_type,
+            "entitlement_id": entitlement_id,
+            "source": source_bq,
+            "granted_by": granted_by,
+            "quantity": quantity,
+        },
+        settings.gcp_project_id, settings.bq_dataset,
+        row_id=dedup_entitlement,
+    )
+
+    # GAME-002 will replace stub values with Firestore reads
+    return {
+        "granted": quantity or 1,
+        "current_lives": None,
+        "max_lives": None,
+        "next_regen_at": None,
+        "capped": False,
+    }
+
+
 # GET  /progress                — GAME-001
 # POST /progress/level-complete — GAME-001
 # GET  /lives                   — GAME-002
 # POST /lives/spend             — GAME-002
-# POST /lives/grant             — GAME-002
 # GET  /store/catalog           — GAME-003
 # GET  /profile                 — GAME-004
 # POST /profile/equip-skin      — GAME-004
