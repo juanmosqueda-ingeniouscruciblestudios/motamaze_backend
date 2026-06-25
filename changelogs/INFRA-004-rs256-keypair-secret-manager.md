@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / Security |
 | **Prioridad** | Alta — desbloquea AUTH-001 (firma de JWTs) |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03–05 pendientes INFRA-003 |
+| **Status** | ✅ Done — ST-01–05 completados (2026-06-24) |
 | **Fecha planeada** | 6/29/2026 |
 | **Fecha real inicio** | 2026-06-19 (ST-01–02 adelantados) |
 | **Workstream** | Infra/DevOps |
@@ -116,90 +116,105 @@ rm -rf /tmp/motamaze-keys
 
 ---
 
-### ST-03 — Implementar `GET /.well-known/jwks.json` ⬜ Pending INFRA-003
+### ST-03 — Implementar `GET /.well-known/jwks.json` ✅ Done (2026-06-24)
 
-**Depende de:** INFRA-003 (FastAPI scaffold + Cloud Run service)
+**Archivo creado:** `app/routers/well_known.py` (commit `92acd9a`)
 
-**Descripción del endpoint:**
-El endpoint extrae la clave pública de la privada en runtime (Secret Manager → python-jose → JWK) y la devuelve en formato JWKS estándar RFC 7517.
-
+**Implementación final:**
 ```python
-# app/routers/auth.py (fragmento — se implementa en AUTH-001)
-from fastapi import APIRouter
-from google.cloud import secretmanager
-from jose import jwk
-import json
+# app/routers/well_known.py
+import asyncio
+from fastapi import APIRouter, Depends
+from jose import jwk as jose_jwk
+from app.config import Settings
+from app.dependencies import get_settings
+from app.services import jwt_service
 
-router = APIRouter()
+router = APIRouter(tags=["Discovery"])
 
 @router.get("/.well-known/jwks.json")
-async def jwks():
-    client = secretmanager.SecretManagerServiceClient()
-    name = "projects/motamaze/secrets/jwt-private-key/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    private_key_pem = response.payload.data.decode("utf-8")
-
-    key = jwk.construct(private_key_pem, algorithm="RS256")
+async def jwks(settings: Settings = Depends(get_settings)):
+    pub_pem = await asyncio.to_thread(
+        jwt_service.get_public_key_pem,
+        settings.gcp_project_id,
+        settings.jwt_secret_name,
+    )
+    key = jose_jwk.construct(pub_pem, algorithm="RS256")
     public_jwk = key.public_key().to_dict()
-    public_jwk["kid"] = "motamaze-2026-v1"
+    public_jwk["kid"] = settings.jwt_key_id
     public_jwk["use"] = "sig"
-
+    public_jwk["alg"] = "RS256"
     return {"keys": [public_jwk]}
 ```
 
-**Formato de respuesta esperado:**
+**Decisiones de implementación:**
+
+| Decisión | Razón |
+|---|---|
+| `get_public_key_pem()` reutilizado de `jwt_service.py` | Deriva la pública de la privada en SM — no se almacena la pública por separado |
+| `asyncio.to_thread` | SM call es bloqueante; en cache miss (~300s TTL) evita bloquear el event loop |
+| `kid = settings.jwt_key_id` | Configurable via env var — permite rotación sin cambios de código |
+| Registrado en `main.py` antes de `auth.router` | Orden lógico: discovery antes de auth |
+
+**Formato de respuesta:**
 ```json
 {
-  "keys": [
-    {
-      "kty": "RSA",
-      "use": "sig",
-      "alg": "RS256",
-      "kid": "motamaze-2026-v1",
-      "n": "<base64url-encoded RSA modulus>",
-      "e": "AQAB"
-    }
-  ]
+  "keys": [{
+    "kty": "RSA",
+    "use": "sig",
+    "alg": "RS256",
+    "kid": "motamaze-key-v1",
+    "n": "<base64url RSA modulus>",
+    "e": "AQAB"
+  }]
 }
 ```
 
 ---
 
-### ST-04 — Wire signing con clave privada de Secret Manager ⬜ Pending INFRA-003
+### ST-04 — `jwt-private-key` en Secret Manager dev + signing wired ✅ Done (2026-06-24)
 
-**Depende de:** ST-03, INFRA-003
+**Keypair RS256 generado para `motamaze-dev` (keypair independiente de prod — aislamiento total):**
 
-**Patrón en FastAPI (AUTH-001):**
-```python
-# app/services/jwt_service.py
-from google.cloud import secretmanager
-from jose import jwt
-from datetime import datetime, timedelta, timezone
+```bash
+# Generar keypair dev
+openssl genrsa -out "$TEMP/jwt_dev_private.pem" 2048
+# RSA key ok
 
-def _get_private_key() -> str:
-    client = secretmanager.SecretManagerServiceClient()
-    name = "projects/motamaze/secrets/jwt-private-key/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("utf-8")
+# Habilitar SM API en dev
+gcloud services enable secretmanager.googleapis.com --project=motamaze-dev
 
-def create_access_token(sub: str, jti: str) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": sub,
-        "jti": jti,
-        "iat": now,
-        "exp": now + timedelta(seconds=900),  # 15 min
-        "iss": "https://api.motamaze.com",
-        "kid": "motamaze-2026-v1",
-    }
-    return jwt.encode(payload, _get_private_key(), algorithm="RS256")
+# Crear secret y subir
+gcloud secrets create jwt-private-key --project=motamaze-dev --replication-policy=automatic
+gcloud secrets versions add jwt-private-key \
+  --project=motamaze-dev --data-file="$TEMP/jwt_dev_private.pem"
+# → Created version [1] of the secret [jwt-private-key]
+
+# Eliminar archivo local inmediatamente
+rm -f "$TEMP/jwt_dev_private.pem"
 ```
 
-**Nota de performance:** La lectura de Secret Manager tiene ~50ms de latencia. Se implementará un cache en memoria (`functools.lru_cache` o `cachetools.TTLCache` con TTL=300s) para no llamar a Secret Manager en cada request.
+**Verificación:**
+```
+NAME  STATE
+1     enabled
+```
+
+**Signing ya wired en `jwt_service.py` (implementado en T-120):**
+- `_get_private_key()` → SM `versions/latest` con `TTLCache(maxsize=2, ttl=300)`
+- `create_access_token()` → `jwt.encode(..., algorithm="RS256", headers={"kid": key_id})`
+- `decode_access_token()` → `jwt.decode(..., algorithms=["RS256"])`
+
+**Env vars en `cicd.yml` (ya presentes desde CI-001 ST-04):**
+```yaml
+env_vars: |
+  GCP_PROJECT_ID=motamaze-dev   # dev apunta a motamaze-dev SM
+  GCP_PROJECT_ID=motamaze       # prod apunta a motamaze SM
+```
 
 ---
 
-### ST-05 — Documentar path de rotación de claves ⬜ Pending (puede hacerse antes de INFRA-003)
+### ST-05 — Documentar path de rotación de claves ✅ Done (2026-06-24)
 
 **Proceso de rotación:**
 
