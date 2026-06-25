@@ -124,9 +124,11 @@ async def revoke_session(
     session_id: str,
     jti: str,
     jti_exp: datetime,
-) -> None:
-    """Marks session as ended and adds JTI to the revocation list."""
+) -> tuple[datetime, int | None]:
+    """Marks session as ended and adds JTI to the revocation list.
+    Returns (ended_at, duration_secs) for BQ session_durations row."""
     now = datetime.now(timezone.utc)
+    duration: int | None = None
 
     snap = await db.collection("sessions").document(session_id).get()
     if snap.exists:
@@ -143,6 +145,8 @@ async def revoke_session(
         "revoked_at": now,
         "expires_at": jti_exp,
     })
+
+    return now, duration
 
 
 async def get_pending_oauth(db: AsyncClient, state_token: str) -> dict | None:

@@ -2,13 +2,14 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from google.cloud.firestore import AsyncClient
 from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
 from app.services import auth_service, jwt_service
+from app.services.bq_streaming import stream_event
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class RefreshResponse(BaseModel):
 @router.post("/login", response_model=LoginResponse)
 async def login(
     body: LoginRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncClient = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
 ):
@@ -112,6 +114,42 @@ async def login(
         secret_name=settings.jwt_secret_name,
         key_id=settings.jwt_key_id,
         issuer=settings.jwt_issuer,
+    )
+
+    now = datetime.now(timezone.utc)
+    background_tasks.add_task(
+        stream_event, "login_events",
+        {
+            "event_timestamp": now.isoformat(),
+            "event_date": now.date().isoformat(),
+            "user_id": user_id,
+            "session_id": session_id,
+            "platform": body.platform,
+            "app_version": body.app_version,
+            "country": body.country or "",
+            "login_method": f"{body.provider}_oauth",
+            "is_new_user": is_new_user,
+            "age_verified": False,
+            "device_model": body.device_model or "",
+            "os_version": body.os_version or "",
+        },
+        settings.gcp_project_id, settings.bq_dataset,
+        row_id=f"login_{session_id}",
+    )
+    background_tasks.add_task(
+        stream_event, "session_durations",
+        {
+            "event_timestamp": now.isoformat(),
+            "event_date": now.date().isoformat(),
+            "session_id": session_id,
+            "user_id": user_id,
+            "platform": body.platform,
+            "app_version": body.app_version,
+            "event_type": "session_start",
+            "session_duration_secs": None,
+        },
+        settings.gcp_project_id, settings.bq_dataset,
+        row_id=f"session_{session_id}_start",
     )
 
     return LoginResponse(
@@ -182,15 +220,34 @@ async def refresh(
 
 @router.post("/logout")
 async def logout(
+    background_tasks: BackgroundTasks,
     claims: dict = Depends(verify_jwt),
     db: AsyncClient = Depends(get_firestore_client),
+    settings: Settings = Depends(get_settings),
 ):
     jti = claims["jti"]
     session_id = claims.get("sid", "")
+    user_id = claims.get("uid", "")
     exp_ts = claims.get("exp", 0)
     jti_exp = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
 
-    await auth_service.revoke_session(db, session_id, jti, jti_exp)
+    ended_at, duration_secs = await auth_service.revoke_session(db, session_id, jti, jti_exp)
+
+    background_tasks.add_task(
+        stream_event, "session_durations",
+        {
+            "event_timestamp": ended_at.isoformat(),
+            "event_date": ended_at.date().isoformat(),
+            "session_id": session_id,
+            "user_id": user_id,
+            "platform": None,
+            "app_version": None,
+            "event_type": "session_end",
+            "session_duration_secs": duration_secs,
+        },
+        settings.gcp_project_id, settings.bq_dataset,
+        row_id=f"session_{session_id}_end",
+    )
 
     return {"message": "Session revoked"}
 
