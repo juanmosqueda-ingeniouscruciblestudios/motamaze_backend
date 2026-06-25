@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / Backend Foundation |
 | **Prioridad** | Alta — desbloquea todo el backend |
-| **Status** | ✅ Done — ST-01–06 completados (2026-06-24). Follow-up pendiente: org policy `iam.allowedPolicyMemberDomains` bloquea `allUsers` — requiere acción de org admin (Juan). |
+| **Status** | In Progress — ST-01–06 ✅ (2026-06-24), T-440 ⬜ (Share score backend — POST /share/create + GET /s/{token}). Follow-up pendiente: org policy `iam.allowedPolicyMemberDomains` bloquea `allUsers` — requiere acción de org admin (Juan). |
 | **Fecha planeada** | 2026-06-25 – 2026-06-26 |
 | **Fecha real inicio** | 2026-06-17 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
