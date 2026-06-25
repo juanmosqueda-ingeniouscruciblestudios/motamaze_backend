@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Dataflow & Outputs / Backend Implementation |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅ bq_streaming.py, ST-04 ✅ dedup, ST-05 ✅ login→BQ, ST-06 ✅ logout→BQ, ST-07–12 ⬜ |
+| **Status** | In Progress — ST-01–07 ✅, ST-08–12 ⬜ |
 | **Fecha planeada** | 2026-06-22 – 2026-06-23 |
 | **Workstream** | Dataflow & Outputs |
 | **Owner** | Saul Zavala Morin |
@@ -218,7 +218,7 @@ async def login(background_tasks: BackgroundTasks, ...):
 | ST-04 | Definir dedup keys y backfill-safety strategy | ✅ Done 2026-06-24 | ST-03 | `row_id` param en `stream_event`, estrategia por tabla documentada |
 | ST-05 | Integrar `POST /auth/login` → `login_events` + `session_durations` (session_start) | ✅ Done 2026-06-24 | ST-03, INFRA-003 ✅ | commit `2143994` |
 | ST-06 | Integrar `POST /auth/logout` → `session_durations` (session_end, duration_secs calculado) | ✅ Done 2026-06-24 | ST-03, INFRA-003 ✅ | `revoke_session` ahora retorna `(ended_at, duration_secs)` |
-| ST-07 | Integrar `POST /events/behavior` → `player_behavior` (batch) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-07 | Integrar `POST /events/behavior` → `player_behavior` (batch) | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `8898a33` — `stream_events()` batch + `BehaviorBatchRequest` model |
 | ST-08 | Integrar `POST /payments/*/verify` → `purchase_events` + `entitlement_grants` | ⬜ Pending | ST-03, INFRA-003 | Android + iOS |
 | ST-09 | Integrar `POST /lives/grant` → `ad_impressions` (SSV) + `entitlement_grants` | ⬜ Pending | ST-03, INFRA-003 | |
 | ST-10 | Integrar `DELETE /auth/account` → `account_deletions` | ⬜ Pending | ST-03, INFRA-003 | |
