@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / CI-CD |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅ AR+WIF+SA+Environments, ST-03 ✅ Build+push AR (5 runs), ST-04 🔄 billing desbloqueado + run.googleapis.com habilitada (2026-06-24), ST-05 ⬜ |
+| **Status** | ✅ Done — ST-01 ✅, ST-02 ✅, ST-03 ✅, ST-04 ✅ (2026-06-24), ST-05 ✅ pipeline verde run #19 (2026-06-24) |
 | **Fecha planeada** | 7/8–7/9/2026 |
 | **Fecha real inicio** | 2026-06-19 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
@@ -318,13 +318,51 @@ gcloud projects add-iam-policy-binding motamaze-dev \
   --role="roles/run.admin"
 ```
 
-**Run #18 — esperado ✅ (commit `...`):**
+**Run #18 — Deploy → dev ✅ PRIMER DEPLOY DEV EXITOSO (2026-06-24, commit `3a029c3`):**
+
+| Job | Resultado | Detalle |
+|---|---|---|
+| Build | ✅ 35 s | Cache hit |
+| Deploy → dev | ✅ 49 s | Primer deploy exitoso |
+| Deploy → prod | ❌ 27 s | `Missing required argument [--image]` — `needs: deploy-dev` sin `build` → output vacío |
+
+**URL dev:** `https://motamaze-backend-qxc5bjtn4q-uc.a.run.app`
+
+Fix para run #19: `needs: deploy-dev` → `needs: [build, deploy-dev]` + permisos en `motamaze` prod:
+```bash
+gcloud iam service-accounts add-iam-policy-binding game-api-backend@motamaze.iam.gserviceaccount.com \
+  --member="serviceAccount:github-actions@motamaze.iam.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser"
+gcloud projects add-iam-policy-binding motamaze \
+  --member="serviceAccount:github-actions@motamaze.iam.gserviceaccount.com" \
+  --role="roles/run.admin"
+```
+
+**Run #19 — Build ✅ · Deploy → dev ✅ · Deploy → prod ✅ PIPELINE COMPLETO (2026-06-24, commit `931d6c4`):**
+
+| Job | Resultado | Tiempo |
+|---|---|---|
+| Build | ✅ | 15 s (cache hit) |
+| Deploy → dev | ✅ | 40 s |
+| Deploy → prod | ✅ | 50 s (aprobado por Saul) |
+
+**URLs finales:**
+- **dev:** `https://motamaze-backend-qxc5bjtn4q-uc.a.run.app`
+- **prod:** `https://motamaze-backend-ghubi2atbq-uc.a.run.app`
+
+**Smoke test verificado (ambos entornos):**
+```
+GET /health → {"status":"ok"} ✅
+GET /ready  → {"status":"ready"} ✅
+```
+
+**Nota follow-up:** `--allow-unauthenticated` genera warning — org policy `constraints/iam.allowedPolicyMemberDomains` bloquea `allUsers` en la organización. Los servicios responden correctamente con identity token. Para producción pública este constraint debe removerse a nivel proyecto (o org).
 
 ---
 
-### ST-05 — Trigger deploy on merge and verify pipeline is green ⬜ Pending ST-04
+### ST-05 — Trigger deploy on merge and verify pipeline is green ✅ Done (2026-06-24)
 
-Ejecutar el primer push real al backend repo y verificar que todos los jobs pasan. Documentar la URL del primer deploy exitoso en Cloud Run.
+Pipeline end-to-end verde en run #19 (commit `931d6c4`). Build ✅ → Deploy dev ✅ → Deploy prod ✅ (aprobación manual). URLs verificadas con `/health` y `/ready`.
 
 ---
 

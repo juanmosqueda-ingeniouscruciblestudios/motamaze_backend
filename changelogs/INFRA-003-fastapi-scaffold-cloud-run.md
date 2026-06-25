@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / Backend Foundation |
 | **Prioridad** | Alta — desbloquea todo el backend |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅ scaffold + Dockerfile (2026-06-22), ST-03 ✅ /health + /ready implementados, ST-04–06 ⬜ bloqueados billing motamaze-dev |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅ scaffold + Dockerfile (2026-06-22), ST-03 ✅ /health + /ready, ST-04 ✅ CI pipeline verde dev+prod (2026-06-24), ST-05 🔄 ADC verify, ST-06 ⬜ smoke test auth |
 | **Fecha planeada** | 2026-06-25 – 2026-06-26 |
 | **Fecha real inicio** | 2026-06-17 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
