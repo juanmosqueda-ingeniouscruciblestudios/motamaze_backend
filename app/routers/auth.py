@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from google.cloud.firestore import AsyncClient
 from pydantic import BaseModel
 
@@ -270,4 +271,61 @@ async def pending(
     return state
 
 
-# DELETE /auth/account         — T-123
+# ---------------------------------------------------------------------------
+# DELETE /auth/account  (DATA-002 ST-10 / T-123)
+# ---------------------------------------------------------------------------
+
+@router.delete("/account")
+async def delete_account(
+    background_tasks: BackgroundTasks,
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+    settings: Settings = Depends(get_settings),
+):
+    user_id = claims.get("uid", "")
+    jti = claims["jti"]
+    session_id = claims.get("sid", "")
+    exp_ts = claims.get("exp", 0)
+    jti_exp = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+
+    # 409 if deletion already pending
+    user_snap = await db.collection("users").document(user_id).get()
+    if user_snap.exists:
+        data = user_snap.to_dict() or {}
+        if data.get("delete_requested_at") is not None:
+            raise HTTPException(
+                409,
+                detail={"error_code": "AUTH_DELETION_PENDING", "message": "Account deletion already in progress"},
+            )
+
+    now = datetime.now(timezone.utc)
+    deletion_id = f"del_{uuid.uuid4().hex[:8]}"
+
+    # Mark user synchronously — source of truth for duplicate check
+    await db.collection("users").document(user_id).update({"delete_requested_at": now})
+
+    # Revoke current session immediately
+    await auth_service.revoke_session(db, session_id, jti, jti_exp)
+
+    # BQ: account_deletions row (best-effort background task)
+    background_tasks.add_task(
+        stream_event, "account_deletions",
+        {
+            "requested_at": now.isoformat(),
+            "request_date": now.date().isoformat(),
+            "user_id": user_id,
+            "platform": None,
+            "request_source": "user_request",
+            "status": "pending",
+            "completed_at": None,
+            "tables_purged": [],
+            "notes": deletion_id,
+        },
+        settings.gcp_project_id, settings.bq_dataset,
+        row_id=f"deletion_{user_id}",
+    )
+
+    return JSONResponse(
+        status_code=202,
+        content={"message": "Account deletion queued", "deletion_id": deletion_id},
+    )
