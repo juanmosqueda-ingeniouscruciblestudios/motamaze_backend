@@ -42,6 +42,14 @@ class LivesGrantRequest(BaseModel):
     promo_code: str | None = None   # required for source == "promo"
 
 
+class LevelCompleteRequest(BaseModel):
+    level_id: int
+    score: int
+    stars_earned: int
+    duration_secs: int
+    session_id: str
+
+
 # ---------------------------------------------------------------------------
 # POST /events/behavior  (DATA-002 ST-07)
 # ---------------------------------------------------------------------------
@@ -203,8 +211,66 @@ async def lives_grant(
     }
 
 
+# ---------------------------------------------------------------------------
+# POST /progress/level-complete  (DATA-002 ST-11)
+# ---------------------------------------------------------------------------
+
+@router.post("/progress/level-complete")
+async def level_complete(
+    body: LevelCompleteRequest,
+    background_tasks: BackgroundTasks,
+    claims: dict = Depends(verify_jwt),
+    settings: Settings = Depends(get_settings),
+):
+    from fastapi import HTTPException
+
+    if not (1 <= body.level_id <= 30):
+        raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_LEVEL", "message": "level_id must be between 1 and 30"})
+    if not (1 <= body.stars_earned <= 3):
+        raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_STARS", "message": "stars_earned must be between 1 and 3"})
+    if body.score < 0:
+        raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_SCORE", "message": "score must be >= 0"})
+
+    user_id = claims.get("uid", "")
+    now = datetime.now(timezone.utc)
+
+    background_tasks.add_task(
+        stream_event, "player_behavior",
+        {
+            "event_timestamp": now.isoformat(),
+            "event_date": now.date().isoformat(),
+            "user_id": user_id,
+            "session_id": body.session_id,
+            "event_name": "level_complete",
+            "platform": None,
+            "app_version": None,
+            "country": None,
+            "level_id": body.level_id,
+            "score": body.score,
+            "stars_earned": body.stars_earned,
+            "duration_secs": body.duration_secs,
+            "npc_type": None,
+            "extra_json": None,
+        },
+        settings.gcp_project_id, settings.bq_dataset,
+        row_id=f"level_complete_{body.session_id}_{body.level_id}_{body.score}",
+    )
+
+    # GAME-001 will replace stub values with Firestore reads/writes
+    return {
+        "level_id": body.level_id,
+        "stars_earned": body.stars_earned,
+        "best_score": body.score,
+        "new_best": True,
+        "next_level_unlocked": body.level_id + 1 if body.level_id < 30 else None,
+        "highest_unlocked_level": body.level_id + 1 if body.level_id < 30 else 30,
+        "total_stars": None,
+        "season_stars_earned": None,
+        "total_season_stars": None,
+    }
+
+
 # GET  /progress                — GAME-001
-# POST /progress/level-complete — GAME-001
 # GET  /lives                   — GAME-002
 # POST /lives/spend             — GAME-002
 # GET  /store/catalog           — GAME-003
