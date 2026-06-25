@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / Backend Foundation |
 | **Prioridad** | Alta — desbloquea todo el backend |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅ scaffold + Dockerfile (2026-06-22), ST-03 ✅ /health + /ready, ST-04 ✅ CI pipeline verde dev+prod (2026-06-24), ST-05 🔄 ADC verify, ST-06 ⬜ smoke test auth |
+| **Status** | ✅ Done — ST-01–06 completados (2026-06-24). Follow-up pendiente: org policy `iam.allowedPolicyMemberDomains` bloquea `allUsers` — requiere acción de org admin (Juan). |
 | **Fecha planeada** | 2026-06-25 – 2026-06-26 |
 | **Fecha real inicio** | 2026-06-17 (ST-01 adelantado) |
 | **Workstream** | Infra/DevOps |
@@ -223,47 +223,65 @@ gcloud run deploy motamaze-backend \
 
 ---
 
-### ST-05 — Verificar ADC en Cloud Run ⬜ Pending
+### ST-05 — Verificar ADC en Cloud Run ✅ Done (2026-06-24)
 
-**Depende de:** ST-04
+**SA asignados a los servicios (verificado vía `gcloud run services describe`):**
 
-**Por qué:** Application Default Credentials (ADC) en Cloud Run funcionan automáticamente cuando el service account está asignado al servicio. Pero hay que verificar que los roles IAM del SA permitan acceder a Firestore y BQ — ya asignados en INFRA-001 ST-07.
+| Entorno | SA asignado |
+|---|---|
+| dev | `game-api-backend@motamaze-dev.iam.gserviceaccount.com` |
+| prod | `game-api-backend@motamaze.iam.gserviceaccount.com` |
 
-**Verificación de roles del SA (ya deben estar presentes desde INFRA-001):**
-```bash
-gcloud projects get-iam-policy motamaze \
-  --flatten="bindings[].members" \
-  --filter="bindings.members:game-api-backend" \
-  --format="table(bindings.role)"
-```
+**Roles IAM confirmados (verificado vía `gcloud projects get-iam-policy`):**
 
-**Roles esperados:**
-- `roles/datastore.user` — Firestore read/write
-- `roles/bigquery.dataEditor` — BQ streaming insert
-- `roles/bigquery.jobUser` — BQ job execution
-- `roles/storage.objectAdmin` — Cloud Storage
-- `roles/secretmanager.secretAccessor` — Secret Manager
+| Rol | Propósito | dev | prod |
+|---|---|---|---|
+| `roles/datastore.user` | Firestore read/write | ✅ | ✅ |
+| `roles/secretmanager.secretAccessor` | JWT private key en SM | ✅ | ✅ |
+| `roles/bigquery.dataEditor` | BQ streaming insert | ✅ | ✅ |
+| `roles/bigquery.jobUser` | BQ job execution | ✅ | ✅ |
+| `roles/cloudtrace.agent` | Cloud Trace | ✅ | ✅ |
+| `roles/storage.objectAdmin` | Cloud Storage | ✅ | ✅ |
+
+**Nota dev:** `game-api-backend@motamaze-dev` fue creado manualmente (2026-06-24) ya que `terraform apply dev` (INFRA-006 ST-04) aún no ha corrido. Roles asignados manualmente — terraform los formalizará como IaC al ejecutarse.
+
+**Resultado:** ADC funciona automáticamente en Cloud Run — ninguna credencial hardcodeada. Acceso a Firestore y Secret Manager confirmado vía roles asignados.
+
+**Org policy follow-up:** `constraints/iam.allowedPolicyMemberDomains` en la org (`646645590967`) permite solo el customer ID `C02ivdgx6`. Esto bloquea `allUsers` como miembro IAM → `--allow-unauthenticated` produce warning en el deploy y el servicio queda privado. Requiere acción del admin de la org (Juan) para añadir excepción a nivel proyecto o eliminar el constraint. Los servicios responden correctamente con identity token mientras tanto.
 
 ---
 
-### ST-06 — Smoke test: `/health` y `/ready` → 200 OK ⬜ Pending
+### ST-06 — Smoke test: `/health` y `/ready` → 200 OK ✅ Done (2026-06-24)
 
-**Depende de:** ST-05
-
-**Verificación final:**
+**Comandos ejecutados:**
 ```bash
-# Obtener URL del servicio
-URL=$(gcloud run services describe motamaze-backend \
-  --region us-central1 \
-  --project motamaze \
-  --format="value(status.url)")
+TOKEN=$(gcloud auth print-identity-token)
 
-curl -s "$URL/health"
-# Esperado: {"status":"ok"}
+# dev
+curl -s -w "\nHTTP %{http_code}" -H "Authorization: Bearer $TOKEN" \
+  https://motamaze-backend-qxc5bjtn4q-uc.a.run.app/health
+curl -s -w "\nHTTP %{http_code}" -H "Authorization: Bearer $TOKEN" \
+  https://motamaze-backend-qxc5bjtn4q-uc.a.run.app/ready
 
-curl -s "$URL/ready"
-# Esperado: {"status":"ready"}
+# prod
+curl -s -w "\nHTTP %{http_code}" -H "Authorization: Bearer $TOKEN" \
+  https://motamaze-backend-ghubi2atbq-uc.a.run.app/health
+curl -s -w "\nHTTP %{http_code}" -H "Authorization: Bearer $TOKEN" \
+  https://motamaze-backend-ghubi2atbq-uc.a.run.app/ready
 ```
+
+**Resultados obtenidos:**
+
+| Endpoint | Entorno | Respuesta | HTTP |
+|---|---|---|---|
+| `GET /health` | dev | `{"status":"ok"}` | 200 ✅ |
+| `GET /ready` | dev | `{"status":"ready"}` | 200 ✅ |
+| `GET /health` | prod | `{"status":"ok"}` | 200 ✅ |
+| `GET /ready` | prod | `{"status":"ready"}` | 200 ✅ |
+
+**URLs finales:**
+- **dev:** `https://motamaze-backend-qxc5bjtn4q-uc.a.run.app`
+- **prod:** `https://motamaze-backend-ghubi2atbq-uc.a.run.app`
 
 ---
 
