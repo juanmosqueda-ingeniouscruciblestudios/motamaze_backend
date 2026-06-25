@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Dataflow & Outputs / Backend Implementation |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01–10 ✅, ST-11–12 ⬜ |
+| **Status** | In Progress — ST-01–11 ✅, ST-12 ⬜ |
 | **Fecha planeada** | 2026-06-22 – 2026-06-23 |
 | **Workstream** | Dataflow & Outputs |
 | **Owner** | Saul Zavala Morin |
@@ -222,7 +222,7 @@ async def login(background_tasks: BackgroundTasks, ...):
 | ST-08 | Integrar `POST /payments/*/verify` → `purchase_events` + `entitlement_grants` | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `fdc7da9` — Android + iOS, `_infer_entitlement`, dedup por token/transaction_id. Stub PAY-001. |
 | ST-09 | Integrar `POST /lives/grant` → `ad_impressions` (SSV) + `entitlement_grants` | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `1295939` — 3 sources: rewarded_ad_ssv (2 BG tasks), iap + promo (1 BG task) |
 | ST-10 | Integrar `DELETE /auth/account` → `account_deletions` | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `62250da` — 409 check, Firestore marca síncrona, sesión revocada, 202 + deletion_id |
-| ST-11 | Integrar `POST /progress/level-complete` → `player_behavior` (event: level_complete) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-11 | Integrar `POST /progress/level-complete` → `player_behavior` (event: level_complete) | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `6a1525d` — validaciones field + dedup level_complete_{sid}_{lvl}_{score} |
 | ST-12 | Monitor y confirmar que datos llegan a BigQuery — query de verificación por tabla | ⬜ Pending | ST-05–11, INFRA-003 deployed | `SELECT * FROM login_events LIMIT 1` + verificar las 8 tablas |
 
 ---
