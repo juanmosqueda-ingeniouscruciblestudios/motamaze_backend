@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Dataflow & Outputs / Backend Implementation |
 | **Prioridad** | Alta |
-| **Status** | In Progress — iniciado 2026-06-17 |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅ bq_streaming.py, ST-04 ✅ dedup, ST-05 ✅ login→BQ, ST-06 ✅ logout→BQ, ST-07–12 ⬜ |
 | **Fecha planeada** | 2026-06-22 – 2026-06-23 |
 | **Workstream** | Dataflow & Outputs |
 | **Owner** | Saul Zavala Morin |
@@ -214,10 +214,10 @@ async def login(background_tasks: BackgroundTasks, ...):
 |---|---|---|---|---|
 | ST-01 | Diseño de arquitectura: BackgroundTasks + BQ Streaming Insert | ✅ Done 2026-06-17 | DATA-001 ✅ | Descartadas Pub/Sub y Firebase Extension para MVP |
 | ST-02 | Alinear endpoint → tabla mapping con REST-001 | ✅ Done 2026-06-18 (actualizado 2026-06-22) | REST-001 ✅ | 3 gaps resueltos (2026-06-18). +2 endpoints Dominio 5 (2026-06-22): `POST /leaderboard/score` → `player_behavior` (anomaly detection), `POST /season/claim-reward` → `entitlement_grants` |
-| ST-03 | Implementar `app/services/bq_streaming.py` con retry logic | ⬜ Pending | INFRA-003 repo | Código pre-diseñado en doc — integrar cuando exista el repo |
-| ST-04 | Definir dedup keys y backfill-safety strategy | ⬜ Pending | ST-03 | |
-| ST-05 | Integrar `POST /auth/login` → `login_events` + `session_durations` (session_start) | ⬜ Pending | ST-03, INFRA-003 | |
-| ST-06 | Integrar `POST /auth/logout` → `session_durations` (session_end, duration_secs calculado) | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-03 | Implementar `app/services/bq_streaming.py` con retry logic | ✅ Done 2026-06-24 | INFRA-003 ✅ | commit `2143994` |
+| ST-04 | Definir dedup keys y backfill-safety strategy | ✅ Done 2026-06-24 | ST-03 | `row_id` param en `stream_event`, estrategia por tabla documentada |
+| ST-05 | Integrar `POST /auth/login` → `login_events` + `session_durations` (session_start) | ✅ Done 2026-06-24 | ST-03, INFRA-003 ✅ | commit `2143994` |
+| ST-06 | Integrar `POST /auth/logout` → `session_durations` (session_end, duration_secs calculado) | ✅ Done 2026-06-24 | ST-03, INFRA-003 ✅ | `revoke_session` ahora retorna `(ended_at, duration_secs)` |
 | ST-07 | Integrar `POST /events/behavior` → `player_behavior` (batch) | ⬜ Pending | ST-03, INFRA-003 | |
 | ST-08 | Integrar `POST /payments/*/verify` → `purchase_events` + `entitlement_grants` | ⬜ Pending | ST-03, INFRA-003 | Android + iOS |
 | ST-09 | Integrar `POST /lives/grant` → `ad_impressions` (SSV) + `entitlement_grants` | ⬜ Pending | ST-03, INFRA-003 | |
