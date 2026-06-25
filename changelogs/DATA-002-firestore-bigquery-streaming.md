@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Dataflow & Outputs / Backend Implementation |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01–08 ✅, ST-09–12 ⬜ |
+| **Status** | In Progress — ST-01–09 ✅, ST-10–12 ⬜ |
 | **Fecha planeada** | 2026-06-22 – 2026-06-23 |
 | **Workstream** | Dataflow & Outputs |
 | **Owner** | Saul Zavala Morin |
@@ -220,7 +220,7 @@ async def login(background_tasks: BackgroundTasks, ...):
 | ST-06 | Integrar `POST /auth/logout` → `session_durations` (session_end, duration_secs calculado) | ✅ Done 2026-06-24 | ST-03, INFRA-003 ✅ | `revoke_session` ahora retorna `(ended_at, duration_secs)` |
 | ST-07 | Integrar `POST /events/behavior` → `player_behavior` (batch) | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `8898a33` — `stream_events()` batch + `BehaviorBatchRequest` model |
 | ST-08 | Integrar `POST /payments/*/verify` → `purchase_events` + `entitlement_grants` | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `fdc7da9` — Android + iOS, `_infer_entitlement`, dedup por token/transaction_id. Stub PAY-001. |
-| ST-09 | Integrar `POST /lives/grant` → `ad_impressions` (SSV) + `entitlement_grants` | ⬜ Pending | ST-03, INFRA-003 | |
+| ST-09 | Integrar `POST /lives/grant` → `ad_impressions` (SSV) + `entitlement_grants` | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `1295939` — 3 sources: rewarded_ad_ssv (2 BG tasks), iap + promo (1 BG task) |
 | ST-10 | Integrar `DELETE /auth/account` → `account_deletions` | ⬜ Pending | ST-03, INFRA-003 | |
 | ST-11 | Integrar `POST /progress/level-complete` → `player_behavior` (event: level_complete) | ⬜ Pending | ST-03, INFRA-003 | |
 | ST-12 | Monitor y confirmar que datos llegan a BigQuery — query de verificación por tabla | ⬜ Pending | ST-05–11, INFRA-003 deployed | `SELECT * FROM login_events LIMIT 1` + verificar las 8 tablas |
