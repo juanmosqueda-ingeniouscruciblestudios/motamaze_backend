@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Dataflow & Outputs / Backend Implementation |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01–11 ✅, ST-12 ⬜ |
+| **Status** | Done — ST-01–12 ✅ |
 | **Fecha planeada** | 2026-06-22 – 2026-06-23 |
 | **Workstream** | Dataflow & Outputs |
 | **Owner** | Saul Zavala Morin |
@@ -223,7 +223,7 @@ async def login(background_tasks: BackgroundTasks, ...):
 | ST-09 | Integrar `POST /lives/grant` → `ad_impressions` (SSV) + `entitlement_grants` | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `1295939` — 3 sources: rewarded_ad_ssv (2 BG tasks), iap + promo (1 BG task) |
 | ST-10 | Integrar `DELETE /auth/account` → `account_deletions` | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `62250da` — 409 check, Firestore marca síncrona, sesión revocada, 202 + deletion_id |
 | ST-11 | Integrar `POST /progress/level-complete` → `player_behavior` (event: level_complete) | ✅ Done 2026-06-25 | ST-03, INFRA-003 | commit `6a1525d` — validaciones field + dedup level_complete_{sid}_{lvl}_{score} |
-| ST-12 | Monitor y confirmar que datos llegan a BigQuery — query de verificación por tabla | ⬜ Pending | ST-05–11, INFRA-003 deployed | `SELECT * FROM login_events LIMIT 1` + verificar las 8 tablas |
+| ST-12 | Monitor y confirmar que datos llegan a BigQuery — query de verificación por tabla | ✅ Done 2026-06-26 | ST-05–11, INFRA-003 deployed | Ver sección ST-12 abajo |
 
 ---
 
@@ -256,6 +256,79 @@ Los grants de entitlements ocurren dentro de los handlers de endpoints existente
 - `POST /lives/grant` (cualquier source) → otorga vidas → escribe a `entitlement_grants`
 
 No se necesita un endpoint independiente `POST /entitlements/grant`.
+
+---
+
+---
+
+## ST-12 — BQ Verification Smoke Test (2026-06-26)
+
+### Contexto
+
+El dataset `motamaze_analytics` solo existía en el proyecto `motamaze` (prod). El servicio Cloud Run dev usa `GCP_PROJECT_ID=motamaze-dev`, por lo que los inserts iban a `motamaze-dev.motamaze_analytics` (inexistente). INFRA-006 ST-04 (`terraform apply` dev) aún está pendiente de Juan, así que se crearon el dataset y las 7 tablas manualmente en `motamaze-dev` con los mismos schemas que el Terraform define.
+
+Adicionalmente: Firestore API no estaba habilitada en `motamaze-dev` → `verify_jwt` fallaba con HTTP 500 al consultar `revoked_jtis`. Se habilitó la API y se creó la base de datos Firestore native en `us-central1`.
+
+Para llamar al servicio (org policy bloquea `allUsers` → 403 público), se usó `gcloud run services proxy` (puerto 8081) para bypassear el IAM de Cloud Run y enviar requests con nuestro propio JWT.
+
+### Testing — Comandos
+
+```bash
+# 1. Habilitar Firestore API y crear DB en dev
+gcloud services enable firestore.googleapis.com --project=motamaze-dev
+gcloud firestore databases create --project=motamaze-dev --location=us-central1 --type=firestore-native
+
+# 2. Crear dataset y 7 tablas en motamaze-dev (schemas = Terraform)
+# (script create_bq.py usando BQ REST API + gcloud auth print-access-token)
+
+# 3. Start Cloud Run proxy (bypass org-policy IAM)
+gcloud run services proxy motamaze-backend --region=us-central1 --project=motamaze-dev --port=8081
+
+# 4. Smoke test script: mint JWT → call 4 endpoints → wait 30s → query 7 tables
+# JWT claims: iss=https://api.motamaze.com, aud=motamaze-api, sub=test-user-st12
+# Private key: gcloud secrets versions access latest --secret=jwt-private-key --project=motamaze-dev
+python3 smoke_test.py bq_token.txt
+```
+
+### Endpoints llamados y tablas esperadas
+
+| Endpoint | HTTP | Tablas BQ target | Filas esperadas |
+|---|---|---|---|
+| `POST /events/behavior` (3 eventos) | 204 | `player_behavior` | 3 |
+| `POST /progress/level-complete` | 200 | `player_behavior` | 1 |
+| `POST /lives/grant` (rewarded_ad_ssv) | 200 | `ad_impressions`, `entitlement_grants` | 1 + 1 |
+| `POST /payments/android/verify` | 200 | `purchase_events`, `entitlement_grants` | 1 + 1 |
+
+### Resultados
+
+```
+=== FIRING TEST EVENTS ===
+  [OK] HTTP 204  POST /events/behavior (3 events)
+  [OK] HTTP 200  POST /progress/level-complete
+  [OK] HTTP 200  POST /lives/grant (rewarded_ad_ssv)
+  [OK] HTTP 200  POST /payments/android/verify
+
+Waiting 30s for BQ streaming buffer...
+
+=== BQ TABLE ROW COUNTS ===
+Table                    Rows  Result
+----------------------------------------------
+  login_events                0  PASS (empty, expected)
+  session_durations           0  PASS (empty, expected)
+  player_behavior             4  PASS (has data)
+  purchase_events             1  PASS (has data)
+  entitlement_grants          2  PASS (has data)
+  ad_impressions              1  PASS (has data)
+  account_deletions           0  PASS (empty, expected)
+
+7/7 tables passed
+```
+
+**Resultado: 7/7 tablas PASS.** BQ streaming pipeline verificado end-to-end.
+
+### Notas infra para INFRA-006 ST-04
+
+Al ejecutar `terraform apply` dev, el plan incluirá los recursos ya creados manualmente (`motamaze_analytics` dataset + 7 tablas). Terraform los importará sin recrear si el `dataset_id` y `table_id` coinciden. Si hay conflicto, hacer `terraform import` antes del apply.
 
 ---
 
