@@ -16,3 +16,11 @@ docs/*.xlsx
 *.tfstate
 *.tfstate.backup
 *.tfplan
+
+# Design assets — stored in Cloudinary, not in git
+*.png
+*.jpg
+*.webp
+Music_SFXs/
+Music_SFXs.zip
+docs/*.pdf
