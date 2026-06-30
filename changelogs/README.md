@@ -10,6 +10,7 @@
 | [REST-001](REST-001-rest-api-contract.md) | rest-api-contract | Planning | ✅ Done — ST-01–08 ✅ (sign-off Juan commit 9216611, 2026-06-22) | 2026-06-22 |
 | [INFRA-003](INFRA-003-fastapi-scaffold-cloud-run.md) | fastapi-scaffold-cloud-run | Infra/DevOps | ✅ Done — ST-01–06 ✅ (Cloud Run dev+prod live 2026-06-24), T-440 ✅ (2026-06-30) | 2026-06-30 |
 | [T-440](T-440-share-score-backend.md) | share-score-backend | Social | Done — ST-01 ✅ POST /share/create + GET /s/{token} + GET /ogimg/{token} (2026-06-30); ST-02 integration tests ⬜ pending deploy | 2026-06-30 |
+| [T-210](T-210-progress-backend.md) | progress-backend | Game Services | Done — GET /progress ✅ + POST /progress/level-complete ✅ Firestore completo (2026-06-30); ST-02 integration tests ⬜ pending deploy | 2026-06-30 |
 | [DATA-002](DATA-002-firestore-bigquery-streaming.md) | firestore-bigquery-streaming | Dataflow & Outputs | Done — ST-01–12 ✅ (BQ streaming verificado end-to-end 2026-06-26) | 2026-06-26 |
 | [INFRA-004](INFRA-004-rs256-keypair-secret-manager.md) | rs256-keypair-secret-manager | Infra/DevOps | ✅ Done — ST-01–05 ✅, JWKS endpoint live, jwt-private-key en dev+prod SM (2026-06-24) | 2026-06-24 |
 | [INFRA-005](INFRA-005-firestore-schema-security-rules.md) | firestore-schema-security-rules | Infra/DevOps | In Progress — ST-01 ✅ schema 6 colecciones, ST-02 ✅ deny-all rules en prod, ST-03 ⬜ tests pendientes INFRA-003, ST-04 ✅ DATA_MODEL.md | 2026-06-19 |
