@@ -1,12 +1,14 @@
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import Response
+from google.cloud.firestore import AsyncClient
 from pydantic import BaseModel
 
 from app.config import Settings
-from app.dependencies import get_settings, verify_jwt
+from app.dependencies import get_firestore_client, get_settings, verify_jwt
 from app.services.bq_streaming import stream_event, stream_events
 
 router = APIRouter(tags=["game"])
@@ -110,8 +112,6 @@ async def lives_grant(
     claims: dict = Depends(verify_jwt),
     settings: Settings = Depends(get_settings),
 ):
-    from fastapi import HTTPException
-
     valid_sources = {"iap", "rewarded_ad_ssv", "promo"}
     if body.source not in valid_sources:
         raise HTTPException(400, detail={"error_code": "LIVES_GRANT_INVALID_SOURCE", "message": f"source must be one of {sorted(valid_sources)}"})
@@ -212,7 +212,50 @@ async def lives_grant(
 
 
 # ---------------------------------------------------------------------------
-# POST /progress/level-complete  (DATA-002 ST-11)
+# GET /progress  (T-210 / GAME-001)
+# ---------------------------------------------------------------------------
+
+@router.get("/progress")
+async def get_progress(
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+    settings: Settings = Depends(get_settings),
+):
+    user_id = claims.get("uid", "")
+
+    progress_snap, season_snap = await asyncio.gather(
+        db.collection("progress").document(user_id).get(),
+        db.collection("season_progress").document(user_id).get(),
+    )
+
+    if progress_snap.exists:
+        prog = progress_snap.to_dict()
+        levels = prog.get("levels", {})
+        best_level = prog.get("best_level", 0)
+        total_stars = sum(v.get("stars", 0) for v in levels.values())
+    else:
+        levels = {}
+        best_level = 0
+        total_stars = 0
+
+    season_stars = 0
+    if season_snap.exists:
+        sd = season_snap.to_dict()
+        if sd.get("season_id") == settings.active_season_id:
+            season_stars = sd.get("season_stars", 0)
+
+    return {
+        "best_level": best_level,
+        "highest_unlocked_level": min(best_level + 1, 30),
+        "total_stars": total_stars,
+        "levels": levels,
+        "season_id": settings.active_season_id,
+        "season_stars": season_stars,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /progress/level-complete  (T-210 / GAME-001 — completes DATA-002 ST-11 stub)
 # ---------------------------------------------------------------------------
 
 @router.post("/progress/level-complete")
@@ -220,10 +263,9 @@ async def level_complete(
     body: LevelCompleteRequest,
     background_tasks: BackgroundTasks,
     claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
 ):
-    from fastapi import HTTPException
-
     if not (1 <= body.level_id <= 30):
         raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_LEVEL", "message": "level_id must be between 1 and 30"})
     if not (1 <= body.stars_earned <= 3):
@@ -233,7 +275,81 @@ async def level_complete(
 
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
+    level_key = f"level_{body.level_id}"
 
+    # --- Read progress/{uid} ---
+    progress_ref = db.collection("progress").document(user_id)
+    progress_snap = await progress_ref.get()
+
+    if not progress_snap.exists:
+        if body.level_id != 1:
+            raise HTTPException(403, detail={"error_code": "PROGRESS_LEVEL_LOCKED", "message": "Complete earlier levels first"})
+        existing_best_level = 0
+        existing_level_data: dict = {}
+        existing_total_stars = 0
+    else:
+        prog = progress_snap.to_dict()
+        existing_best_level = prog.get("best_level", 0)
+        if body.level_id > existing_best_level + 1:
+            raise HTTPException(403, detail={"error_code": "PROGRESS_LEVEL_LOCKED", "message": "Complete earlier levels first"})
+        existing_level_data = prog.get("levels", {}).get(level_key, {})
+        existing_total_stars = sum(v.get("stars", 0) for v in prog.get("levels", {}).values())
+
+    existing_stars     = existing_level_data.get("stars", 0)
+    existing_score     = existing_level_data.get("best_score", 0)
+    existing_completed = existing_level_data.get("completed_at")
+
+    new_stars     = max(existing_stars, body.stars_earned)
+    new_score     = max(existing_score, body.score)
+    stars_delta   = max(0, body.stars_earned - existing_stars)
+    new_best_level = max(existing_best_level, body.level_id)
+    newly_unlocked = body.level_id > existing_best_level
+    new_best      = (not existing_completed) or (body.score > existing_score)
+    total_stars   = existing_total_stars - existing_stars + new_stars
+
+    # --- Write progress/{uid} ---
+    level_doc = {
+        "stars": new_stars,
+        "best_score": new_score,
+        "completed_at": existing_completed or now,
+    }
+    if not progress_snap.exists:
+        await progress_ref.set({
+            "uid": user_id,
+            "best_level": new_best_level,
+            "levels": {level_key: level_doc},
+            "updated_at": now,
+        })
+    else:
+        await progress_ref.update({
+            f"levels.{level_key}": level_doc,
+            "best_level": new_best_level,
+            "updated_at": now,
+        })
+
+    # --- Update season_progress/{uid} ---
+    season_ref = db.collection("season_progress").document(user_id)
+    season_snap = await season_ref.get()
+
+    if not season_snap.exists:
+        total_season_stars = stars_delta
+        await season_ref.set({
+            "uid": user_id,
+            "season_id": settings.active_season_id,
+            "season_stars": total_season_stars,
+            "has_gold_pass": False,
+            "free_rewards_claimed": [],
+            "gold_rewards_claimed": [],
+            "updated_at": now,
+        })
+    else:
+        sd = season_snap.to_dict()
+        current = sd.get("season_stars", 0) if sd.get("season_id") == settings.active_season_id else 0
+        total_season_stars = current + stars_delta
+        if stars_delta > 0:
+            await season_ref.update({"season_stars": total_season_stars, "updated_at": now})
+
+    # --- BQ streaming (background, unchanged from DATA-002 ST-11) ---
     background_tasks.add_task(
         stream_event, "player_behavior",
         {
@@ -256,23 +372,21 @@ async def level_complete(
         row_id=f"level_complete_{body.session_id}_{body.level_id}_{body.score}",
     )
 
-    # GAME-001 will replace stub values with Firestore reads/writes
     return {
-        "level_id": body.level_id,
-        "stars_earned": body.stars_earned,
-        "best_score": body.score,
-        "new_best": True,
-        "next_level_unlocked": body.level_id + 1 if body.level_id < 30 else None,
-        "highest_unlocked_level": body.level_id + 1 if body.level_id < 30 else 30,
-        "total_stars": None,
-        "season_stars_earned": None,
-        "total_season_stars": None,
+        "level_id":             body.level_id,
+        "stars_earned":         body.stars_earned,
+        "best_score":           new_score,
+        "new_best":             new_best,
+        "next_level_unlocked":  new_best_level + 1 if newly_unlocked and new_best_level < 30 else None,
+        "highest_unlocked_level": min(new_best_level + 1, 30),
+        "total_stars":          total_stars,
+        "season_stars_earned":  stars_delta,
+        "total_season_stars":   total_season_stars,
     }
 
 
-# GET  /progress                — GAME-001
-# GET  /lives                   — GAME-002
-# POST /lives/spend             — GAME-002
-# GET  /store/catalog           — GAME-003
+# GET  /lives                   — GAME-002 (T-220)
+# POST /lives/spend             — GAME-002 (T-220)
+# GET  /store/catalog           — GAME-003 (T-240)
 # GET  /profile                 — GAME-004
-# POST /profile/equip-skin      — GAME-004
+# POST /profile/equip-skin      — GAME-004 (T-243)
