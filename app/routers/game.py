@@ -1,10 +1,10 @@
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import Response
-from google.cloud.firestore import AsyncClient
+from google.cloud.firestore import AsyncClient, async_transactional
 from pydantic import BaseModel
 
 from app.config import Settings
@@ -12,6 +12,9 @@ from app.dependencies import get_firestore_client, get_settings, verify_jwt
 from app.services.bq_streaming import stream_event, stream_events
 
 router = APIRouter(tags=["game"])
+
+REGEN_INTERVAL_SECS = 1800  # 30 minutes — Remote Config tuneable in v1.1
+DEFAULT_MAX_LIVES = 5
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +38,10 @@ class BehaviorBatchRequest(BaseModel):
     events: list[BehaviorEvent]
 
 
+class LivesSpendRequest(BaseModel):
+    session_id: str
+
+
 class LivesGrantRequest(BaseModel):
     source: str                     # "iap" | "rewarded_ad_ssv" | "promo"
     session_id: str
@@ -50,6 +57,31 @@ class LevelCompleteRequest(BaseModel):
     stars_earned: int
     duration_secs: int
     session_id: str
+
+
+# ---------------------------------------------------------------------------
+# Lives helpers
+# ---------------------------------------------------------------------------
+
+def _apply_regen(
+    count: int, max_lives: int, last_regen_at: datetime, now: datetime
+) -> tuple[int, datetime]:
+    """Returns (new_count, new_last_regen_at). Advances last_regen_at by whole intervals."""
+    if count >= max_lives:
+        return count, last_regen_at
+    elapsed = (now - last_regen_at).total_seconds()
+    lives_to_add = int(elapsed // REGEN_INTERVAL_SECS)
+    if lives_to_add == 0:
+        return count, last_regen_at
+    new_count = min(count + lives_to_add, max_lives)
+    new_last = last_regen_at + timedelta(seconds=lives_to_add * REGEN_INTERVAL_SECS)
+    return new_count, new_last
+
+
+def _next_regen_dt(count: int, max_lives: int, last_regen_at: datetime) -> datetime | None:
+    if count >= max_lives:
+        return None
+    return last_regen_at + timedelta(seconds=REGEN_INTERVAL_SECS)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +134,138 @@ async def events_behavior(
 
 
 # ---------------------------------------------------------------------------
-# POST /lives/grant  (DATA-002 ST-09)
+# GET /lives  (T-220 / GAME-002)
+# ---------------------------------------------------------------------------
+
+@router.get("/lives")
+async def get_lives(
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    user_id = claims.get("uid", "")
+    now = datetime.now(timezone.utc)
+    lives_ref = db.collection("lives").document(user_id)
+    snap = await lives_ref.get()
+
+    if not snap.exists:
+        await lives_ref.set({
+            "uid": user_id,
+            "count": DEFAULT_MAX_LIVES,
+            "max_lives": DEFAULT_MAX_LIVES,
+            "last_regen_at": now,
+            "next_regen_at": None,
+            "updated_at": now,
+        })
+        return {
+            "current_lives": DEFAULT_MAX_LIVES,
+            "max_lives": DEFAULT_MAX_LIVES,
+            "next_regen_at": None,
+            "regen_interval_secs": REGEN_INTERVAL_SECS,
+        }
+
+    data = snap.to_dict()
+    count = data.get("count", DEFAULT_MAX_LIVES)
+    max_lives = data.get("max_lives", DEFAULT_MAX_LIVES)
+    last_regen_at = data["last_regen_at"]
+
+    new_count, new_last = _apply_regen(count, max_lives, last_regen_at, now)
+    next_regen = _next_regen_dt(new_count, max_lives, new_last)
+
+    if new_count != count:
+        await lives_ref.update({
+            "count": new_count,
+            "last_regen_at": new_last,
+            "next_regen_at": next_regen,
+            "updated_at": now,
+        })
+
+    return {
+        "current_lives": new_count,
+        "max_lives": max_lives,
+        "next_regen_at": next_regen.isoformat() if next_regen else None,
+        "regen_interval_secs": REGEN_INTERVAL_SECS,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /lives/spend  (T-220 / GAME-002)
+# ---------------------------------------------------------------------------
+
+@async_transactional
+async def _spend_txn(txn, lives_ref, user_id: str, now: datetime):
+    """Firestore transaction: apply regen + decrement. Raises HTTPException on 0 lives."""
+    snap = await lives_ref.get(transaction=txn)
+    if not snap.exists:
+        new_count = DEFAULT_MAX_LIVES - 1
+        next_r = _next_regen_dt(new_count, DEFAULT_MAX_LIVES, now)
+        txn.set(lives_ref, {
+            "uid": user_id,
+            "count": new_count,
+            "max_lives": DEFAULT_MAX_LIVES,
+            "last_regen_at": now,
+            "next_regen_at": next_r,
+            "updated_at": now,
+        })
+        return new_count, next_r
+
+    data = snap.to_dict()
+    count = data.get("count", DEFAULT_MAX_LIVES)
+    max_lives = data.get("max_lives", DEFAULT_MAX_LIVES)
+    last_regen = data["last_regen_at"]
+
+    new_count, new_last = _apply_regen(count, max_lives, last_regen, now)
+    if new_count == 0:
+        raise HTTPException(400, detail={"error_code": "LIVES_INSUFFICIENT", "message": "No lives remaining"})
+
+    new_count -= 1
+    next_r = _next_regen_dt(new_count, max_lives, new_last)
+    txn.update(lives_ref, {
+        "count": new_count,
+        "last_regen_at": new_last,
+        "next_regen_at": next_r,
+        "updated_at": now,
+    })
+    return new_count, next_r
+
+
+@router.post("/lives/spend")
+async def lives_spend(
+    body: LivesSpendRequest,
+    background_tasks: BackgroundTasks,
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+    settings: Settings = Depends(get_settings),
+):
+    user_id = claims.get("uid", "")
+    now = datetime.now(timezone.utc)
+    lives_ref = db.collection("lives").document(user_id)
+
+    remaining, next_regen = await _spend_txn(db.transaction(), lives_ref, user_id, now)
+
+    background_tasks.add_task(
+        stream_event, "player_behavior",
+        {
+            "event_timestamp": now.isoformat(),
+            "event_date": now.date().isoformat(),
+            "user_id": user_id,
+            "session_id": body.session_id,
+            "event_name": "life_spent",
+            "platform": None, "app_version": None, "country": None,
+            "level_id": None, "score": None, "stars_earned": None,
+            "duration_secs": None, "npc_type": None, "extra_json": None,
+        },
+        settings.gcp_project_id, settings.bq_dataset,
+        row_id=f"life_spent_{body.session_id}_{now.timestamp():.0f}",
+    )
+
+    return {
+        "remaining_lives": remaining,
+        "next_regen_at": next_regen.isoformat() if next_regen else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /lives/grant  (T-220 / GAME-002 — completes DATA-002 ST-09 stub)
 # ---------------------------------------------------------------------------
 
 @router.post("/lives/grant")
@@ -110,6 +273,7 @@ async def lives_grant(
     body: LivesGrantRequest,
     background_tasks: BackgroundTasks,
     claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
 ):
     valid_sources = {"iap", "rewarded_ad_ssv", "promo"}
@@ -126,12 +290,10 @@ async def lives_grant(
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
 
-    # Determine BQ fields per source
     entitlement_type = "life_pack"
     quantity: int | None = 1
 
     if body.source == "rewarded_ad_ssv":
-        # AdMob SSV token verification stub — GAME-002 will add cryptographic check
         background_tasks.add_task(
             stream_event, "ad_impressions",
             {
@@ -139,9 +301,7 @@ async def lives_grant(
                 "event_date": now.date().isoformat(),
                 "user_id": user_id,
                 "session_id": body.session_id,
-                "platform": None,
-                "app_version": None,
-                "country": None,
+                "platform": None, "app_version": None, "country": None,
                 "ad_unit_id": body.ad_unit_id,
                 "ad_type": "rewarded",
                 "event_type": "reward_earned",
@@ -188,9 +348,7 @@ async def lives_grant(
             "event_date": now.date().isoformat(),
             "user_id": user_id,
             "session_id": body.session_id,
-            "platform": None,
-            "app_version": None,
-            "country": None,
+            "platform": None, "app_version": None, "country": None,
             "entitlement_type": entitlement_type,
             "entitlement_id": entitlement_id,
             "source": source_bq,
@@ -201,13 +359,69 @@ async def lives_grant(
         row_id=dedup_entitlement,
     )
 
-    # GAME-002 will replace stub values with Firestore reads
+    # --- Firestore: grant lives ---
+    actual_granted = 0
+    capped = False
+    current_lives = DEFAULT_MAX_LIVES
+    max_lives = DEFAULT_MAX_LIVES
+    next_regen: datetime | None = None
+
+    if quantity is not None and quantity > 0:
+        lives_ref = db.collection("lives").document(user_id)
+        lives_snap = await lives_ref.get()
+
+        if not lives_snap.exists:
+            actual_granted = min(quantity, DEFAULT_MAX_LIVES)
+            capped = actual_granted < quantity
+            new_count = actual_granted
+            await lives_ref.set({
+                "uid": user_id,
+                "count": new_count,
+                "max_lives": DEFAULT_MAX_LIVES,
+                "last_regen_at": now,
+                "next_regen_at": _next_regen_dt(new_count, DEFAULT_MAX_LIVES, now),
+                "updated_at": now,
+            })
+            next_regen = _next_regen_dt(new_count, DEFAULT_MAX_LIVES, now)
+            current_lives = new_count
+        else:
+            ld = lives_snap.to_dict()
+            count = ld.get("count", DEFAULT_MAX_LIVES)
+            max_lives = ld.get("max_lives", DEFAULT_MAX_LIVES)
+            last_regen_at = ld["last_regen_at"]
+
+            count, last_regen_at = _apply_regen(count, max_lives, last_regen_at, now)
+            actual_granted = min(quantity, max_lives - count)
+            capped = actual_granted < quantity
+            new_count = count + actual_granted
+            next_regen = _next_regen_dt(new_count, max_lives, last_regen_at)
+            await lives_ref.update({
+                "count": new_count,
+                "last_regen_at": last_regen_at,
+                "next_regen_at": next_regen,
+                "updated_at": now,
+            })
+            current_lives = new_count
+
+        # Update entitlements.life_packs_total for IAP life packs
+        if body.source == "iap" and entitlement_type == "life_pack" and actual_granted > 0:
+            ent_ref = db.collection("entitlements").document(user_id)
+            ent_snap = await ent_ref.get()
+            if ent_snap.exists:
+                current_total = ent_snap.to_dict().get("life_packs_total", 0)
+                await ent_ref.update({"life_packs_total": current_total + 1, "updated_at": now})
+            else:
+                await ent_ref.set({
+                    "uid": user_id, "no_ads": False, "skins": [],
+                    "life_packs_total": 1, "updated_at": now,
+                })
+
     return {
-        "granted": quantity or 1,
-        "current_lives": None,
-        "max_lives": None,
-        "next_regen_at": None,
-        "capped": False,
+        "granted": actual_granted,
+        "current_lives": current_lives,
+        "max_lives": max_lives,
+        "next_regen_at": next_regen.isoformat() if next_regen else None,
+        "capped": capped,
     }
 
 
@@ -358,15 +572,12 @@ async def level_complete(
             "user_id": user_id,
             "session_id": body.session_id,
             "event_name": "level_complete",
-            "platform": None,
-            "app_version": None,
-            "country": None,
+            "platform": None, "app_version": None, "country": None,
             "level_id": body.level_id,
             "score": body.score,
             "stars_earned": body.stars_earned,
             "duration_secs": body.duration_secs,
-            "npc_type": None,
-            "extra_json": None,
+            "npc_type": None, "extra_json": None,
         },
         settings.gcp_project_id, settings.bq_dataset,
         row_id=f"level_complete_{body.session_id}_{body.level_id}_{body.score}",
@@ -385,8 +596,6 @@ async def level_complete(
     }
 
 
-# GET  /lives                   — GAME-002 (T-220)
-# POST /lives/spend             — GAME-002 (T-220)
 # GET  /store/catalog           — GAME-003 (T-240)
 # GET  /profile                 — GAME-004
 # POST /profile/equip-skin      — GAME-004 (T-243)
