@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / Data Model |
 | **Prioridad** | Alta — define la estructura de datos del backend |
-| **Status** | In Progress — ST-01 ✅ schema definido, ST-02 ✅ rules desplegadas, ST-03 ⬜ tests pendientes INFRA-003, ST-04 ✅ DATA_MODEL.md creado |
+| **Status** | ✅ Done — ST-01 ✅ schema definido, ST-02 ✅ rules desplegadas, ST-03 ✅ 8/8 tests passed (2026-06-30), ST-04 ✅ DATA_MODEL.md creado |
 | **Fecha planeada** | 6/29–6/30/2026 |
 | **Fecha real inicio** | 2026-06-19 (adelantado — no bloquea en INFRA-003 para diseño) |
 | **Workstream** | Infra/DevOps |
@@ -36,7 +36,7 @@ Firestore es la base de datos operacional de MotaMaze — almacena sesiones acti
 
 - [x] 6 colecciones definidas con todos sus campos y tipos — ver `docs/DATA_MODEL.md`
 - [x] `firestore.rules` con deny-all deployado en proyecto `motamaze` (prod)
-- [ ] Test: escritura directa desde un cliente sin Admin SDK falla con `PERMISSION_DENIED` (pendiente INFRA-003 con Firebase emulator)
+- [x] Test: escritura directa desde un cliente sin Admin SDK falla con `PERMISSION_DENIED` — 8/8 tests passed vía Firebase Rules REST API (2026-06-30)
 - [x] Schema documentado en `docs/DATA_MODEL.md`
 
 ---
@@ -125,39 +125,41 @@ curl -s -X PATCH \
 
 ---
 
-### ST-03 — Test de rules ⬜ Pending INFRA-003
+### ST-03 — Test de rules ✅ Done (2026-06-30)
 
 **Depende de:** INFRA-003 (FastAPI repo con Firebase emulator configurado)
 
 **Tests planeados:**
 
-```python
-# test_firestore_rules.py — se ejecuta contra el emulador local
-# FIRESTORE_EMULATOR_HOST=localhost:8080 pytest test_firestore_rules.py
+**Implementación real (2026-06-30) — Firebase Rules REST API:**
 
-import pytest
-from google.cloud import firestore
+No se usó emulador (firebase-tools incompatible con Node 24). Alternativa: `projects.test` endpoint del Firebase Rules REST API, que acepta reglas inline + requests simulados y devuelve ALLOW/DENY sin runtime real.
 
-@pytest.fixture
-def db():
-    # Cliente SIN Admin SDK (simula acceso de cliente no autorizado)
-    return firestore.Client(project="motamaze")
+**Archivo:** `tests/test_firestore_rules.py`
 
-def test_read_users_denied(db):
-    with pytest.raises(Exception) as exc:
-        db.collection("users").document("test-uid").get()
-    assert "PERMISSION_DENIED" in str(exc.value)
+```bash
+# Ejecutar:
+GCLOUD_TOKEN=$(gcloud auth print-access-token) pytest tests/test_firestore_rules.py -v
 
-def test_write_users_denied(db):
-    with pytest.raises(Exception) as exc:
-        db.collection("users").document("test-uid").set({"email": "test@test.com"})
-    assert "PERMISSION_DENIED" in str(exc.value)
-
-def test_read_sessions_denied(db):
-    with pytest.raises(Exception) as exc:
-        db.collection("sessions").document("test-session-id").get()
-    assert "PERMISSION_DENIED" in str(exc.value)
+# Salida (2026-06-30):
+# tests/test_firestore_rules.py::TestAuthenticatedUserDenied::test_read_denied PASSED
+# tests/test_firestore_rules.py::TestAuthenticatedUserDenied::test_write_create_denied PASSED
+# tests/test_firestore_rules.py::TestAuthenticatedUserDenied::test_write_update_denied PASSED
+# tests/test_firestore_rules.py::TestAuthenticatedUserDenied::test_delete_denied PASSED
+# tests/test_firestore_rules.py::TestUnauthenticatedDenied::test_unauthenticated_read_denied PASSED
+# tests/test_firestore_rules.py::TestUnauthenticatedDenied::test_unauthenticated_write_denied PASSED
+# tests/test_firestore_rules.py::TestDeployedRuleset::test_deployed_rules_are_deny_all PASSED
+# tests/test_firestore_rules.py::TestDeployedRuleset::test_deployed_rules_have_no_permissive_clauses PASSED
+# 8 passed in 3.60s
 ```
+
+**Qué testean los 8 tests:**
+
+| Test clase | Qué verifica |
+|---|---|
+| `TestAuthenticatedUserDenied` | GET/CREATE/UPDATE/DELETE denegados para usuario Firebase con auth (`uid: "test-uid-001"`) en las 7 colecciones |
+| `TestUnauthenticatedDenied` | GET/CREATE denegados sin ningún auth context (request anónimo) |
+| `TestDeployedRuleset` | Content del ruleset desplegado en prod contiene `allow read, write: if false` y no tiene cláusulas permisivas |
 
 ---
 
