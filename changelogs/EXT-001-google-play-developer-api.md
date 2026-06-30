@@ -136,46 +136,56 @@ Google documenta que los cambios de permisos en Play Console pueden tardar hasta
 
 ---
 
-### ST-06 — Verificar llamada de prueba a Play Developer API ⬜ Pending (propagación en curso)
+### ST-06 — Verificar llamada de prueba a Play Developer API 🔴 Bloqueado — app no publicado en ningún track
 
-**Prueba ejecutada el 2026-06-25:**
+**Prueba ejecutada 2026-06-25 y reintento 2026-06-30:**
 
 ```bash
-# Paso 1 — Token con scope correcto (androidpublisher)
-TOKEN=$(gcloud auth print-access-token \
-  --impersonate-service-account=game-api-backend@motamaze.iam.gserviceaccount.com \
-  --scopes=https://www.googleapis.com/auth/androidpublisher)
+# Token via IAM Credentials API (scope correcto — gcloud --scopes flag es ignorado en impersonated_account)
+USER_TOKEN=$(gcloud auth print-access-token)
+SA="game-api-backend@motamaze.iam.gserviceaccount.com"
 
-# Prueba 1 — purchases.products.get con valores dummy
+# Genera token del SA con scope androidpublisher vía REST
+SA_TOKEN=$(curl -s -X POST \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"scope":["https://www.googleapis.com/auth/androidpublisher"]}' \
+  "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${SA}:generateAccessToken" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['accessToken'])")
+
+PKG="com.ingeniouscruciblestudios.motamaze"
+
+# Prueba 1 — purchases.products.get (dummy values)
 curl -s -w "\nHTTP_STATUS: %{http_code}\n" \
-  -H "Authorization: Bearer $TOKEN" \
-  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.ingeniouscruciblestudios.motamaze/purchases/products/test_sku/tokens/test_token"
+  -H "Authorization: Bearer $SA_TOKEN" \
+  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PKG}/purchases/products/test_sku/tokens/test_token"
 
 # Prueba 2 — inappproducts.list
 curl -s -w "\nHTTP_STATUS: %{http_code}\n" \
-  -H "Authorization: Bearer $TOKEN" \
-  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.ingeniouscruciblestudios.motamaze/inappproducts"
+  -H "Authorization: Bearer $SA_TOKEN" \
+  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PKG}/inappproducts"
 ```
 
-**Resultados obtenidos:**
+**Resultados (ambas fechas — idénticos):**
 
-| Llamada | HTTP | Error code | Mensaje |
+| Llamada | HTTP | Error code | Diagnóstico |
 |---|---|---|---|
-| `purchases.products.get` (dummy values) | **404** | `applicationNotFound` | "No application was found for the given package name." |
-| `inappproducts.list` | **403** | `PERMISSION_DENIED` | "The caller does not have permission" |
+| `purchases.products.get` (dummy values) | **404** | `applicationNotFound` | App en draft — invisible para la Purchases API |
+| `inappproducts.list` | **403** | `PERMISSION_DENIED` | ✅ Esperado — SA no tiene permiso "Manage in-app products" |
 
-**Diagnóstico:**
+**Causa raíz confirmada (2026-06-30):**
 
-| Punto | Estado |
-|---|---|
-| Obtención de token SA con scope `androidpublisher` | ✅ Exitoso |
-| Error `ACCESS_TOKEN_SCOPE_INSUFFICIENT` | ✅ Resuelto (scope explícito) |
-| `applicationNotFound` (404) en `purchases.products.get` | 🕐 Propagación de permisos Play Console aún en curso |
-| `PERMISSION_DENIED` (403) en `inappproducts.list` | ✅ Esperado — ese endpoint requiere "Manage in-app products", no otorgado |
+`applicationNotFound` **no es un problema de permisos del SA ni de propagación**. La Play Developer Purchases API requiere que el app esté publicado en al menos un track (Internal Testing, Alpha, Beta o Producción). El app `com.ingeniouscruciblestudios.motamaze` fue creado como draft el 2026-06-23 y nunca se ha publicado a ningún track. Un draft es invisible para la API sin importar los permisos del SA.
 
-**Interpretación:** Google retorna 404 (`applicationNotFound`) en lugar de 403 cuando el SA no tiene acceso al app todavía — comportamiento de seguridad intencional para no revelar si el package existe. El invite fue 2026-06-24 y la propagación puede tomar hasta 48h.
+Referencia: [fastlane issue #14686](https://github.com/fastlane/fastlane/issues/14686) — comportamiento documentado.
 
-**Acción pendiente:** Reintentar el 2026-06-26. El resultado exitoso será un `404` con error `productNotFound` o `purchaseTokenNotFound` (ya no `applicationNotFound`), confirmando que el SA ve el app y la autenticación funciona end-to-end.
+**Desbloqueo requerido:**
+
+Opción A (recomendada): Juan exporta APK placeholder firmado de Godot con package name `com.ingeniouscruciblestudios.motamaze` → sube a Play Console → Internal Testing track → añade tester → reintentar ST-06.
+
+Opción B: Esperar T-132 (build flavors). Timeline: varias semanas.
+
+**Resultado esperado post-desbloqueo:** `purchases.products.get` retornará 404 con error `purchaseTokenNotFound` (no `applicationNotFound`), confirmando que el SA ve el app y la autenticación funciona end-to-end.
 
 ---
 
