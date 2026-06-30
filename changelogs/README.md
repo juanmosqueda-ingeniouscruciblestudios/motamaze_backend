@@ -3,7 +3,7 @@
 | Ticket | Slug | Workstream | Status | Date |
 |---|---|---|---|---|
 | [INFRA-001](INFRA-001-gcp-base-infra.md) | gcp-base-infra | Infra/DevOps | ✅ Done | 2026-06-16 |
-| [EXT-001](EXT-001-google-play-developer-api.md) | google-play-developer-api | External Services | In Progress — ST-01–05 ✅, ST-06 🔴 bloqueado: app draft no visible en Purchases API — requiere publicar a Internal Testing track (APK placeholder o T-132) | 2026-06-30 |
+| [EXT-001](EXT-001-google-play-developer-api.md) | google-play-developer-api | External Services | In Progress — ST-01–05 ✅, ST-06 🟡 progreso: 404→401 (app visible post Internal Testing publish, permisos propagando) — retry 2026-07-01 | 2026-06-30 |
 | [EXT-002](EXT-002-admob-account-ad-units.md) | admob-account-ad-units | External Services | ✅ Done | 2026-06-17 |
 | [DATA-001](DATA-001-bigquery-analytics-tables.md) | bigquery-analytics-tables | Dataflow & Outputs | ✅ Done | 2026-06-16 |
 | [INFRA-002](INFRA-002-env-secrets-design.md) | env-secrets-design | Infra/DevOps | ✅ Done | 2026-06-17 |

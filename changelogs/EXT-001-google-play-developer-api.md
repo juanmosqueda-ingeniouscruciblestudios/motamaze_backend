@@ -189,6 +189,23 @@ Opción B: Esperar T-132 (build flavors). Timeline: varias semanas.
 
 ---
 
+**Acción ejecutada 2026-06-30:**
+
+Juan publicó `0.0.1-placeholder` (AAB — Play Console ya no acepta APK para apps nuevas) a Internal Testing. 2 testers en lista "Internal Testers". App name: `com.ingeniouscruciblestudios.motamaze`.
+
+**Retry 2026-06-30 (mismo día del publish):**
+
+| Llamada | HTTP | Error code | Diagnóstico |
+|---|---|---|---|
+| `purchases.products.get` | **401** | `permissionDenied` | **Progreso**: ya no es `applicationNotFound` — SA ve la app. Permisos de purchases aún propagando post-publish. |
+| `inappproducts.list` | **403** | `PERMISSION_DENIED` | Sin cambio — esperado (SA no tiene "Manage in-app products") |
+
+El cambio de 404 → 401 confirma que publicar a Internal Testing desbloqueó la visibilidad del app en la API. El `permissionDenied` es propagación adicional de los permisos "View financial data" en el contexto de la app publicada.
+
+**Próximo retry:** 2026-07-01. Si persiste 401, Juan verifica en Play Console → Users and permissions → `game-api-backend@motamaze.iam.gserviceaccount.com` que los 4 permisos de MotaMaze siguen activos tras el publish.
+
+---
+
 ## Audit — Estado inicial verificado (2026-06-16)
 
 ```bash
