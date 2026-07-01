@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | External Services / Setup |
 | **Prioridad** | Alta — 24h lag de activación |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅, ST-04 ✅ SA invitado (2026-06-24), ST-05 🕐 propagación en curso (reintentar 2026-06-26), ST-06 ⬜ pendiente propagación |
+| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅, ST-04 ✅, ST-05 ✅, ST-06 🔴 Stuck — permisos SA perdidos post-publish; Juan debe re-aplicar en Play Console (retry 2026-07-02) |
 | **Fecha planeada** | 2026-06-15 |
 | **Fecha real inicio** | 2026-06-16 |
 | **Workstream** | External Services |
@@ -202,7 +202,21 @@ Juan publicó `0.0.1-placeholder` (AAB — Play Console ya no acepta APK para ap
 
 El cambio de 404 → 401 confirma que publicar a Internal Testing desbloqueó la visibilidad del app en la API. El `permissionDenied` es propagación adicional de los permisos "View financial data" en el contexto de la app publicada.
 
-**Próximo retry:** 2026-07-01. Si persiste 401, Juan verifica en Play Console → Users and permissions → `game-api-backend@motamaze.iam.gserviceaccount.com` que los 4 permisos de MotaMaze siguen activos tras el publish.
+**Retry 2026-07-01 (~36h post-publish):**
+
+| Llamada | HTTP | Error | Diagnóstico |
+|---|---|---|---|
+| `purchases.products.get` | **401** | `permissionDenied` (androidpublisher domain) | Sin cambio vs. 2026-06-30 |
+| `tracks.list` | 404 | URL incorrecta (requiere editId del edits API) | No relevante |
+| `reviews.list` | **403** | `PERMISSION_DENIED` | **Clave:** reviews.list requiere solo "View app information" (el permiso más básico). 403 confirma que el SA no tiene NINGÚN permiso activo sobre la app |
+
+**Diagnóstico confirmado (2026-07-01):** No es propagación — ya pasaron >36h desde el publish. Los 4 permisos asignados al SA en ST-04 se perdieron o no se guardaron correctamente cuando el app pasó de draft a Internal Testing. Play Console puede requerir re-aplicar permisos cuando el estado del app cambia.
+
+**Acción requerida por Juan (bloqueante):**
+1. Play Console → **Users and permissions** → buscar `game-api-backend@motamaze.iam.gserviceaccount.com`
+2. Verificar si los 4 permisos de MotaMaze siguen activos. Si no aparecen: re-invitar con los mismos 4 permisos (ST-04)
+3. Si sí aparecen: quitarlos todos, guardar → volver a agregarlos, guardar → forzar re-propagación
+4. **Próximo retry:** 2026-07-02 (24h post-fix de Juan)
 
 ---
 
