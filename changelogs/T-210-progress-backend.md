@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature |
 | **Priority** | High — critical path para el cliente Godot |
-| **Status** | Done — GET /progress ✅ + POST /progress/level-complete ✅ (Firestore completo) |
+| **Status** | Done — GET /progress ✅ + POST /progress/level-complete ✅ (Firestore completo), ST-02 integration tests ✅ 7/7 passed (2026-06-30) |
 | **Date** | 2026-06-30 |
 | **Workstream** | INFRA-003 (FastAPI services) |
 | **Commit** | `d0bfe73` |
@@ -177,9 +177,40 @@ Commit `d0bfe73` pusheado — 2 archivos:
 - Parallel reads en GET /progress ✅
 - Estado inicial para nuevo jugador ✅
 
+### ST-02 — Integration tests contra Cloud Run dev ✅ Done (2026-06-30)
+
+**Setup:**
+```bash
+gcloud run services proxy motamaze-backend --port=8081 --project=motamaze-dev --region=us-central1 &
+```
+
+**Nota técnica — PEM key en Secret Manager:** El secret `jwt-private-key` en `motamaze-dev` tiene doble `\n` después del header PEM (`-----BEGIN PRIVATE KEY-----\n\nMII...`). `python-jose` falla con `InvalidHeader` si se pasa el PEM sin limpiar. Fix aplicado en el script de test (no en producción — `cryptography.load_pem_private_key` es más tolerante y funciona en el server):
+```python
+key_pem = re.sub(r'\n\n+', '\n', raw)
+```
+
+**Script de test:** Python script usando `urllib.request` + `python-jose` para generar JWTs con `aud: "motamaze-api"`, `iss: "https://api.motamaze.com"`, firmados con la misma clave privada del Secret Manager (`motamaze-dev`).
+
+**Resultados reales (2026-06-30):**
+
+```
+UID: test-t210-integration-001
+============================================================
+[PASS] 1. GET /progress nuevo jugador - {'best_level': 0, 'highest_unlocked_level': 1, 'total_stars': 0, 'season_stars': 0}
+[PASS] 2. POST level=1 stars=2 primer intento - {'best_score': 1234, 'new_best': True, 'highest_unlocked_level': 2, 'total_stars': 2, 'season_stars_earned': 2}
+[PASS] 3. GET /progress post level1 - {'best_level': 1, 'highest_unlocked_level': 2, 'total_stars': 2}
+       levels: ['level_1']
+[PASS] 4. POST level=3 locked -> 403 PROGRESS_LEVEL_LOCKED
+[PASS] 5. POST level=1 replay mejora stars=3 - {'best_score': 2000, 'new_best': True, 'season_stars_earned': 1, 'total_season_stars': 3, 'total_stars': 3}
+[PASS] 6. POST level=1 replay sin mejora - {'best_score': 2000, 'new_best': False, 'season_stars_earned': 0, 'total_stars': 3}
+[PASS] 7. POST level=2 desbloqueado - {'best_score': 3500, 'new_best': True, 'highest_unlocked_level': 3, 'total_stars': 5, 'season_stars_earned': 2}
+============================================================
+7/7 passed, 0 failed
+```
+
 ### Follow-ups / notes
 
-- **ST-02 (integration tests):** Pendiente deploy a Cloud Run dev — ejecutar el script de testing de esta sección
+- **ST-02 (integration tests):** Done ✅ 7/7 passed (2026-06-30)
 - **T-440 cross-validation (condición 2 de Juan):** `POST /share/create` recibe `score` del cliente. Una vez que `progress/{uid}` existe, puede validarse contra `best_score` del nivel más alto. Agregar en T-440 ST-02 o en un ticket separado.
 - **Remote Config para `active_season_id`:** Actualmente hardcoded en Settings. Social-001 lo hará dinámico.
 - **Concurrent writes:** Para MVP, read-then-write es suficiente. Si hay contención (multi-dispositivo), Firestore transactions se agregan en v1.1.
