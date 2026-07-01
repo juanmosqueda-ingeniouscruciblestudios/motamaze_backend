@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature |
 | **Priority** | High — critical path para el loop core (gastar vida antes de cada partida) |
-| **Status** | Done — GET /lives ✅ + POST /lives/spend ✅ + POST /lives/grant ✅ (Firestore completo) |
+| **Status** | Done — GET /lives ✅ + POST /lives/spend ✅ + POST /lives/grant ✅ (Firestore completo), ST-02 integration tests ✅ 9/9 passed (2026-06-30) |
 | **Date** | 2026-06-30 |
 | **Workstream** | INFRA-003 (FastAPI services) |
 | **Commit** | `abee8a9` |
@@ -209,9 +209,44 @@ Commit `abee8a9` pusheado — 1 archivo:
 - entitlements.life_packs_total actualizado en IAP life_pack ✅
 - Todos los `None` del stub eliminados ✅
 
+### ST-02 — Integration tests contra Cloud Run dev ✅ Done (2026-06-30)
+
+**Setup:** proxy activo en `localhost:8081` desde T-210 ST-02 (misma sesión).
+
+**Script:** Python + `python-jose` con key del Secret Manager `jwt-private-key` (motamaze-dev), PEM limpiado con `re.sub(r'\n\n+', '\n', raw)` (mismo fix que T-210).
+
+**Resultados reales (2026-06-30):**
+
+```
+UID: test-t220-integration-001
+============================================================
+[PASS] 1. GET /lives nuevo jugador
+       {'current_lives': 5, 'max_lives': 5, 'next_regen_at': None, 'regen_interval_secs': 1800}
+[PASS] 2. POST /lives/spend primera vida
+       remaining_lives=4, next_regen_at=2026-07-01T00:48:55.567899+00:00
+[PASS] 3. GET /lives post-spend
+       {'current_lives': 4, 'max_lives': 5}
+[PASS] 4a. drain 1/3: remaining_lives=3
+[PASS] 4b. drain 2/3: remaining_lives=2
+[PASS] 4c. drain 3/3: remaining_lives=1
+[PASS] 5. POST /lives/spend ultima vida
+       remaining_lives=0, next_regen_at=2026-07-01T00:48:55.567899+00:00
+[PASS] 6. POST /lives/spend en 0 -> 400 LIVES_INSUFFICIENT
+[PASS] 7. POST /lives/grant rewarded_ad (+1)
+       {'granted': 1, 'current_lives': 1, 'capped': False}
+[PASS] 8. POST /lives/grant promo (+1)
+       {'granted': 1, 'current_lives': 2, 'capped': False}
+[PASS] 9. POST /lives/grant IAP lives_pack_5 (capped)
+       {'granted': 3, 'current_lives': 5, 'capped': True, 'max_lives': 5}
+============================================================
+9/9 passed, 0 failed
+```
+
+**Nota test 9 — IAP capped:** `lives_pack_5` otorga `quantity=5`, pero con `current_lives=2`: `actual_granted = min(5, 5-2) = 3`, `capped=True`, `current_lives=5`.
+
 ### Follow-ups / notes
 
-- **ST-02 (integration tests):** Pendiente deploy a Cloud Run dev — ejecutar el script de testing de esta sección
+- **ST-02 (integration tests):** Done ✅ 9/9 passed (2026-06-30)
 - **Remote Config para `REGEN_INTERVAL_SECS` y `DEFAULT_MAX_LIVES`:** Actualmente hardcodeados en Settings. Mover a Remote Config en v1.1 para ajuste sin deploy.
 - **GAME-002 SSV validation:** `reward_token` de AdMob aún no se verifica criptográficamente — stub comment en código. GAME-002 completo (T-230) lo agrega.
 - **Concurrent spend (multi-device):** La transaction de Firestore ya protege contra esto. La retry logic de `@async_transactional` maneja contención automáticamente.
