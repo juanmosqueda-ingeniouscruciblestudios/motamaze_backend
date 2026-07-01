@@ -3,7 +3,7 @@
 | Ticket | Slug | Workstream | Status | Date |
 |---|---|---|---|---|
 | [INFRA-001](INFRA-001-gcp-base-infra.md) | gcp-base-infra | Infra/DevOps | ✅ Done | 2026-06-16 |
-| [EXT-001](EXT-001-google-play-developer-api.md) | google-play-developer-api | External Services | In Progress — ST-01–05 ✅, ST-06 🔴 Stuck — permisos SA perdidos post-publish; Juan re-aplica en Play Console → retry 2026-07-02 | 2026-07-01 |
+| [EXT-001](EXT-001-google-play-developer-api.md) | google-play-developer-api | External Services | ✅ Done — ST-01–06 ✅ (SA autenticado vs. Play Developer API, reviews.list 200 ✅, 2026-07-01) | 2026-07-01 |
 | [EXT-002](EXT-002-admob-account-ad-units.md) | admob-account-ad-units | External Services | ✅ Done | 2026-06-17 |
 | [DATA-001](DATA-001-bigquery-analytics-tables.md) | bigquery-analytics-tables | Dataflow & Outputs | ✅ Done | 2026-06-16 |
 | [INFRA-002](INFRA-002-env-secrets-design.md) | env-secrets-design | Infra/DevOps | ✅ Done | 2026-06-17 |

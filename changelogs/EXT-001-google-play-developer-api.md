@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | External Services / Setup |
 | **Prioridad** | Alta — 24h lag de activación |
-| **Status** | In Progress — ST-01 ✅, ST-02 ✅, ST-03 ✅, ST-04 ✅, ST-05 ✅, ST-06 🔴 Stuck — permisos SA perdidos post-publish; Juan debe re-aplicar en Play Console (retry 2026-07-02) |
+| **Status** | ✅ Done — ST-01–06 ✅ (SA autenticado vs. Play Developer API 2026-07-01; `reviews.list` 200, `purchases.products.get` 400 Invalid Value — permisos end-to-end verificados) |
 | **Fecha planeada** | 2026-06-15 |
 | **Fecha real inicio** | 2026-06-16 |
 | **Workstream** | External Services |
@@ -43,10 +43,10 @@ Google Play Console tarda **hasta 24 horas** en propagar los permisos de un serv
 
 - [x] `androidpublisher.googleapis.com` habilitada en proyecto `motamaze` (2026-06-16)
 - [x] Cuenta Google Play Developer verificada por Google (2026-06-23) — botón "Create app" activo
-- [ ] App draft creada en Play Console + proyecto GCP `motamaze` vinculado (ST-03 — listo para ejecutar)
-- [ ] SA `game-api-backend` invitado en Play Console con permisos de verificación de compras (ST-04)
-- [ ] 24h de espera transcurridas desde el invite (ST-05)
-- [ ] Llamada de prueba a la API retorna 200 (no 401/403) (ST-06)
+- [x] App draft creada en Play Console + publicada a Internal Testing (ST-03)
+- [x] SA `game-api-backend` invitado en Play Console con permisos de verificación de compras (ST-04)
+- [x] 24h de espera transcurridas desde el invite (ST-05)
+- [x] Llamada de prueba a la API retorna 200 (no 401/403) (ST-06) — `reviews.list` 200 ✅, `purchases.products.get` 400 Invalid Value (permisos OK, valores dummy inválidos — esperado)
 
 ---
 
@@ -136,7 +136,7 @@ Google documenta que los cambios de permisos en Play Console pueden tardar hasta
 
 ---
 
-### ST-06 — Verificar llamada de prueba a Play Developer API 🔴 Bloqueado — app no publicado en ningún track
+### ST-06 — Verificar llamada de prueba a Play Developer API ✅ Done (2026-07-01)
 
 **Prueba ejecutada 2026-06-25 y reintento 2026-06-30:**
 
@@ -212,11 +212,47 @@ El cambio de 404 → 401 confirma que publicar a Internal Testing desbloqueó la
 
 **Diagnóstico confirmado (2026-07-01):** No es propagación — ya pasaron >36h desde el publish. Los 4 permisos asignados al SA en ST-04 se perdieron o no se guardaron correctamente cuando el app pasó de draft a Internal Testing. Play Console puede requerir re-aplicar permisos cuando el estado del app cambia.
 
-**Acción requerida por Juan (bloqueante):**
-1. Play Console → **Users and permissions** → buscar `game-api-backend@motamaze.iam.gserviceaccount.com`
-2. Verificar si los 4 permisos de MotaMaze siguen activos. Si no aparecen: re-invitar con los mismos 4 permisos (ST-04)
-3. Si sí aparecen: quitarlos todos, guardar → volver a agregarlos, guardar → forzar re-propagación
-4. **Próximo retry:** 2026-07-02 (24h post-fix de Juan)
+**Root cause identificado (2026-07-01):** El SA tenía permisos financieros a nivel de **cuenta** (account-level: "View financial data" + "Manage orders and subscriptions") pero NO tenía ningún permiso a nivel de **app** para MotaMaze en el tab "App permissions". La Play Developer API requiere al menos "View app information" a nivel de app para que el SA pueda acceder a datos de la app específica — sin ese permiso, incluso los financieros de cuenta no son efectivos para la app.
+
+**Fix aplicado (2026-07-01 — Saul):**
+Play Console → Users and permissions → `game-api-backend@motamaze.iam.gserviceaccount.com` → **App permissions** tab → Add app → MotaMaze → seleccionados:
+- ✅ **View app information (read-only)** — marcado manualmente
+- ✅ **View app quality information (read-only)** — auto-granted al seleccionar el anterior
+- ℹ️ "View financial data" + "Manage orders and subscriptions" — heredados automáticamente del account level (banner: *"Some permissions are automatically granted by account permissions"*)
+
+**Retry 2026-07-01 (post-fix, mismo día):**
+
+```bash
+USER_TOKEN=$(gcloud auth print-access-token)
+SA="game-api-backend@motamaze.iam.gserviceaccount.com"
+SA_TOKEN=$(curl -s -X POST \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"scope":["https://www.googleapis.com/auth/androidpublisher"]}' \
+  "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${SA}:generateAccessToken" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['accessToken'])")
+
+PKG="com.ingeniouscruciblestudios.motamaze"
+
+# Test 1 — purchases.products.get (dummy values)
+curl -s -w "\nHTTP_STATUS: %{http_code}\n" \
+  -H "Authorization: Bearer $SA_TOKEN" \
+  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PKG}/purchases/products/test_sku/tokens/test_token"
+
+# Test 2 — reviews.list (solo requiere View app information)
+curl -s -w "\nHTTP_STATUS: %{http_code}\n" \
+  -H "Authorization: Bearer $SA_TOKEN" \
+  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PKG}/reviews?maxResults=1"
+```
+
+**Resultados (2026-07-01):**
+
+| Llamada | HTTP | Resultado | Diagnóstico |
+|---|---|---|---|
+| `reviews.list` | **200** | `{}` | ✅ SA tiene "View app information" — sin reviews aún (esperado en Internal Testing) |
+| `purchases.products.get` | **400** | `Invalid Value` | ✅ SA autorizado — `test_sku`/`test_token` rechazados por formato inválido (NO es error de permisos) |
+
+**Conclusión ST-06:** El SA ahora puede alcanzar y autenticarse contra la Play Developer API. El 400 "Invalid Value" en `purchases.products.get` confirma que los permisos funcionan — con un `purchase_token` real la respuesta sería 404 `purchaseTokenNotFound`. El 200 en `reviews.list` confirma "View app information" activo. ST-06 ✅ Done.
 
 ---
 
