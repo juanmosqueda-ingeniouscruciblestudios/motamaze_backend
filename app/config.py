@@ -15,5 +15,6 @@ class Settings(BaseSettings):
     cloudinary_cloud_name: str = "lyku9hz2"
     cloudinary_share_image_id: str = "motamaze_1200x630_v2_yivwuj"
     share_base_url: str = "https://motamaze.com"
+    play_package_name: str = "com.ingeniouscruciblestudios.motamaze"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

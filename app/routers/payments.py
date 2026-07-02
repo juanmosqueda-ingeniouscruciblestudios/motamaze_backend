@@ -1,21 +1,27 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import JSONResponse
+from google.cloud.firestore import ArrayUnion, AsyncClient
 from pydantic import BaseModel
 
 from app.config import Settings
-from app.dependencies import get_settings, verify_jwt
+from app.dependencies import get_firestore_client, get_settings, verify_jwt
+from app.services import play_api
 from app.services.bq_streaming import stream_event
 
 router = APIRouter(prefix="/payments", tags=["payments"])
+
+_REGEN_INTERVAL_SECS = 1800
+_DEFAULT_MAX_LIVES = 5
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _infer_entitlement(product_id: str) -> tuple[str, str, int | None]:
-    """Returns (entitlement_type, product_type, quantity) from product_id."""
+def _infer_entitlement(product_id: str) -> tuple[str | None, str | None, int | None]:
+    """Returns (entitlement_type, product_type, quantity) or (None, None, None) if unknown."""
     if product_id.startswith("lives_pack_"):
         try:
             qty = int(product_id.split("_")[-1])
@@ -26,7 +32,39 @@ def _infer_entitlement(product_id: str) -> tuple[str, str, int | None]:
         return "no_ads", "non_consumable", None
     if product_id.startswith("skin_"):
         return "skin", "non_consumable", None
-    return "life_pack", "consumable", 0
+    if product_id == "season_pass_gold":
+        return "season_pass", "non_consumable", None
+    return None, None, None
+
+
+async def _grant_lives_iap(db: AsyncClient, user_id: str, quantity: int, now: datetime) -> int:
+    """Grants lives from IAP purchase. Returns new current_lives count."""
+    lives_ref = db.collection("lives").document(user_id)
+    snap = await lives_ref.get()
+    if snap.exists:
+        data = snap.to_dict()
+        count = data.get("count", 0)
+        max_lives = data.get("max_lives", _DEFAULT_MAX_LIVES)
+        last_regen_at = data.get("last_regen_at", now)
+    else:
+        count, max_lives, last_regen_at = 0, _DEFAULT_MAX_LIVES, now
+
+    actual = min(quantity, max_lives - count)
+    new_count = count + actual
+    next_regen = (
+        None if new_count >= max_lives
+        else last_regen_at + timedelta(seconds=_REGEN_INTERVAL_SECS)
+    )
+
+    await lives_ref.set({
+        "uid": user_id,
+        "count": new_count,
+        "max_lives": max_lives,
+        "last_regen_at": last_regen_at,
+        "next_regen_at": next_regen,
+        "updated_at": now,
+    }, merge=True)
+    return new_count
 
 
 def _bq_purchase_row(
@@ -37,6 +75,7 @@ def _bq_purchase_row(
     product_id: str,
     product_type: str,
     purchase_token: str,
+    order_id: str | None,
     verification_status: str,
     grant_status: str,
 ) -> dict:
@@ -51,7 +90,7 @@ def _bq_purchase_row(
         "product_id": product_id,
         "product_type": product_type,
         "purchase_token": purchase_token,
-        "order_id": None,
+        "order_id": order_id,
         "price_usd": None,
         "currency_code": None,
         "verification_status": verification_status,
@@ -101,7 +140,7 @@ class IosVerifyRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# POST /payments/android/verify  (DATA-002 ST-08)
+# POST /payments/android/verify
 # ---------------------------------------------------------------------------
 
 @router.post("/android/verify")
@@ -110,21 +149,120 @@ async def android_verify(
     background_tasks: BackgroundTasks,
     claims: dict = Depends(verify_jwt),
     settings: Settings = Depends(get_settings),
+    db: AsyncClient = Depends(get_firestore_client),
 ):
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
+
     entitlement_type, product_type, quantity = _infer_entitlement(body.product_id)
+    if entitlement_type is None:
+        raise HTTPException(400, detail={"error_code": "PAY_PRODUCT_NOT_FOUND"})
 
-    # PAY-001 will replace this stub with Play Developer API: purchases.products.get()
-    verification_status = "verified"
-    grant_status = "granted"
+    # Call Play Developer API
+    try:
+        purchase = await play_api.get_product_purchase(
+            settings.play_package_name, body.product_id, body.purchase_token
+        )
+    except play_api.PlayAPIError as e:
+        if e.http_status >= 500:
+            raise HTTPException(503, detail={"error_code": "PAY_STORE_UNAVAILABLE"})
+        raise HTTPException(402, detail={"error_code": "PAY_VERIFICATION_FAILED"})
+    except Exception:
+        raise HTTPException(503, detail={"error_code": "PAY_STORE_UNAVAILABLE"})
 
+    purchase_state = purchase.get("purchaseState", 0)
+    order_id = purchase.get("orderId")
+
+    # PENDING purchase — client must retry later
+    if purchase_state == 2:
+        return JSONResponse(status_code=202, content={
+            "order_id": None,
+            "product_id": body.product_id,
+            "verification_status": "pending",
+            "grant_status": "pending",
+            "message": "Purchase is pending approval. Retry when payment is confirmed.",
+        })
+
+    # CANCELLED / invalid
+    if purchase_state == 1:
+        raise HTTPException(402, detail={"error_code": "PAY_VERIFICATION_FAILED"})
+
+    # PURCHASED (purchaseState == 0)
+
+    # Idempotency: already processed by a previous request
+    already_done = (
+        (product_type == "consumable" and purchase.get("consumptionState", 0) == 1)
+        or (product_type == "non_consumable" and purchase.get("acknowledgementState", 0) == 1)
+    )
+
+    if already_done:
+        current_lives = None
+        if entitlement_type == "life_pack":
+            snap = await db.collection("lives").document(user_id).get()
+            current_lives = snap.to_dict().get("count", 0) if snap.exists else 0
+
+        background_tasks.add_task(
+            stream_event, "purchase_events",
+            _bq_purchase_row(
+                now, user_id, body.session_id, "android",
+                body.product_id, product_type, body.purchase_token,
+                order_id, "verified", "already_granted",
+            ),
+            settings.gcp_project_id, settings.bq_dataset,
+            row_id=f"purchase_android_{body.purchase_token}",
+        )
+
+        return {
+            "order_id": order_id,
+            "product_id": body.product_id,
+            "product_type": product_type,
+            "verification_status": "verified",
+            "grant_status": "already_granted",
+            "entitlement": {
+                "type": entitlement_type,
+                "quantity": quantity,
+                "current_lives": current_lives,
+            },
+        }
+
+    # Grant entitlement in Firestore
+    current_lives = None
+    if entitlement_type == "life_pack" and quantity:
+        current_lives = await _grant_lives_iap(db, user_id, quantity, now)
+    elif entitlement_type == "no_ads":
+        await db.collection("entitlements").document(user_id).set(
+            {"no_ads": True, "updated_at": now}, merge=True
+        )
+    elif entitlement_type == "skin":
+        await db.collection("entitlements").document(user_id).set(
+            {"skins": ArrayUnion([body.product_id]), "updated_at": now}, merge=True
+        )
+    elif entitlement_type == "season_pass":
+        await db.collection("season_progress").document(user_id).set(
+            {"has_gold_pass": True, "season_id": settings.active_season_id, "updated_at": now},
+            merge=True,
+        )
+
+    # Acknowledge or consume via Play API (non-fatal if this call fails — PAY-002 reconciles)
+    try:
+        if product_type == "consumable":
+            await play_api.consume_product_purchase(
+                settings.play_package_name, body.product_id, body.purchase_token
+            )
+        else:
+            await play_api.acknowledge_product_purchase(
+                settings.play_package_name, body.product_id, body.purchase_token
+            )
+    except Exception:
+        pass
+
+    # BQ streaming (background)
     background_tasks.add_task(
         stream_event, "purchase_events",
         _bq_purchase_row(
             now, user_id, body.session_id, "android",
             body.product_id, product_type, body.purchase_token,
-            verification_status, grant_status,
+            order_id, "verified", "granted",
         ),
         settings.gcp_project_id, settings.bq_dataset,
         row_id=f"purchase_android_{body.purchase_token}",
@@ -140,21 +278,21 @@ async def android_verify(
     )
 
     return {
-        "order_id": None,  # populated by Play API in PAY-001
+        "order_id": order_id,
         "product_id": body.product_id,
         "product_type": product_type,
-        "verification_status": verification_status,
-        "grant_status": grant_status,
+        "verification_status": "verified",
+        "grant_status": "granted",
         "entitlement": {
             "type": entitlement_type,
             "quantity": quantity,
-            "current_lives": None,  # PAY-001 will read from Firestore
+            "current_lives": current_lives,
         },
     }
 
 
 # ---------------------------------------------------------------------------
-# POST /payments/ios/verify  (DATA-002 ST-08)
+# POST /payments/ios/verify  (DATA-002 ST-08 — stub, iOS en PAY-001 fase 2)
 # ---------------------------------------------------------------------------
 
 @router.post("/ios/verify")
@@ -168,7 +306,7 @@ async def ios_verify(
     now = datetime.now(timezone.utc)
     entitlement_type, product_type, quantity = _infer_entitlement(body.product_id)
 
-    # PAY-001 will replace this stub with App Store Server API call + JWS verification
+    # PAY-001 phase 2: replace with App Store Server API call + JWS verification
     verification_status = "verified"
     grant_status = "granted"
 
@@ -176,8 +314,8 @@ async def ios_verify(
         stream_event, "purchase_events",
         _bq_purchase_row(
             now, user_id, body.session_id, "ios",
-            body.product_id, product_type, body.transaction_id,
-            verification_status, grant_status,
+            body.product_id, product_type or "unknown", body.transaction_id,
+            None, verification_status, grant_status,
         ),
         settings.gcp_project_id, settings.bq_dataset,
         row_id=f"purchase_ios_{body.transaction_id}",
@@ -186,7 +324,7 @@ async def ios_verify(
         stream_event, "entitlement_grants",
         _bq_entitlement_row(
             now, user_id, body.session_id, "ios",
-            entitlement_type, body.product_id, quantity,
+            entitlement_type or "unknown", body.product_id, quantity,
         ),
         settings.gcp_project_id, settings.bq_dataset,
         row_id=f"entitlement_ios_{body.transaction_id}",
@@ -201,10 +339,10 @@ async def ios_verify(
         "entitlement": {
             "type": entitlement_type,
             "quantity": quantity,
-            "current_lives": None,  # PAY-001 will read from Firestore
+            "current_lives": None,
         },
     }
 
 
-# POST /payments/android/refund-notification  — PAY-001
-# POST /payments/ios/refund-notification      — PAY-001
+# POST /payments/android/refund-notification  — PAY-003
+# POST /payments/ios/refund-notification      — PAY-003
