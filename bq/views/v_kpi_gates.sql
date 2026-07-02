@@ -55,7 +55,7 @@ revenue_totals AS (
   FROM `motamaze.motamaze_analytics.purchase_events`
 ),
 ad_revenue_totals AS (
-  SELECT SUM(COALESCE(estimated_revenue, 0)) AS ad_revenue_usd
+  SELECT SUM(COALESCE(estimated_earnings_micros, 0)) / 1000000.0 AS ad_revenue_usd
   FROM `motamaze.motamaze_analytics.admob_daily_report`
 )
 SELECT

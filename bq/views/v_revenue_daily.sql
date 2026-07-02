@@ -23,8 +23,8 @@ SELECT
   country,
   'android'                               AS platform,
   'admob'                                 AS revenue_source,
-  SUM(COALESCE(estimated_revenue, 0))     AS revenue_usd,
-  0                                       AS paying_users,
-  SUM(impressions)                        AS transactions
+  SUM(COALESCE(estimated_earnings_micros, 0)) / 1000000.0  AS revenue_usd,
+  0                                                        AS paying_users,
+  SUM(impressions)                                         AS transactions
 FROM `motamaze.motamaze_analytics.admob_daily_report`
 GROUP BY 1, 2, 3, 4;
