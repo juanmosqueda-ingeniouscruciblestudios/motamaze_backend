@@ -4,8 +4,8 @@
 |---|---|
 | **Type** | Analytics / BI |
 | **Priority** | High — go/no-go soft launch 2026-09-14 |
-| **Status** | In Progress — ST-01 ✅ BQ views creadas (2026-07-02); ST-02 ⬜ Looker Studio setup pendiente (Saul); ST-03 ⬜ uso en decisión go/no-go (2026-09-14) |
-| **Date** | 2026-07-02 |
+| **Status** | In Progress — ST-01 ✅ BQ views creadas (2026-07-02); ST-02 ✅ Looker Studio setup completo (2026-07-07); ST-03 ⬜ uso en decisión go/no-go (2026-09-14) |
+| **Date** | 2026-07-07 |
 | **Workstream** | Dataflow & Outputs (DATA-004) |
 | **Monday Item ID** | 12272094760 |
 | **Depends-on** | DATA-001 ✅ (BQ tables), DATA-002 ✅ (streaming), EXT-001 ✅ (purchases data), EXT-002 ✅ (AdMob) |
@@ -57,7 +57,7 @@ bq ls motamaze:motamaze_analytics | grep "^v_"
 
 ---
 
-## ST-02 — Looker Studio setup ⬜ Pendiente (Saul)
+## ST-02 — Looker Studio setup ✅ Done (2026-07-07)
 
 ### Acceso
 - URL: **https://lookerstudio.google.com**
