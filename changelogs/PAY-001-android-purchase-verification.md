@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature |
 | **Priority** | Critical — server-authoritative IAP verification |
-| **Status** | Done — ST-01 ✅ implementation + commit `cd9ad1e` (2026-07-02); ST-02 integration tests ⬜ pending |
+| **Status** | In Progress — ST-01 ✅ implementation + commit `cd9ad1e` (2026-07-02); ST-02 ✅ error-path tests PASS (2026-07-09); ST-03 ⬜ real grant test pending T-255 |
 | **Date** | 2026-07-02 |
 | **Workstream** | Payments |
 | **Commit** | `cd9ad1e` |
@@ -137,32 +137,51 @@ for f in ['app/services/play_api.py', 'app/routers/payments.py', 'app/config.py'
 # SYNTAX OK: app/config.py
 ```
 
-### ST-02 — Integration tests contra Cloud Run dev ⬜ Pending
+### ST-02 — Tests error-path contra Cloud Run prod ✅ Done (2026-07-09)
 
-```bash
-# Setup: proxy + JWT
-gcloud run services proxy motamaze-api --port=8081 --project=motamaze-dev --region=us-central1 &
-BASE="http://localhost:8081"
-JWT="<token>"   # script de DATA-002 ST-12
+Tests ejecutados via `gcloud run services proxy motamaze-backend --port=8082 --region=us-central1 --project=motamaze`
++ JWT generado localmente con la clave RS256 de Secret Manager.
 
-# Test 1 — producto desconocido → 400 PAY_PRODUCT_NOT_FOUND
-curl -s -X POST $BASE/payments/android/verify \
-  -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
-  -d '{"purchase_token":"tok","product_id":"fake_sku","session_id":"s1"}' | python3 -m json.tool
-# Esperado: HTTP 400, error_code=PAY_PRODUCT_NOT_FOUND
+**Test 1 — product_id desconocido → HTTP 400 PAY_PRODUCT_NOT_FOUND**
 
-# Test 2 — token inválido → 402 PAY_VERIFICATION_FAILED
-curl -s -X POST $BASE/payments/android/verify \
-  -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
-  -d '{"purchase_token":"invalid_token","product_id":"lives_pack_5","session_id":"s2"}' | python3 -m json.tool
-# Esperado: HTTP 402, error_code=PAY_VERIFICATION_FAILED
-# (Play API devolverá 400 Invalid Value para token con formato inválido)
-
-# Test 3 — compra real (requiere purchaseToken real del Play Billing SDK o sandbox)
-# Esperado: HTTP 200, grant_status=granted, current_lives actualizado
+```json
+POST /payments/android/verify
+{"purchase_token": "tok", "product_id": "fake_sku", "session_id": "st02-test1"}
 ```
 
-**Nota ST-02:** Para test completo de grant se requiere un `purchaseToken` real generado por Play Billing SDK en un dispositivo con la app instalada (Internal Testing track ya activo). Pendiente de integración con cliente Godot.
+Resultado real:
+```json
+HTTP 400
+{"detail": {"error_code": "PAY_PRODUCT_NOT_FOUND"}}
+```
+PASS
+
+**Test 2 — purchaseToken con formato invalido → HTTP 402 PAY_VERIFICATION_FAILED**
+
+```json
+POST /payments/android/verify
+{"purchase_token": "invalid_token_format", "product_id": "lives_pack_5", "session_id": "st02-test2"}
+```
+
+Resultado real:
+```json
+HTTP 402
+{"detail": {"error_code": "PAY_VERIFICATION_FAILED"}}
+```
+PASS
+
+### ST-03 — Test grant real (purchaseToken del Play Billing SDK) ⬜ Pending
+
+Requiere `purchaseToken` real generado por Play Billing SDK desde dispositivo con app instalada.
+Bloqueado en **T-255** (IAP client integration en cliente Godot — Not Started).
+
+```json
+POST /payments/android/verify
+{"purchase_token": "<real_token>", "product_id": "lives_pack_5", "session_id": "s3"}
+```
+
+Esperado: HTTP 200, grant_status=granted, current_lives actualizado en Firestore,
+fila en BQ purchase_events + entitlement_grants, consume confirmado en Play Console.
 
 ---
 
