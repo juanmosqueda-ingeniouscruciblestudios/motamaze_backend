@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Dataflow / External Integration |
 | **Priority** | High — revenue KPI para go/no-go 2026-09-14 |
-| **Status** | In Progress — ST-01 ✅ OAuth credentials en Secret Manager (2026-07-08); ST-02 ⬜ Cloud Run job; ST-03 ⬜ verificar datos en BQ |
+| **Status** | In Progress — ST-01 ✅ OAuth credentials en Secret Manager (2026-07-08); ST-02 ✅ Cloud Run job + Cloud Scheduler live (2026-07-09); ST-03 ⬜ verificar datos reales post soft-launch (2026-09-14) |
 | **Date** | 2026-07-08 |
 | **Workstream** | Dataflow & Outputs |
 | **Depends-on** | EXT-002 ✅ (AdMob account), DATA-001 ✅ (BQ tables), INFRA-002 ✅ (Secret Manager) |
@@ -88,15 +88,24 @@ foreach ($secret in @("admob-oauth-client-id","admob-oauth-client-secret","admob
 
 ---
 
-## ST-02 — Cloud Run job + Cloud Scheduler ⬜ Pendiente
+## ST-02 — Cloud Run job + Cloud Scheduler ✅ Done (2026-07-09)
 
-Implementar endpoint `POST /jobs/admob-daily-report` en el backend FastAPI que:
-1. Lee los 3 secrets de Secret Manager
+Endpoint `POST /jobs/admob-daily-report` implementado en FastAPI:
+1. Lee 3 secrets de Secret Manager (client_id, client_secret, refresh_token)
 2. Construye `google.oauth2.credentials.Credentials` con el refresh token
 3. Llama a `admob.v1.accounts.networkReport.generate` para `pub-9121176819960949`
-4. Transforma la respuesta y hace `insert_rows_json` en BQ `admob_daily_report`
+4. Transforma la respuesta y hace batch insert en BQ `admob_daily_report` vía `stream_events`
+5. Re-lee credenciales de SM automáticamente si el refresh falla (credential rotation)
 
-Cloud Scheduler dispara el job diariamente a las 08:00 UTC.
+**Cloud Scheduler:** job `admob-daily-report` en `us-central1`, schedule `0 8 * * *` UTC.
+**Auth:** OIDC con SA `game-api-backend@motamaze.iam.gserviceaccount.com` → `*.run.app` URL.
+**Verified:** force-run manual 2026-07-09 → 200 OK, 0 rows (esperado — sin impresiones reales aún).
+
+**Gotchas resueltos:**
+- Cloud Scheduler service agent debe crearse explícitamente: `gcloud beta services identity create --service=cloudscheduler.googleapis.com`
+- OIDC audience debe ser el URL `*.run.app`, no el custom domain
+- SA necesita `roles/run.invoker` en el Cloud Run service
+- Secrets almacenados con pipe de PowerShell se truncan a 2 chars — usar `WriteAllText` con UTF8 sin BOM + `--data-file=<tempfile>`
 
 ---
 
