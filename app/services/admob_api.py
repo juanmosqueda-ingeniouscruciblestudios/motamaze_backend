@@ -20,19 +20,28 @@ def _read_secret(sm_client: secretmanager.SecretManagerServiceClient, project_id
     return resp.payload.data.decode("utf-8").strip()
 
 
+def _load_creds_from_sm(project_id: str) -> Credentials:
+    sm = secretmanager.SecretManagerServiceClient()
+    return Credentials(
+        token=None,
+        refresh_token=_read_secret(sm, project_id, "admob-oauth-refresh-token"),
+        client_id=_read_secret(sm, project_id, "admob-oauth-client-id"),
+        client_secret=_read_secret(sm, project_id, "admob-oauth-client-secret"),
+        token_uri=_TOKEN_URI,
+    )
+
+
 def _get_access_token(project_id: str) -> str:
     global _cached_creds
     if _cached_creds is None:
-        sm = secretmanager.SecretManagerServiceClient()
-        _cached_creds = Credentials(
-            token=None,
-            refresh_token=_read_secret(sm, project_id, "admob-oauth-refresh-token"),
-            client_id=_read_secret(sm, project_id, "admob-oauth-client-id"),
-            client_secret=_read_secret(sm, project_id, "admob-oauth-client-secret"),
-            token_uri=_TOKEN_URI,
-        )
+        _cached_creds = _load_creds_from_sm(project_id)
     if not _cached_creds.valid:
-        _cached_creds.refresh(google.auth.transport.requests.Request())
+        try:
+            _cached_creds.refresh(google.auth.transport.requests.Request())
+        except Exception:
+            # Credentials may have been rotated in Secret Manager — re-read and retry once.
+            _cached_creds = _load_creds_from_sm(project_id)
+            _cached_creds.refresh(google.auth.transport.requests.Request())
     return _cached_creds.token
 
 
