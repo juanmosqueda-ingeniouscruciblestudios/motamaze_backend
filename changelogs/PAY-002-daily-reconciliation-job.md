@@ -121,6 +121,8 @@ gcloud scheduler jobs create http reconcile-purchases `
 
 **Schedule:** `0 6 * * *` UTC — 6 AM diario (1 AM CST). Elegido para que Play API haya procesado todos los eventos del día anterior antes del run.
 
+**Verificado (2026-07-09):** Job creado en `us-central1`, state=ENABLED, próximo run 2026-07-10T06:00:00Z.
+
 ---
 
 ## ST-03 — Test end-to-end ⬜ Pending
