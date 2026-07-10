@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature |
 | **Priority** | Critical — server-authoritative IAP verification |
-| **Status** | In Progress — ST-01 ✅ implementation + commit `cd9ad1e` (2026-07-02); ST-02 ✅ error-path tests PASS (2026-07-09); ST-03 ⬜ real grant test pending T-255 |
+| **Status** | In Progress — ST-01 ✅ implementation + commit `cd9ad1e` (2026-07-02); ST-02 ✅ error-path tests PASS (2026-07-09); ST-03 ⬜ real grant test pending T-252 |
 | **Date** | 2026-07-02 |
 | **Workstream** | Payments |
 | **Commit** | `cd9ad1e` |
@@ -173,7 +173,7 @@ PASS
 ### ST-03 — Test grant real (purchaseToken del Play Billing SDK) ⬜ Pending
 
 Requiere `purchaseToken` real generado por Play Billing SDK desde dispositivo con app instalada.
-Bloqueado en **T-255** (IAP client integration en cliente Godot — Not Started).
+Bloqueado en **T-252** (IAP client integration en cliente Godot — Not Started).
 
 ```json
 POST /payments/android/verify

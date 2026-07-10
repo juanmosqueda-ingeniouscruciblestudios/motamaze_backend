@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Background Job / Reliability |
 | **Priority** | High — garantiza integridad de pagos y detección de refunds |
-| **Status** | In Progress — ST-01 ✅ implementación completa (2026-07-09); ST-02 ✅ Cloud Scheduler job live (2026-07-09); ST-03 ⬜ test end-to-end pendiente T-255 |
+| **Status** | In Progress — ST-01 ✅ implementación completa (2026-07-09); ST-02 ✅ Cloud Scheduler job live (2026-07-09); ST-03 ⬜ test end-to-end pendiente T-252 |
 | **Date** | 2026-07-09 |
 | **Workstream** | Payments Backend |
 | **Depends-on** | PAY-001 ✅ (purchases Firestore collection), EXT-001 ✅ (Play Developer API) |
@@ -127,7 +127,7 @@ gcloud scheduler jobs create http reconcile-purchases `
 
 ## ST-03 — Test end-to-end ⬜ Pending
 
-Requiere `purchaseToken` real (mismo blocker que PAY-001 ST-03 → T-255).
+Requiere `purchaseToken` real (mismo blocker que PAY-001 ST-03 → T-252).
 
 Test a ejecutar:
 1. Compra con Play Billing SDK → token en `purchases/{token}` con `acknowledged: false`
