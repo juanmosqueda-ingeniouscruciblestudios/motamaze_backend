@@ -1,7 +1,9 @@
 import asyncio
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
+from datetime import datetime
 
 import google.auth
 import google.auth.transport.requests
@@ -71,3 +73,23 @@ async def consume_product_purchase(pkg: str, product_id: str, purchase_token: st
         f"/{product_id}/tokens/{purchase_token}:consume"
     )
     await asyncio.to_thread(_do_post, url)
+
+
+def _do_list_voided(url: str) -> list[dict]:
+    token = _get_token()
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+            return data.get("voidedPurchases", [])
+    except urllib.error.HTTPError as e:
+        raise PlayAPIError(e.code, json.loads(e.read() or b"{}"))
+
+
+async def list_voided_purchases(pkg: str, start: datetime, end: datetime) -> list[dict]:
+    """Returns voided purchases between start and end (UTC datetimes)."""
+    start_ms = int(start.timestamp() * 1000)
+    end_ms = int(end.timestamp() * 1000)
+    params = urllib.parse.urlencode({"startTime": start_ms, "endTime": end_ms, "maxResults": 1000})
+    url = f"{_BASE}/applications/{pkg}/purchases/voidedpurchases?{params}"
+    return await asyncio.to_thread(_do_list_voided, url)

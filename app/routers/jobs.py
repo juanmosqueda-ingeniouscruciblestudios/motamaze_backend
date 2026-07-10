@@ -3,10 +3,11 @@ from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from google.cloud.firestore import AsyncClient
 
 from app.config import Settings
-from app.dependencies import get_settings
-from app.services import admob_api
+from app.dependencies import get_firestore_client, get_settings
+from app.services import admob_api, reconcile_service
 from app.services.bq_streaming import stream_events
 
 logger = logging.getLogger(__name__)
@@ -52,3 +53,23 @@ async def run_admob_daily_report(
 
     logger.info("AdMob report %s: %d rows queued", report_date, len(rows))
     return {"report_date": report_date.isoformat(), "rows_queued": len(rows)}
+
+
+@router.post("/reconcile-purchases")
+async def run_reconcile_purchases(
+    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
+    settings: Settings = Depends(get_settings),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    if x_cloudscheduler_jobname is None:
+        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
+
+    ack_result = await reconcile_service.reconcile_pending_acks(
+        settings.play_package_name, db, settings
+    )
+    refund_result = await reconcile_service.detect_refunds(
+        settings.play_package_name, db, settings
+    )
+
+    logger.info("PAY-002 reconcile: ack=%s refunds=%s", ack_result, refund_result)
+    return {"pending_acks": ack_result, "refunds": refund_result}

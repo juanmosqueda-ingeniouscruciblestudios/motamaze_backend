@@ -201,6 +201,16 @@ async def android_verify(
             snap = await db.collection("lives").document(user_id).get()
             current_lives = snap.to_dict().get("count", 0) if snap.exists else 0
 
+        await db.collection("purchases").document(body.purchase_token).set({
+            "uid": user_id,
+            "product_id": body.product_id,
+            "product_type": product_type,
+            "order_id": order_id,
+            "acknowledged": True,
+            "acknowledged_at": now,
+            "created_at": now,
+        }, merge=True)
+
         background_tasks.add_task(
             stream_event, "purchase_events",
             _bq_purchase_row(
@@ -243,6 +253,16 @@ async def android_verify(
             merge=True,
         )
 
+    # Write purchase record so PAY-002 reconciliation job can find un-acknowledged tokens.
+    await db.collection("purchases").document(body.purchase_token).set({
+        "uid": user_id,
+        "product_id": body.product_id,
+        "product_type": product_type,
+        "order_id": order_id,
+        "acknowledged": False,
+        "created_at": now,
+    }, merge=True)
+
     # Acknowledge or consume via Play API (non-fatal if this call fails — PAY-002 reconciles)
     try:
         if product_type == "consumable":
@@ -253,6 +273,9 @@ async def android_verify(
             await play_api.acknowledge_product_purchase(
                 settings.play_package_name, body.product_id, body.purchase_token
             )
+        await db.collection("purchases").document(body.purchase_token).set(
+            {"acknowledged": True, "acknowledged_at": now}, merge=True
+        )
     except Exception:
         pass
 
