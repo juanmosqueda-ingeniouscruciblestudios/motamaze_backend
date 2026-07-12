@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from google.cloud.firestore import AsyncClient
 from pydantic import BaseModel
@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
 from app.services import auth_service, jwt_service
+from app.services import geo_service
 from app.services.bq_streaming import stream_event
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,10 @@ class LoginRequest(BaseModel):
     app_version: str
     device_model: str | None = None
     os_version: str | None = None
-    country: str | None = None
+    # Signal 1 (primary): Google Play BillingConfig.countryCode — wired in T-252
+    store_country_code: str | None = None
+    # Signal 2 (secondary): Godot OS.get_locale_country()
+    device_country_code: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -57,6 +61,7 @@ class RefreshResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
+    request: Request,
     body: LoginRequest,
     background_tasks: BackgroundTasks,
     db: AsyncClient = Depends(get_firestore_client),
@@ -94,8 +99,20 @@ async def login(
             detail={"error_code": "AUTH_MISSING_FIELDS", "message": f"Unknown provider: {body.provider}"},
         )
 
+    # Signal 3: IP corroboration (server-side, never overrides primary)
+    client_ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    ip_country = await geo_service.get_ip_country(client_ip, settings.geoip2_db_path) if client_ip else None
+
+    resolved_country, signal_mismatch = geo_service.resolve_country(
+        body.store_country_code, body.device_country_code, ip_country
+    )
+    age_threshold = geo_service.consent_age_threshold(resolved_country)
+
     user_id, is_new_user = await auth_service.upsert_user(
-        db, sub, email, display_name, photo_url, body.provider
+        db, sub, email, display_name, photo_url, body.provider,
+        country_code=resolved_country,
+        consent_age_threshold=age_threshold,
+        country_signal_mismatch=signal_mismatch,
     )
 
     session_id = str(uuid.uuid4())
@@ -127,7 +144,7 @@ async def login(
             "session_id": session_id,
             "platform": body.platform,
             "app_version": body.app_version,
-            "country": body.country or "",
+            "country": resolved_country or "",
             "login_method": f"{body.provider}_oauth",
             "is_new_user": is_new_user,
             "age_verified": False,

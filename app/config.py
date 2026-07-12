@@ -16,5 +16,6 @@ class Settings(BaseSettings):
     cloudinary_share_image_id: str = "motamaze_1200x630_v2_yivwuj"
     share_base_url: str = "https://motamaze.com"
     play_package_name: str = "com.ingeniouscruciblestudios.motamaze"
+    geoip2_db_path: str = "/gcs/geolite2/GeoLite2-Country.mmdb"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

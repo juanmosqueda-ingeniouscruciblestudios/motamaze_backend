@@ -30,6 +30,9 @@ async def upsert_user(
     display_name: str,
     photo_url: str | None,
     provider: str,
+    country_code: str | None = None,
+    consent_age_threshold: int = 13,
+    country_signal_mismatch: bool = False,
 ) -> tuple[str, bool]:
     now = datetime.now(timezone.utc)
     ref = db.collection("users").document(sub)
@@ -50,6 +53,9 @@ async def upsert_user(
                 "gdpr_consent": None,
                 "ccpa_opt_out": False,
                 "age_verified_at": None,
+                "country_code": country_code,
+                "consent_age_threshold": consent_age_threshold,
+                "country_signal_mismatch": country_signal_mismatch,
             },
         })
     else:
@@ -58,6 +64,9 @@ async def upsert_user(
             "display_name": display_name,
             "photo_url": photo_url,
             "updated_at": now,
+            "consent.country_code": country_code,
+            "consent.consent_age_threshold": consent_age_threshold,
+            "consent.country_signal_mismatch": country_signal_mismatch,
         })
     return sub, is_new
 
