@@ -120,53 +120,56 @@ Usuarios existentes: se actualiza `consent.country_code`, `consent_age_threshold
 
 ---
 
-## ST-02 — MaxMind Refresh Pipeline ⬜ Pendiente (lunes 2026-07-14)
+## ST-02 — MaxMind Refresh Pipeline ✅ Done (2026-07-13)
 
-### Infraestructura requerida
+### Infraestructura desplegada
 
 ```
-Cloud Scheduler (semanal, martes 04:00 UTC)
+Cloud Scheduler (semanal, martes 04:00 UTC) — maxmind-geolite2-weekly
   └─► Cloud Run Job: maxmind-geolite2-refresh
-        └─► geoipupdate tool (imagen oficial maxmindinc/geoipupdate)
+        └─► imagen: maxmindinc/geoipupdate:latest
               └─► escribe GeoLite2-Country.mmdb
-                    └─► GCS bucket: motamaze-geolite2
+                    └─► GCS bucket: gs://motamaze-geolite2 (proyecto motamaze, us-central1)
                           └─► Cloud Run auth service: volume mount /gcs/geolite2 (read-only)
+                                └─► prod: motamaze-backend-00048-554
+                                └─► dev:  motamaze-backend-00052-6fq (cross-project IAM)
 ```
 
 **Por qué GCS y no bundle en el container:** La EULA de MaxMind requiere actualizar el archivo dentro de los 30 días de cada release. GeoLite2 se actualiza 2x/semana (martes y viernes). El volume mount permite que el auth service tome el nuevo .mmdb sin redeploy.
 
-### Comandos (a ejecutar el lunes)
+### Recursos creados
+
+| Recurso | ID / Nombre | Notas |
+|---|---|---|
+| GCS Bucket | `gs://motamaze-geolite2` | us-central1, uniform access |
+| Secret Manager | `maxmind-license-key` (version 1) | License key MaxMind Account 1377358 |
+| IAM prod | `game-api-backend@motamaze` → `roles/storage.objectViewer` | Bucket-level |
+| IAM dev | `game-api-backend@motamaze-dev` → `roles/storage.objectViewer` | Cross-project |
+| Cloud Run Job | `maxmind-geolite2-refresh` | `maxmindinc/geoipupdate:latest`, env vars: GEOIPUPDATE_ACCOUNT_ID=1377358, GEOIPUPDATE_EDITION_IDS=GeoLite2-Country, GEOIPUPDATE_DB_DIR=/gcs/geolite2; secret: GEOIPUPDATE_LICENSE_KEY |
+| Cloud Scheduler | `maxmind-geolite2-weekly` | `0 4 * * 2` (martes 04:00 UTC); próxima ejecución 2026-07-14 |
+| Cloud Monitoring | `projects/motamaze/alertPolicies/17855742225595716849` | Alert si Cloud Run Job falla (proxy de file-stale > 7 días) |
+| .mmdb inicial | `GeoLite2-Country_20260710` (8.43 MiB) | Subida 2026-07-13 |
+
+### Testing — ST-02 (2026-07-13)
 
 ```powershell
-# 1. Crear bucket GCS
-gcloud storage buckets create gs://motamaze-geolite2 `
-  --project=motamaze --location=us-central1 --uniform-bucket-level-access
+# Validación end-to-end: ejecución manual del Cloud Run Job
+gcloud run jobs execute maxmind-geolite2-refresh --region=us-central1 --project=motamaze --wait
+# Execution [maxmind-geolite2-refresh-h88t4] has successfully completed.
 
-# 2. MaxMind license key en Secret Manager
-gcloud secrets create maxmind-license-key --project=motamaze
-# (cargar el valor del key via archivo temporal, igual que otros secrets)
-
-# 3. IAM: game-api-backend puede leer el bucket
-gcloud storage buckets add-iam-policy-binding gs://motamaze-geolite2 `
-  --member="serviceAccount:game-api-backend@motamaze.iam.gserviceaccount.com" `
-  --role="roles/storage.objectViewer"
-
-# 4. Descarga inicial del .mmdb y upload a GCS
-# (requiere MaxMind account + license key)
-gcloud storage cp GeoLite2-Country.mmdb gs://motamaze-geolite2/GeoLite2-Country.mmdb
-
-# 5. Cloud Run volume mount en auth service
-gcloud run services update motamaze-backend `
-  --add-volume=name=geolite2,type=cloud-storage,bucket=motamaze-geolite2 `
-  --add-volume-mount=volume=geolite2,mount-path=/gcs/geolite2 `
-  --project=motamaze --region=us-central1
-
-# 6. Cloud Run Job para refresh semanal
-# (Cloud Scheduler → Cloud Run Job con geoipupdate)
+# Verificación del archivo en GCS
+gcloud storage ls -l gs://motamaze-geolite2/
+#          0  2026-07-13T03:34:26Z  gs://motamaze-geolite2/.geoipupdate.lock
+#    8844154  2026-07-13T03:28:37Z  gs://motamaze-geolite2/GeoLite2-Country.mmdb
 ```
 
+### Resultado
+- `.geoipupdate.lock` confirma que geoipupdate gestionó el archivo correctamente
+- Archivo disponible en `/gcs/geolite2/GeoLite2-Country.mmdb` para prod y dev
+- Próxima actualización automática: **2026-07-14 04:00 UTC** (mañana)
+
 ### Cloud Monitoring alert
-Alerta si `last_modified` del objeto en GCS supera 14 días → detecta fallo silencioso del job antes de incumplir la EULA (30 días).
+Alerta si Cloud Run Job `maxmind-geolite2-refresh` falla → detecta fallo del pipeline antes de incumplir la EULA (30 días). Policy ID: `17855742225595716849`.
 
 ---
 
