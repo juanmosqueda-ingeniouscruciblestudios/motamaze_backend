@@ -4,7 +4,7 @@
 |---|---|
 | **Tipo** | Infra/DevOps / IaC |
 | **Prioridad** | Alta |
-| **Status** | In Progress — ST-01 ✅ proyectos creados + estado remoto, ST-02 ✅ módulo Terraform escrito, ST-03 ✅ remote state configurado, ST-04 🔄 billing motamaze-dev vinculado (Juan 2026-06-24) — apply dev pendiente. Staging diferido a post-lanzamiento (2026-06-22). |
+| **Status** | ✅ Done — ST-01 ✅ proyectos GCP creados, ST-02 ✅ módulo Terraform, ST-03 ✅ remote state, ST-04 ✅ terraform apply dev completo (2026-07-13). Staging diferido a post-lanzamiento. |
 | **Fecha planeada** | 6/27–6/28/2026 |
 | **Fecha real inicio** | 2026-06-19 (adelantado) |
 | **Workstream** | Infra/DevOps |
@@ -49,9 +49,9 @@ terraform/
 - [x] Bucket `motamaze-terraform-state` creado en `motamaze` con versioning habilitado
 - [x] Módulo Terraform cubre: APIs (12), SA, IAM (6 roles), Firestore, BQ dataset + 8 tablas, GCS bucket, 5 secrets SM, Cloud Run (opcional por imagen)
 - [x] `backend.tf` configurado para los 3 entornos apuntando a prefijos separados en el bucket de estado
-- [ ] Billing linked en `motamaze-dev` (pendiente Juan — billing account `01A127-C8B7E6-B6DEE7`)
-- [ ] `terraform apply` exitoso en `dev` — todos los recursos creados
-- [ ] `terraform import` + `terraform apply` en `prod` — state sincronizado con recursos existentes
+- [x] Billing linked en `motamaze-dev` (Juan — billing account `01A127-C8B7E6-B6DEE7`)
+- [x] `terraform apply` exitoso en `dev` — todos los recursos creados (2026-07-13)
+- [ ] `terraform import` + `terraform apply` en `prod` — state sincronizado con recursos existentes (pendiente post-lanzamiento)
 - [ ] ~~`terraform apply` exitoso en `staging`~~ — **diferido** a ~1 mes post-lanzamiento PROD (2026-06-22)
 
 ---
@@ -159,57 +159,66 @@ terraform {
 
 ---
 
-### ST-04 — Apply and verify on all three environments ⬜ Pending
+### ST-04 — Apply and verify on all three environments ✅ Dev Done (2026-07-13)
 
-**Avance parcial (2026-06-22):** Secret `play-package-name` creado manualmente en Secret Manager prod y poblado con valor `com.ingeniouscruciblestudios.motamaze` (versión 1). No es necesario esperar `terraform apply` para este secret — ya está disponible en prod.
+**Dev — `terraform apply` completado 2026-07-13:**
 
-**Bloqueadores restantes:**
-- `motamaze-dev` y `motamaze-staging`: billing no enlazado (Juan)
-- Cloud Run: imagen no existe hasta INFRA-003
+Resultado: `Apply complete! Resources: 9 imported, 24 added, 9 changed, 0 destroyed.`
+Verificación: `terraform plan` → `No changes. Your infrastructure matches the configuration.`
 
-**Comandos de apply (una vez resueltos bloqueadores — solo dev para MVP):**
+**Recursos importados (existían antes de Terraform):**
+- `google_service_account.game_api_backend` (via `terraform import` CLI)
+- `google_firestore_database.default` (via `terraform import` CLI)
+- `google_secret_manager_secret.secrets["jwt-private-key"]` (via import block)
+- `google_bigquery_dataset.analytics` + 7 tablas BQ (via import blocks)
 
-```bash
-# dev
-cd terraform/environments/dev
-terraform init
-terraform plan -out=dev.tfplan
-terraform apply dev.tfplan
+**Recursos creados nuevos:**
+- 12 APIs habilitadas (`google_project_service`)
+- 6 IAM role bindings (`google_project_iam_member`)
+- GCS bucket `motamaze-dev-storage` (versioning enabled)
+- 4 SM secrets: `google-oauth-client-id`, `google-oauth-client-secret`, `play-package-name`, `admob-ssv-hmac-key`
+- BQ table `admob_daily_report` (no existía en dev)
 
-# staging — DIFERIDO a post-lanzamiento PROD (~1 mes después del soft launch)
-# NO ejecutar hasta esa fecha. Ver terraform/environments/staging/main.tf
+**Decisión de diseño (2026-07-13):** `firestore_location = "us-central1"` hardcodeado en `terraform/environments/dev/main.tf` para preservar la base de datos dev existente (creada manualmente con us-central1). El módulo usa `nam5` como default para prod.
+
+**Lección aprendida — PowerShell import con for_each keys:** `terraform import 'resource["key"]'` falla en PowerShell 5.1 porque las comillas internas se strip. Solución: usar import blocks en `.tf` temporales (`_imports.tf`) que se eliminan después del apply.
+
+**Outputs:**
+```
+backend_sa_email = "game-api-backend@motamaze-dev.iam.gserviceaccount.com"
+cloud_run_url    = ""
 ```
 
-**Prod — requiere `terraform import` de recursos existentes (INFRA-001):**
+---
 
-```bash
-cd terraform/environments/prod
-terraform init
+**Prod — requiere `terraform import` de recursos existentes (INFRA-001) — pendiente post-lanzamiento:**
 
-# Importar recursos existentes
-terraform import module.env.google_bigquery_dataset.analytics                          motamaze/motamaze_analytics
-terraform import module.env.google_bigquery_table.login_events                         motamaze/motamaze_analytics/login_events
-terraform import module.env.google_bigquery_table.session_durations                    motamaze/motamaze_analytics/session_durations
-terraform import module.env.google_bigquery_table.player_behavior                      motamaze/motamaze_analytics/player_behavior
-terraform import module.env.google_bigquery_table.purchase_events                      motamaze/motamaze_analytics/purchase_events
-terraform import module.env.google_bigquery_table.ad_impressions                       motamaze/motamaze_analytics/ad_impressions
-terraform import module.env.google_bigquery_table.entitlement_grants                   motamaze/motamaze_analytics/entitlement_grants
-terraform import module.env.google_bigquery_table.account_deletions                    motamaze/motamaze_analytics/account_deletions
-terraform import module.env.google_bigquery_table.admob_daily_report                   motamaze/motamaze_analytics/admob_daily_report
-terraform import module.env.google_service_account.game_api_backend                    projects/motamaze/serviceAccounts/game-api-backend@motamaze.iam.gserviceaccount.com
-terraform import module.env.google_firestore_database.default                          projects/motamaze/databases/\(default\)
-terraform import "module.env.google_secret_manager_secret.secrets[\"jwt-private-key\"]"          projects/motamaze/secrets/jwt-private-key
-terraform import "module.env.google_secret_manager_secret.secrets[\"google-oauth-client-id\"]"   projects/motamaze/secrets/google-oauth-client-id
-terraform import "module.env.google_secret_manager_secret.secrets[\"google-oauth-client-secret\"]" projects/motamaze/secrets/google-oauth-client-secret
-terraform import "module.env.google_secret_manager_secret.secrets[\"play-package-name\"]"        projects/motamaze/secrets/play-package-name
-terraform import "module.env.google_secret_manager_secret.secrets[\"admob-ssv-hmac-key\"]"       projects/motamaze/secrets/admob-ssv-hmac-key
+Usar import blocks en `terraform/environments/prod/_imports.tf` (patrón establecido en dev). Recursos a importar:
 
-# Verificar que no hay diff antes de apply
-terraform plan
-# Esperado: "No changes. Your infrastructure matches the configuration."
-
-terraform apply
+```hcl
+# terraform/environments/prod/_imports.tf
+import { to = module.env.google_bigquery_dataset.analytics; id = "motamaze/motamaze_analytics" }
+import { to = module.env.google_bigquery_table.login_events; id = "motamaze/motamaze_analytics/login_events" }
+import { to = module.env.google_bigquery_table.session_durations; id = "motamaze/motamaze_analytics/session_durations" }
+import { to = module.env.google_bigquery_table.player_behavior; id = "motamaze/motamaze_analytics/player_behavior" }
+import { to = module.env.google_bigquery_table.purchase_events; id = "motamaze/motamaze_analytics/purchase_events" }
+import { to = module.env.google_bigquery_table.ad_impressions; id = "motamaze/motamaze_analytics/ad_impressions" }
+import { to = module.env.google_bigquery_table.entitlement_grants; id = "motamaze/motamaze_analytics/entitlement_grants" }
+import { to = module.env.google_bigquery_table.account_deletions; id = "motamaze/motamaze_analytics/account_deletions" }
+import { to = module.env.google_bigquery_table.admob_daily_report; id = "motamaze/motamaze_analytics/admob_daily_report" }
+import { to = module.env.google_service_account.game_api_backend; id = "projects/motamaze/serviceAccounts/game-api-backend@motamaze.iam.gserviceaccount.com" }
+import { to = module.env.google_firestore_database.default; id = "projects/motamaze/databases/(default)" }
+import { to = module.env.google_secret_manager_secret.secrets["jwt-private-key"]; id = "projects/motamaze/secrets/jwt-private-key" }
+import { to = module.env.google_secret_manager_secret.secrets["google-oauth-client-id"]; id = "projects/motamaze/secrets/google-oauth-client-id" }
+import { to = module.env.google_secret_manager_secret.secrets["google-oauth-client-secret"]; id = "projects/motamaze/secrets/google-oauth-client-secret" }
+import { to = module.env.google_secret_manager_secret.secrets["play-package-name"]; id = "projects/motamaze/secrets/play-package-name" }
+import { to = module.env.google_secret_manager_secret.secrets["admob-ssv-hmac-key"]; id = "projects/motamaze/secrets/admob-ssv-hmac-key" }
 ```
+
+Prod `firestore_location` usa el default `nam5` (correcto — prod Firestore fue creada con nam5).
+`admob-ssv-hmac-key` no existe aún en prod SM — Terraform lo creará vacío.
+
+**Staging — DIFERIDO** a ~1 mes post-lanzamiento PROD. El proyecto `motamaze-staging` existe pero sin billing ni recursos.
 
 ---
 
