@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature |
 | **Priority** | Critical — server-authoritative IAP verification |
-| **Status** | In Progress — ST-01 ✅ implementation + commit `cd9ad1e` (2026-07-02); ST-02 ✅ error-path tests PASS (2026-07-09); ST-03 ⬜ real grant test pending T-252 |
+| **Status** | ✅ Done — ST-01 ✅ implementation + commit `cd9ad1e` (2026-07-02); ST-02 ✅ error-path tests PASS (2026-07-09); ST-03 ✅ movida a T-607 (2026-07-13) |
 | **Date** | 2026-07-02 |
 | **Workstream** | Payments |
 | **Commit** | `cd9ad1e` |
@@ -170,18 +170,9 @@ HTTP 402
 ```
 PASS
 
-### ST-03 — Test grant real (purchaseToken del Play Billing SDK) ⬜ Pending
+### ST-03 — Test grant real (purchaseToken del Play Billing SDK) ✅ Movida a T-607 (2026-07-13)
 
-Requiere `purchaseToken` real generado por Play Billing SDK desde dispositivo con app instalada.
-Bloqueado en **T-252** (IAP client integration en cliente Godot — Not Started).
-
-```json
-POST /payments/android/verify
-{"purchase_token": "<real_token>", "product_id": "lives_pack_5", "session_id": "s3"}
-```
-
-Esperado: HTTP 200, grant_status=granted, current_lives actualizado en Firestore,
-fila en BQ purchase_events + entitlement_grants, consume confirmado en Play Console.
+**Decisión (2026-07-13 — Juan Mosqueda):** ST-03 trasladada a **T-607** (revisión E2E end-to-end). Juan generó T-607 específicamente para la validación de flujo completo de compra. T-251/PAY-001 queda cerrado — la implementación del backend está completa y verificada con error-path tests (ST-02).
 
 ---
 
@@ -191,3 +182,26 @@ fila en BQ purchase_events + entitlement_grants, consume confirmado en Play Cons
 - **Acknowledge failure recovery:** Si el acknowledge/consume falla (network transient), el entitlement ya fue otorgado en Firestore. PAY-002 (reconciliation job) detecta purchases PURCHASED pero no acknowledged y reintenta.
 - **Token cache thread safety:** `_credentials` es global en `play_api.py`. Cloud Run usa multi-proceso (no multi-thread) por default — no hay contención. Si se cambia a multi-thread workers, agregar `threading.Lock`.
 - **`play_package_name` en .env:** No es necesario override para dev/prod — el package name es el mismo en ambos entornos.
+
+---
+
+## Fix T-405 — purchaseToken hashing (2026-07-13)
+
+**Gap detectado por Juan Mosqueda (2026-07-13):** La implementación original usaba el raw `purchaseToken` directamente como document ID en Firestore (`purchases/{purchase_token}`) y como valor en BigQuery `purchase_events.purchase_token`. La arquitectura spec requiere SHA-256 hash del token como identificador.
+
+**Riesgos del raw token:**
+1. **Correctness:** Firestore document IDs tienen límite de 1500 bytes. Un purchaseToken largo podría excederlo y fallar el write.
+2. **Seguridad:** El raw token es una credencial live — si se filtra en un crash log o reporte de error, podría ser replayed contra Play Developer API.
+
+**Fix aplicado (commit pendiente):** `app/routers/payments.py`
+
+```python
+token_hash = hashlib.sha256(body.purchase_token.encode()).hexdigest()
+```
+
+Cambios:
+- Firestore: `purchases/{token_hash}` (doc ID) + campo `"purchase_token": body.purchase_token` almacenado dentro del doc para que PAY-002 reconciliation job pueda obtener el token original al re-llamar Play API.
+- BQ `purchase_events.purchase_token`: ahora almacena el hash (no el token raw).
+- BQ `row_id`: `f"purchase_android_{token_hash}"` — deduplicación sigue siendo determinista.
+
+**PAY-002:** El reconciliation job usa `doc.id` (que era el raw token) para llamar Play API. Con este fix, el token está en `doc["purchase_token"]` — PAY-002 debe actualizarse para leer ese campo en lugar del doc ID.

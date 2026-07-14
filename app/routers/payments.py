@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -153,6 +154,7 @@ async def android_verify(
 ):
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
+    token_hash = hashlib.sha256(body.purchase_token.encode()).hexdigest()
 
     entitlement_type, product_type, quantity = _infer_entitlement(body.product_id)
     if entitlement_type is None:
@@ -201,11 +203,12 @@ async def android_verify(
             snap = await db.collection("lives").document(user_id).get()
             current_lives = snap.to_dict().get("count", 0) if snap.exists else 0
 
-        await db.collection("purchases").document(body.purchase_token).set({
+        await db.collection("purchases").document(token_hash).set({
             "uid": user_id,
             "product_id": body.product_id,
             "product_type": product_type,
             "order_id": order_id,
+            "purchase_token": body.purchase_token,
             "acknowledged": True,
             "acknowledged_at": now,
             "created_at": now,
@@ -215,11 +218,11 @@ async def android_verify(
             stream_event, "purchase_events",
             _bq_purchase_row(
                 now, user_id, body.session_id, "android",
-                body.product_id, product_type, body.purchase_token,
+                body.product_id, product_type, token_hash,
                 order_id, "verified", "already_granted",
             ),
             settings.gcp_project_id, settings.bq_dataset,
-            row_id=f"purchase_android_{body.purchase_token}",
+            row_id=f"purchase_android_{token_hash}",
         )
 
         return {
@@ -254,11 +257,12 @@ async def android_verify(
         )
 
     # Write purchase record so PAY-002 reconciliation job can find un-acknowledged tokens.
-    await db.collection("purchases").document(body.purchase_token).set({
+    await db.collection("purchases").document(token_hash).set({
         "uid": user_id,
         "product_id": body.product_id,
         "product_type": product_type,
         "order_id": order_id,
+        "purchase_token": body.purchase_token,
         "acknowledged": False,
         "created_at": now,
     }, merge=True)
@@ -273,7 +277,7 @@ async def android_verify(
             await play_api.acknowledge_product_purchase(
                 settings.play_package_name, body.product_id, body.purchase_token
             )
-        await db.collection("purchases").document(body.purchase_token).set(
+        await db.collection("purchases").document(token_hash).set(
             {"acknowledged": True, "acknowledged_at": now}, merge=True
         )
     except Exception:
@@ -284,11 +288,11 @@ async def android_verify(
         stream_event, "purchase_events",
         _bq_purchase_row(
             now, user_id, body.session_id, "android",
-            body.product_id, product_type, body.purchase_token,
+            body.product_id, product_type, token_hash,
             order_id, "verified", "granted",
         ),
         settings.gcp_project_id, settings.bq_dataset,
-        row_id=f"purchase_android_{body.purchase_token}",
+        row_id=f"purchase_android_{token_hash}",
     )
     background_tasks.add_task(
         stream_event, "entitlement_grants",
@@ -297,7 +301,7 @@ async def android_verify(
             entitlement_type, body.product_id, quantity,
         ),
         settings.gcp_project_id, settings.bq_dataset,
-        row_id=f"entitlement_android_{body.purchase_token}",
+        row_id=f"entitlement_android_{token_hash}",
     )
 
     return {

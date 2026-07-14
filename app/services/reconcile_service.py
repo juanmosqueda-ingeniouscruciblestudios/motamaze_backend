@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -64,24 +65,25 @@ async def reconcile_pending_acks(pkg: str, db: AsyncClient, settings: Settings) 
     retried = fixed = failed = 0
     for doc in docs:
         data = doc.to_dict()
-        token = doc.id
+        # doc.id is now SHA-256 hash; raw purchaseToken is stored as a field
+        purchase_token = data.get("purchase_token") or doc.id
         product_id = data.get("product_id", "")
         product_type = data.get("product_type", "")
         retried += 1
         now = datetime.now(timezone.utc)
         try:
             if product_type == "consumable":
-                await play_api.consume_product_purchase(pkg, product_id, token)
+                await play_api.consume_product_purchase(pkg, product_id, purchase_token)
             else:
-                await play_api.acknowledge_product_purchase(pkg, product_id, token)
-            await db.collection("purchases").document(token).set(
+                await play_api.acknowledge_product_purchase(pkg, product_id, purchase_token)
+            await db.collection("purchases").document(doc.id).set(
                 {"acknowledged": True, "acknowledged_at": now}, merge=True
             )
             fixed += 1
-            logger.info("PAY-002 ack fixed: token=...%s product=%s", token[-8:], product_id)
+            logger.info("PAY-002 ack fixed: token=...%s product=%s", purchase_token[-8:], product_id)
         except Exception as exc:
             failed += 1
-            logger.warning("PAY-002 ack retry failed: token=...%s err=%s", token[-8:], exc)
+            logger.warning("PAY-002 ack retry failed: token=...%s err=%s", purchase_token[-8:], exc)
 
     return {"retried": retried, "fixed": fixed, "failed": failed}
 
@@ -103,7 +105,8 @@ async def detect_refunds(pkg: str, db: AsyncClient, settings: Settings) -> dict:
         if not token:
             continue
 
-        doc = await db.collection("purchases").document(token).get()
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        doc = await db.collection("purchases").document(token_hash).get()
         if not doc.exists:
             skipped += 1
             logger.warning("PAY-002 voided token not in purchases: ...%s", token[-8:])
@@ -123,7 +126,7 @@ async def detect_refunds(pkg: str, db: AsyncClient, settings: Settings) -> dict:
             continue
 
         await _revoke_entitlement(db, uid, entitlement_type, product_id, now)
-        await db.collection("purchases").document(token).set(
+        await db.collection("purchases").document(token_hash).set(
             {"voided": True, "voided_at": now}, merge=True
         )
         revoked += 1

@@ -90,7 +90,9 @@ async def run_reconcile_purchases(
 
 ---
 
-## Esquema Firestore — `purchases/{purchaseToken}`
+## Esquema Firestore — `purchases/{token_hash}`
+
+> **Fix T-405 (2026-07-13):** El document ID era el raw `purchaseToken`. Ahora es `SHA-256(purchaseToken)`. El token raw se almacena como campo `purchase_token` dentro del documento para que el reconciliation job pueda llamar Play API.
 
 | Campo | Tipo | Descripción |
 |---|---|---|
@@ -98,6 +100,7 @@ async def run_reconcile_purchases(
 | `product_id` | string | e.g. `lives_pack_5`, `no_ads` |
 | `product_type` | string | `consumable` / `non_consumable` |
 | `order_id` | string | orderId de Play API |
+| `purchase_token` | string | raw purchaseToken (para llamadas a Play API desde reconcile) |
 | `acknowledged` | bool | `false` hasta ack/consume exitoso |
 | `acknowledged_at` | timestamp | cuándo se completó el ack (null si pendiente) |
 | `created_at` | timestamp | cuándo se procesó en `/payments/android/verify` |
@@ -159,4 +162,5 @@ for f in ['app/routers/payments.py','app/services/play_api.py',
 
 - **T-254 complementario:** T-254 (Play Pub/Sub RTDN) cubre refunds en tiempo real. T-253 es el catch-all diario para casos que T-254 no capturó. Ambos pueden coexistir — T-253 verifica `voided: true` antes de revocar dos veces.
 - **life_pack revocation:** Los packs de vidas son consumables — ya se consumieron en el juego. Un refund de life_pack no se puede "deshacer" en Firestore de forma significativa. Se registra el `voided: true` para auditoría, pero no se modifican `lives/{uid}`.
-- **Firestore security rules:** `purchases/{token}` solo se escribe desde el backend (Admin SDK). Las reglas de INFRA-005 ya deniegan acceso de clientes a esta colección por deny-by-default.
+- **Firestore security rules:** `purchases/{token_hash}` solo se escribe desde el backend (Admin SDK). Las reglas de INFRA-005 ya deniegan acceso de clientes a esta colección por deny-by-default.
+- **Fix T-405 (2026-07-13):** `reconcile_service.py` actualizado: `reconcile_pending_acks` lee `data["purchase_token"]` en lugar de `doc.id` para obtener el token raw; `detect_refunds` computa `SHA-256(token)` antes de buscar el doc en Firestore y antes de escribir el `voided: True`.
