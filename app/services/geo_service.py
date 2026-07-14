@@ -7,11 +7,19 @@ import geoip2.errors
 logger = logging.getLogger(__name__)
 
 # Age threshold per ISO 3166-1 alpha-2 country code.
-# US: COPPA (Children's Online Privacy Protection Act) — under 13 requires parental consent.
-# BR: Brazil Digital ECA (Lei 14.010/2020 + LGPD) — under 18 requires parental consent.
+# US: COPPA — under 13 requires parental consent.
+# BR: Digital ECA (Lei 14.010/2020) + LGPD — under 18.
+# MX: Ley Federal de Protección de Datos Personales (LFPDPPP) — under 18.
+# AR: No fixed statutory age; 16 adopted as conservative baseline (voluntary).
+# PE: Ley de Protección de Datos Personales (Ley 29733) — under 14.
+# UY: Ley de Protección de Datos Personales (Ley 18.331) — under 18.
 _AGE_THRESHOLD: dict[str, int] = {
     "US": 13,
     "BR": 18,
+    "MX": 18,
+    "AR": 16,
+    "PE": 14,
+    "UY": 18,
 }
 _DEFAULT_THRESHOLD = 13
 
