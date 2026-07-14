@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature / Compliance |
 | **Priority** | High — COPPA (US) + Digital ECA/LGPD (BR) compliance |
-| **Status** | In Progress — ST-01 ✅ backend code completo (2026-07-12); ST-02 ⬜ GCS + refresh pipeline; ST-03 ⬜ test e2e (pending T-252) |
+| **Status** | In Progress — ST-01 ✅ backend code completo (2026-07-12); ST-02 ✅ GCS + MaxMind refresh pipeline live (2026-07-13); ST-03 ✅ tests 3-5 PASS (2026-07-14); tests 1-2 ⬜ pending Play Console license-testing accounts |
 | **Date** | 2026-07-12 |
 | **Workstream** | Compliance / Auth |
 | **Depends-on** | EXT-001 ✅ (Play Developer API), INFRA-001 ✅ (GCS), T-252 ⬜ (Play Billing plugin — Signal 1) |
@@ -173,16 +173,45 @@ Alerta si Cloud Run Job `maxmind-geolite2-refresh` falla → detecta fallo del p
 
 ---
 
-## ST-03 — Test e2e ⬜ Pending T-252
+## ST-03 — Test e2e (2026-07-14)
 
-Requiere `store_country_code` real de Play Billing SDK (T-252, lunes).
+Tests 3-5: funciones puras (`resolve_country`, `consent_age_threshold`) + MaxMind lookup real.
+Tests 1-2: requieren Play Console license-testing accounts por país — pendiente.
 
-Tests a ejecutar con Play Console license-testing accounts configuradas por país:
-1. Cuenta configurada en US → `store_country_code=US` → `consent_age_threshold=13` ✓
-2. Cuenta configurada en BR → `store_country_code=BR` → `consent_age_threshold=18` ✓
-3. Sin `store_country_code` + `device_country_code=MX` → primary=MX → threshold=13 ✓
-4. Sin ambos → ip_country usado como fallback ✓
-5. Mismatch: `store_country_code=US`, IP geolocated in BR → `country_signal_mismatch=true`, result=US ✓
+Tests ejecutados con Play Console license-testing accounts configuradas por país:
+1. Cuenta configurada en US → `store_country_code=US` → `consent_age_threshold=13` ⬜ pending Play Console
+2. Cuenta configurada en BR → `store_country_code=BR` → `consent_age_threshold=18` ⬜ pending Play Console
+3. Sin `store_country_code` + `device_country_code=MX` → primary=MX → threshold=13 ✅ PASS
+4. Sin ambos → ip_country usado como fallback ✅ PASS (5/5 IPs reales: US/BR/MX/AR/DE)
+5. Mismatch: `store_country_code=US`, IP geolocated in BR → `country_signal_mismatch=true`, result=US ✅ PASS
+
+### Resultados ST-03 tests 3-5 (2026-07-14)
+
+```
+# Tests de lógica pura — resolve_country() + consent_age_threshold()
+[PASS] T3-a  resolved_country == MX
+[PASS] T3-b  mismatch_flag    == False
+[PASS] T3-c  threshold(MX)   == 13
+[PASS] T4-a  resolved_country == DE (ip fallback)
+[PASS] T4-b  mismatch_flag    == False
+[PASS] T4-c  threshold(DE)    == 13 (default)
+[PASS] T4-d  resolved_country == BR (ip=BR)
+[PASS] T4-e  threshold(BR)    == 18
+[PASS] T5-a  resolved_country == US (store_wins)
+[PASS] T5-b  mismatch_flag    == True
+[PASS] T5-c  threshold(US)    == 13
+[PASS] T6-a  resolved_country == None (all absent)
+[PASS] T6-b  threshold(None)  == 13 (default)
+RESULT: 13/13 passed
+
+# MaxMind GeoLite2 lookup real (.mmdb de GCS gs://motamaze-geolite2)
+[PASS] T4-maxmind 8.8.8.8      = US
+[PASS] T4-maxmind 200.216.0.1  = BR
+[PASS] T4-maxmind 189.203.0.1  = MX
+[PASS] T4-maxmind 200.49.0.1   = AR
+[PASS] T4-maxmind 217.0.0.1    = DE
+RESULT: 5/5 passed
+```
 
 ---
 
