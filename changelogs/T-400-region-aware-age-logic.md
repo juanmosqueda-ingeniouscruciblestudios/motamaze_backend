@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature / Compliance |
 | **Priority** | High — COPPA (US) + Digital ECA/LGPD (BR) compliance |
-| **Status** | In Progress — ST-01 ✅ backend code completo (2026-07-12); ST-02 ✅ GCS + MaxMind refresh pipeline live (2026-07-13); ST-03 ✅ tests 3-5 PASS (2026-07-14); tests 1-2 ⬜ pending Play Console license-testing accounts |
+| **Status** | ✅ Done — ST-01 ✅ ST-02 ✅ ST-03 ✅ tests 3-5 PASS 18/18 (2026-07-14); tests 1-2 movidos a T-607 (subitem creado) |
 | **Date** | 2026-07-12 |
 | **Workstream** | Compliance / Auth |
 | **Depends-on** | EXT-001 ✅ (Play Developer API), INFRA-001 ✅ (GCS), T-252 ⬜ (Play Billing plugin — Signal 1) |
@@ -173,14 +173,13 @@ Alerta si Cloud Run Job `maxmind-geolite2-refresh` falla → detecta fallo del p
 
 ---
 
-## ST-03 — Test e2e (2026-07-14)
+## ST-03 — Test e2e ✅ Done (2026-07-14)
 
-Tests 3-5: funciones puras (`resolve_country`, `consent_age_threshold`) + MaxMind lookup real.
-Tests 1-2: requieren Play Console license-testing accounts por país — pendiente.
+Tests 3-5 ejecutados hoy. Tests 1-2 requieren Play Billing SDK en dispositivo real + Play Console tax config + license-testing accounts — movidos a T-607 (subitem ID 12534836436, mismo gate que E2E de pagos).
 
-Tests ejecutados con Play Console license-testing accounts configuradas por país:
-1. Cuenta configurada en US → `store_country_code=US` → `consent_age_threshold=13` ⬜ pending Play Console
-2. Cuenta configurada en BR → `store_country_code=BR` → `consent_age_threshold=18` ⬜ pending Play Console
+Tests:
+1. Cuenta configurada en US → `store_country_code=US` → `consent_age_threshold=13` → **movido a T-607**
+2. Cuenta configurada en BR → `store_country_code=BR` → `consent_age_threshold=18` → **movido a T-607**
 3. Sin `store_country_code` + `device_country_code=MX` → primary=MX → threshold=13 ✅ PASS
 4. Sin ambos → ip_country usado como fallback ✅ PASS (5/5 IPs reales: US/BR/MX/AR/DE)
 5. Mismatch: `store_country_code=US`, IP geolocated in BR → `country_signal_mismatch=true`, result=US ✅ PASS
