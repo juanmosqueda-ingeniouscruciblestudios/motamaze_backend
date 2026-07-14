@@ -17,5 +17,6 @@ class Settings(BaseSettings):
     share_base_url: str = "https://motamaze.com"
     play_package_name: str = "com.ingeniouscruciblestudios.motamaze"
     geoip2_db_path: str = "/gcs/geolite2/GeoLite2-Country.mmdb"
+    firebase_project_number: str = "542009654415"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
