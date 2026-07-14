@@ -18,5 +18,6 @@ class Settings(BaseSettings):
     play_package_name: str = "com.ingeniouscruciblestudios.motamaze"
     geoip2_db_path: str = "/gcs/geolite2/GeoLite2-Country.mmdb"
     firebase_project_number: str = "542009654415"
+    pubsub_rtdn_sa_email: str = "game-api-backend@motamaze.iam.gserviceaccount.com"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

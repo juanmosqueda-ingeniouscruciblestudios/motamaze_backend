@@ -26,7 +26,7 @@ def _infer_entitlement(product_id: str) -> tuple[str | None, str | None]:
     return None, None
 
 
-async def _revoke_entitlement(
+async def revoke_entitlement(
     db: AsyncClient,
     uid: str,
     entitlement_type: str,
@@ -125,7 +125,7 @@ async def detect_refunds(pkg: str, db: AsyncClient, settings: Settings) -> dict:
             skipped += 1
             continue
 
-        await _revoke_entitlement(db, uid, entitlement_type, product_id, now)
+        await revoke_entitlement(db, uid, entitlement_type, product_id, now)
         await db.collection("purchases").document(token_hash).set(
             {"voided": True, "voided_at": now}, merge=True
         )

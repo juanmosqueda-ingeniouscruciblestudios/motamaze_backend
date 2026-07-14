@@ -1,15 +1,23 @@
+import asyncio
+import base64
 import hashlib
+import json
+import logging
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
 from google.cloud.firestore import ArrayUnion, AsyncClient
 from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
-from app.services import play_api
+from app.services import play_api, reconcile_service
 from app.services.bq_streaming import stream_event
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -371,5 +379,140 @@ async def ios_verify(
     }
 
 
-# POST /payments/android/refund-notification  — PAY-003
-# POST /payments/ios/refund-notification      — PAY-003
+# ---------------------------------------------------------------------------
+# PAY-003 helpers
+# ---------------------------------------------------------------------------
+
+async def _verify_pubsub_oidc(token: str, expected_email: str) -> bool:
+    """Verify a Pub/Sub push OIDC bearer token via Google's tokeninfo endpoint."""
+    url = (
+        "https://oauth2.googleapis.com/tokeninfo?id_token="
+        + urllib.parse.quote(token, safe="")
+    )
+
+    def _fetch() -> bool:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as r:
+                info = json.loads(r.read())
+            return (
+                info.get("email") == expected_email
+                and info.get("email_verified") in ("true", True)
+            )
+        except Exception:
+            return False
+
+    return await asyncio.to_thread(_fetch)
+
+
+# ---------------------------------------------------------------------------
+# POST /payments/android/refund-notification  (T-254 / PAY-003)
+# ---------------------------------------------------------------------------
+
+@router.post("/android/refund-notification")
+async def android_refund_notification(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    # 1. Verify Pub/Sub OIDC bearer token
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.lower().startswith("bearer "):
+        raise HTTPException(401, detail={"error_code": "RTDN_AUTH_MISSING"})
+
+    oidc_token = auth_header[7:]
+    if not await _verify_pubsub_oidc(oidc_token, settings.pubsub_rtdn_sa_email):
+        raise HTTPException(401, detail={"error_code": "RTDN_AUTH_INVALID"})
+
+    # 2. Parse Pub/Sub push envelope
+    try:
+        body_json = await request.json()
+        data_b64 = body_json.get("message", {}).get("data", "")
+    except Exception:
+        logger.warning("T-254 RTDN: malformed Pub/Sub envelope")
+        return Response(status_code=204)
+
+    if not data_b64:
+        return Response(status_code=204)
+
+    # 3. Decode and parse DeveloperNotification JSON
+    try:
+        notification = json.loads(base64.b64decode(data_b64).decode("utf-8"))
+    except Exception:
+        logger.warning("T-254 RTDN: base64/JSON decode failed")
+        return Response(status_code=204)
+
+    voided = notification.get("voidedPurchaseNotification")
+    if not voided:
+        return Response(status_code=204)
+
+    purchase_token = voided.get("purchaseToken", "")
+    if not purchase_token:
+        return Response(status_code=204)
+
+    # 4. Hash token → look up Firestore doc
+    token_hash = hashlib.sha256(purchase_token.encode()).hexdigest()
+    now = datetime.now(timezone.utc)
+
+    try:
+        doc = await db.collection("purchases").document(token_hash).get()
+    except Exception as exc:
+        logger.error("T-254 RTDN: Firestore lookup failed: %s", exc)
+        return Response(status_code=204)
+
+    if not doc.exists:
+        logger.warning("T-254 RTDN: purchase not found for token ...%s", purchase_token[-8:])
+        return Response(status_code=204)
+
+    data = doc.to_dict()
+
+    # 5. Idempotency guard
+    if data.get("voided"):
+        return Response(status_code=204)
+
+    uid = data.get("uid", "")
+    product_id = data.get("product_id", "")
+    entitlement_type, _, _ = _infer_entitlement(product_id)
+
+    # 6. Revoke entitlement
+    if uid and entitlement_type:
+        try:
+            await reconcile_service.revoke_entitlement(db, uid, entitlement_type, product_id, now)
+        except Exception as exc:
+            logger.error("T-254 RTDN: revoke_entitlement failed uid=%s: %s", uid, exc)
+
+    # 7. Mark purchase as voided
+    try:
+        await db.collection("purchases").document(token_hash).set(
+            {"voided": True, "voided_at": now}, merge=True
+        )
+    except Exception as exc:
+        logger.error("T-254 RTDN: voided flag write failed: %s", exc)
+
+    # 8. BQ log (background — non-critical)
+    background_tasks.add_task(
+        stream_event,
+        "purchase_events",
+        _bq_purchase_row(
+            now, uid, "", "android",
+            product_id, data.get("product_type", ""),
+            token_hash, data.get("order_id"),
+            "refunded", "revoked",
+        ),
+        settings.gcp_project_id,
+        settings.bq_dataset,
+        row_id=f"refund_android_{token_hash}",
+    )
+
+    logger.info("T-254 RTDN: revoked uid=%s product=%s", uid, product_id)
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# POST /payments/ios/refund-notification  (T-254 / PAY-003 — stub, iOS post-MVP)
+# ---------------------------------------------------------------------------
+
+@router.post("/ios/refund-notification")
+async def ios_refund_notification(request: Request):
+    # PAY-003 phase 2: Apple ASSN v2 JWS chain verification — iOS out of MVP scope
+    return Response(status_code=204)
