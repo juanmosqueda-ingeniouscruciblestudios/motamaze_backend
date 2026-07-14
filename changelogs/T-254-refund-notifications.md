@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature — Payments Backend |
 | **Priority** | Red — overdue (2026-07-04) |
-| **Status** | In Progress — ST-01 ✅ código completo (2026-07-14); ST-02 ⬜ GCP infra pending; ST-03 ⬜ blocked Play Console |
+| **Status** | In Progress — ST-01 ✅ código completo (2026-07-14); ST-02 ✅ GCP infra completa (2026-07-14); ST-03 ⬜ blocked Play Console (app no publicada) |
 | **Date** | 2026-07-14 |
 | **Workstream** | Payments |
 | **Owner** | Saul Zavala Morin |
@@ -121,9 +121,9 @@ Stub que retorna 204. Acepta el request de Apple pero no procesa nada hasta que 
 
 ---
 
-## GCP Setup (ST-02) — pendiente `gcloud auth login`
+## GCP Setup (ST-02) ✅ Done (2026-07-14)
 
-Estos comandos crean la infraestructura Pub/Sub necesaria. Ejecutarlos en orden desde la terminal después de `gcloud auth login`.
+Infraestructura Pub/Sub completa. Pasos 1 y 3-4 ejecutados por Saul; paso 2 ejecutado por Juan (requirió override temporal de org policy `iam.allowedPolicyMemberDomains`).
 
 ### Paso 1 — Crear el topic RTDN
 
