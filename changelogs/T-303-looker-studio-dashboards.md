@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Analytics / BI |
 | **Priority** | High — go/no-go soft launch 2026-09-14 |
-| **Status** | In Progress — ST-01 ✅ BQ views creadas (2026-07-02); ST-02 ✅ Looker Studio setup completo (2026-07-07); ST-03 ⬜ uso en decisión go/no-go (2026-09-14) |
+| **Status** | ✅ Done — ST-01 ✅ BQ views creadas (2026-07-02); ST-02 ✅ Looker Studio setup completo (2026-07-07); ST-03 ✅ movida a T-600 (2026-07-13) |
 | **Date** | 2026-07-07 |
 | **Workstream** | Dataflow & Outputs (DATA-004) |
 | **Monday Item ID** | 12272094760 |
@@ -268,16 +268,18 @@ Data source inicial: `BQ_KPI_Gates`
 
 ---
 
-## ST-03 — Uso en decisión go/no-go ⬜ Pendiente (2026-09-14)
+## ST-03 — Uso en decisión go/no-go ✅ Movida a T-600 (2026-07-13)
 
-Los dashboards estarán vacíos hasta que el soft launch arranque (~9/14). El flujo de datos es:
+**Decisión (2026-07-13 — Juan Mosqueda):** ST-03 trasladada a **T-600** ("Soft-launch kill-criteria review + go/no-go", 2026-09-29) como subitem "Review Looker Studio KPI Gates dashboard + make go/no-go decision for commercial launch" (Monday subitem ID: 12524255409).
+
+Rationale: el acto de revisar los dashboards y tomar la decisión go/no-go es propiamente parte de la ceremonia de soft-launch, no un deliverable de T-303. T-303 entrega los dashboards; T-600 los usa.
+
+Los dashboards estarán vacíos hasta que el soft launch arranque (~9/14). El flujo de datos:
 ```
 Usuarios → App → POST /auth/login → login_events (BQ streaming) → v_retention_cohorts
 Usuarios → Compra → POST /payments/android/verify → purchase_events → v_revenue_daily
-AdMob → admob_daily_report (DATA-003, 7/10)
+AdMob → admob_daily_report (DATA-003) → v_revenue_daily
 ```
-
-En la junta go/no-go: revisar Dashboard 3 (KPI Gates) — si los 3 gates están en verde ≥ 2 semanas post soft-launch → decisión de escalar a commercial launch (10/27).
 
 ---
 
