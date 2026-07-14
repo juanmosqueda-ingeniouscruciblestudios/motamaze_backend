@@ -40,6 +40,19 @@ and sourcing behind any answer.
 | Does your app follow the Play Families Policy? | No |
 | Has your app undergone an independent security review? | No |
 
+## App content — Ads declaration (separate Play Console section, not Data Safety)
+
+Play Console → App content → Ads. This is its own questionnaire, distinct from the Data Safety
+form above — tracked here for the same reason as everything else in this doc: submit for today's
+actual state, flip when the dependent ticket ships.
+
+| Question | Answer |
+|---|---|
+| Does your app contain ads? | No |
+
+AdMob (T-261) hasn't shipped — no ads exist in the app today, so "No" is the accurate answer. Flip
+to "Yes" the same day T-261 ships (see Part 1B).
+
 ## Personal info
 
 | Data type | Collected | Shared with 3rd party | Optional/Required | Purpose(s) |
@@ -140,6 +153,15 @@ post-MVP (Decision L / Option B chose a direct URL with no attribution for MVP; 
 scope with no ticket yet). Add Tenjin to this row only when that work actually ships, under its own
 ticket — not automatically alongside T-261.
 
+Also flip the separate **App content → Ads** declaration (Part 1 above):
+
+| Question | Answer |
+|---|---|
+| Does your app contain ads? | Yes |
+
+This is a different Play Console section from Data Safety — both need updating the same day T-261
+ships, not just the Data Safety row.
+
 ## T-414 (Firebase Blaze) — no update needed here
 
 Firebase Blaze is a billing-plan upgrade (pay-as-you-go), not a new data flow or SDK integration.
@@ -224,4 +246,6 @@ changes, review the other. Part 1 reflects the CURRENT submission; Part 1B track
 owed and by which ticket — keep Part 1B's checkboxes below updated as each lands.
 
 - [ ] T-310 (Crashlytics) shipped → Part 1B "Crashlytics" values entered in Play Console
-- [ ] T-261 (AdMob) shipped → Part 1B "AdMob" values entered in Play Console (Tenjin excluded per note)
+- [ ] T-261 (AdMob) shipped → Part 1B "AdMob" values entered in Play Console (Tenjin excluded per
+      note) — **both** the Data Safety "Device or other IDs" row **and** the separate App content →
+      Ads declaration ("Does your app contain ads?" → Yes)
