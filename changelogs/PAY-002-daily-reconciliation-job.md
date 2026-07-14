@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Background Job / Reliability |
 | **Priority** | High — garantiza integridad de pagos y detección de refunds |
-| **Status** | In Progress — ST-01 ✅ implementación completa (2026-07-09); ST-02 ✅ Cloud Scheduler job live (2026-07-09); ST-03 ⬜ test end-to-end pendiente T-252 |
+| **Status** | ✅ Done (2026-07-09) — ST-01 ✅ implementación completa; ST-02 ✅ Cloud Scheduler live; ST-03 ⬜ test e2e pending T-252/T-607 |
 | **Date** | 2026-07-09 |
 | **Workstream** | Payments Backend |
 | **Depends-on** | PAY-001 ✅ (purchases Firestore collection), EXT-001 ✅ (Play Developer API) |

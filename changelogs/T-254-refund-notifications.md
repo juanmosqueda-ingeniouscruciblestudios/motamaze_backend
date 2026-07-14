@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature — Payments Backend |
 | **Priority** | Red — overdue (2026-07-04) |
-| **Status** | In Progress — ST-01 ✅ código completo (2026-07-14); ST-02 ✅ GCP infra completa (2026-07-14); ST-03 ⬜ blocked Play Console (app no publicada) |
+| **Status** | ✅ Done (2026-07-14) — ST-01 ✅ código completo; ST-02 ✅ GCP infra completa (topic + IAM + push subscription); ST-03 → movida a T-607 (Play Console RTDN config, bloqueada hasta publicación) |
 | **Date** | 2026-07-14 |
 | **Workstream** | Payments |
 | **Owner** | Saul Zavala Morin |
