@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature / Compliance |
 | **Priority** | High — COPPA + LATAM Wave 1 |
-| **Status** | In Progress — ST-01 ✅ POST /auth/age-verify (2026-07-14); ST-02 ✅ is_child en LoginResponse (2026-07-14); ST-03 ⬜ email-plus endpoints (pending email service approval); ST-04–05 ⬜ client (Juan); ST-06 ⬜ E2E |
+| **Status** | In Progress — ST-01 ✅ ST-02 ✅ ST-03 ✅ backend completo (2026-07-15); ST-04–05 ⬜ client (Juan); ST-06 ⬜ E2E |
 | **Date** | 2026-07-14 |
 | **Workstream** | Compliance / Auth |
 | **Owner** | Juan + Saul |
@@ -146,9 +146,96 @@ RESULT: 25/25 passed
 
 ---
 
-## Pending (ST-03 a ST-06)
+## ST-03 — Parental consent email flow ✅ (2026-07-15)
 
-- **ST-03 — email-plus endpoints:** Requiere aprobación de servicio de email (nueva dependencia). Pending decisión Juan+Saul.
+**Servicio:** SendGrid (aprobado Juan+Saul). Dependencia: `sendgrid>=6.11` agregada a `pyproject.toml`.
+
+### `app/config.py`
+
+```python
+sendgrid_api_key: str = ""               # env var SENDGRID_API_KEY (Secret Manager)
+sendgrid_from_email: str = "noreply@motamaze.com"  # requires SendGrid domain verification
+parental_consent_base_url: str = "https://api.motamaze.com"
+```
+
+### `app/services/email_service.py` (nuevo)
+
+Función pública `send_parental_consent_email(to_email, child_name, consent_url, api_key, from_email)`.
+Llama a SendGrid vía `asyncio.to_thread` para no bloquear el event loop.
+
+**Si Juan aprueba un servicio diferente:** solo cambia el cuerpo de `_send_sync()` — contrato del endpoint y schema Firestore no varían.
+
+### Firestore — colección `parental_consents/{consent_token}`
+
+| Campo | Tipo | Valor |
+|---|---|---|
+| `uid` | str | UID del menor |
+| `parent_email` | str | Email del padre/tutor |
+| `created_at` | datetime | Momento de la solicitud |
+| `expires_at` | datetime | `created_at + 72h` |
+| `status` | str | `"pending"` → `"approved"` |
+
+Token: `secrets.token_urlsafe(32)` — 256 bits de entropía, URL-safe.
+
+### `POST /auth/parental-consent/request` (autenticado — JWT del menor)
+
+Request: `{ "parent_email": "parent@example.com" }`
+
+Flujo:
+1. Valida formato de email (`@` + `.` después del `@`)
+2. Lee `users/{uid}` — verifica que `consent.is_child == True`
+3. Guard: si `consent.coppa_compliant == True`, retorna 200 temprano (idempotente)
+4. Crea `parental_consents/{token}` en Firestore
+5. Envía email via SendGrid — si falla: 503 `CONSENT_EMAIL_FAILED`
+6. Retorna 202 `{"message": "Consent email sent"}`
+
+**Contenido del email:** identifica al operador (Ingenious Crucible Studios), describe qué datos se recopilan, link de verificación (72h), instrucción para ignorar si no esperaban el email.
+
+### `GET /auth/parental-consent/verify?token={token}` (público — link del email)
+
+Retorna HTML. Flujo:
+
+| Estado del token | Respuesta |
+|---|---|
+| No encontrado | 404 HTML — "Link Not Found" |
+| Expirado (`now > expires_at`) | 410 HTML — "Link Expired" |
+| `status == "approved"` | 200 HTML — "Already approved" |
+| `status == "pending"` | Marca `approved`, actualiza Firestore user, 200 HTML — "Thank you" |
+
+Al aprobar, escribe en `users/{uid}`:
+- `consent.coppa_compliant = True`
+- `consent.parental_consent_verified_at = now`
+
+**Nota COPPA:** `restricted_features` (leaderboard / personalized_ads / share_score) NO se modifican — permanecen `True` para menores incluso después del VPC, per FTC guidance (email-plus solo autoriza procesamiento interno).
+
+### Testing — 20/20 PASS
+
+```
+[PASS] token length >= 43 chars
+[PASS] token URL-safe (no +/=)
+[PASS] valid email: parent@gmail.com
+[PASS] valid email subdomain: a@b.co.uk
+[PASS] no @ sign -> invalid
+[PASS] no dot after @ -> invalid
+[PASS] empty -> invalid
+[PASS] expires in 72h (259200s)
+[PASS] XSS escaped in email HTML (<script> -> &lt;script&gt;)
+[PASS] escaped name present in HTML
+[PASS] consent URL format
+[PASS] success page: green color (#1a7340)
+[PASS] success page: approval message
+[PASS] success page: no external JS
+[PASS] already_done: different message
+[PASS] already_done: detail text
+[PASS] error page: red color (#b91c1c)
+[PASS] error page: title rendered
+[PASS] error page: contact email
+[PASS] error page: no external JS
+RESULT: 20/20 passed
+```
+
+## Pending (ST-04 a ST-06)
+
 - **ST-04/ST-05 — Client (Juan):** Pantalla DOB intake + UI parental consent + waiting state.
 - **ST-06 — E2E:** 7 países (US, BR, MX, AR, PE, UY + default).
 
