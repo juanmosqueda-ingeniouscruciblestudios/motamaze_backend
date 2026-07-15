@@ -33,7 +33,7 @@ async def upsert_user(
     country_code: str | None = None,
     consent_age_threshold: int = 13,
     country_signal_mismatch: bool = False,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, bool | None]:
     now = datetime.now(timezone.utc)
     ref = db.collection("users").document(sub)
     snap = await ref.get()
@@ -53,12 +53,16 @@ async def upsert_user(
                 "gdpr_consent": None,
                 "ccpa_opt_out": False,
                 "age_verified_at": None,
+                "is_child": None,
                 "country_code": country_code,
                 "consent_age_threshold": consent_age_threshold,
                 "country_signal_mismatch": country_signal_mismatch,
             },
         })
+        return sub, True, None
     else:
+        existing = snap.to_dict() or {}
+        is_child: bool | None = (existing.get("consent") or {}).get("is_child")
         await ref.update({
             "email": email,
             "display_name": display_name,
@@ -68,7 +72,7 @@ async def upsert_user(
             "consent.consent_age_threshold": consent_age_threshold,
             "consent.country_signal_mismatch": country_signal_mismatch,
         })
-    return sub, is_new
+        return sub, False, is_child
 
 
 async def create_session(

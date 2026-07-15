@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -42,6 +42,16 @@ class LoginResponse(BaseModel):
     expires_in: int = 900
     user_id: str
     is_new_user: bool
+    is_child: bool | None = None
+
+
+class AgeVerifyRequest(BaseModel):
+    dob: str  # YYYY-MM-DD
+
+
+class AgeVerifyResponse(BaseModel):
+    is_child: bool
+    consent_age_threshold: int
 
 
 class RefreshRequest(BaseModel):
@@ -108,7 +118,7 @@ async def login(
     )
     age_threshold = geo_service.consent_age_threshold(resolved_country)
 
-    user_id, is_new_user = await auth_service.upsert_user(
+    user_id, is_new_user, is_child = await auth_service.upsert_user(
         db, sub, email, display_name, photo_url, body.provider,
         country_code=resolved_country,
         consent_age_threshold=age_threshold,
@@ -175,6 +185,7 @@ async def login(
         refresh_token=refresh_tok,
         user_id=user_id,
         is_new_user=is_new_user,
+        is_child=is_child,
     )
 
 
@@ -268,6 +279,68 @@ async def logout(
     )
 
     return {"message": "Session revoked"}
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/age-verify  (T-401 ST-01)
+# ---------------------------------------------------------------------------
+
+@router.post("/age-verify", response_model=AgeVerifyResponse)
+async def age_verify(
+    body: AgeVerifyRequest,
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    user_id = claims["uid"]
+
+    try:
+        dob = date.fromisoformat(body.dob)
+    except ValueError:
+        raise HTTPException(
+            400,
+            detail={"error_code": "AGE_VERIFY_INVALID_DOB", "message": "dob must be YYYY-MM-DD"},
+        )
+
+    today = date.today()
+    if dob >= today:
+        raise HTTPException(
+            400,
+            detail={"error_code": "AGE_VERIFY_INVALID_DOB", "message": "dob must be in the past"},
+        )
+
+    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+    if age > 120:
+        raise HTTPException(
+            400,
+            detail={"error_code": "AGE_VERIFY_INVALID_DOB", "message": "dob is not plausible"},
+        )
+
+    ref = db.collection("users").document(user_id)
+    snap = await ref.get()
+    if not snap.exists:
+        raise HTTPException(
+            404,
+            detail={"error_code": "USER_NOT_FOUND", "message": "User not found"},
+        )
+
+    data = snap.to_dict() or {}
+    threshold = (data.get("consent") or {}).get("consent_age_threshold", 13)
+    is_child = age < threshold
+    now = datetime.now(timezone.utc)
+
+    # Write result — raw DOB is not stored (data minimization per COPPA/LGPD/LFPDPPP)
+    await ref.update({
+        "consent.is_child": is_child,
+        "consent.age_verified_at": now,
+        "restricted_features": {
+            "leaderboard": is_child,
+            "personalized_ads": is_child,
+            "share_score": is_child,
+        },
+    })
+
+    return AgeVerifyResponse(is_child=is_child, consent_age_threshold=threshold)
 
 
 # ---------------------------------------------------------------------------
