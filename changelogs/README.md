@@ -9,7 +9,7 @@
 | [INFRA-002](INFRA-002-env-secrets-design.md) | env-secrets-design | Infra/DevOps | ✅ Done | 2026-06-17 |
 | [REST-001](REST-001-rest-api-contract.md) | rest-api-contract | Planning | ✅ Done — ST-01–08 ✅ (sign-off Juan commit 9216611, 2026-06-22) | 2026-06-22 |
 | [INFRA-003](INFRA-003-fastapi-scaffold-cloud-run.md) | fastapi-scaffold-cloud-run | Infra/DevOps | ✅ Done — ST-01–06 ✅ (Cloud Run dev+prod live 2026-06-24), T-440 ✅ (2026-06-30) | 2026-06-30 |
-| [T-440](T-440-share-score-backend.md) | share-score-backend | Social | Done — ST-01 ✅ POST /share/create + GET /s/{token} + GET /ogimg/{token} (2026-06-30); ST-02 integration tests ⬜ pending deploy | 2026-06-30 |
+| [T-440](T-440-share-score-backend.md) | share-score-backend | Social | In Progress — ST-01 ✅ POST /share/create + GET /s/{token} + GET /ogimg/{token} (2026-06-30); ST-02 ⬜ integration tests pending deploy (Cloudinary / WhatsApp / Telegram) | 2026-06-30 |
 | [T-210](T-210-progress-backend.md) | progress-backend | Game Services | ✅ Done — GET /progress + POST /progress/level-complete Firestore completo; ST-02 integration tests 7/7 ✅ (2026-06-30) | 2026-06-30 |
 | [T-220](T-220-lives-backend.md) | lives-backend | Game Services | ✅ Done — GET /lives + POST /lives/spend (Firestore txn) + POST /lives/grant; ST-02 integration tests 9/9 ✅ (2026-06-30) | 2026-06-30 |
 | [T-115](T-115-cloud-monitoring.md) | cloud-monitoring | Infra/DevOps | Done — dashboard ✅, uptime check /health ✅, 3 alert policies ✅ (5xx/latency/uptime), Pub/Sub kill switch ✅, email notifs → Saul ✅ (2026-06-30) | 2026-06-30 |
