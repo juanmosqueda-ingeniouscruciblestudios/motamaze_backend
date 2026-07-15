@@ -19,5 +19,8 @@ class Settings(BaseSettings):
     geoip2_db_path: str = "/gcs/geolite2/GeoLite2-Country.mmdb"
     firebase_project_number: str = "542009654415"
     pubsub_rtdn_sa_email: str = "game-api-backend@motamaze.iam.gserviceaccount.com"
+    sendgrid_api_key: str = ""
+    sendgrid_from_email: str = "noreply@motamaze.com"
+    parental_consent_base_url: str = "https://api.motamaze.com"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

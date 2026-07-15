@@ -1,15 +1,16 @@
 import logging
 import uuid
-from datetime import date, datetime, timezone
+import secrets
+from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from google.cloud.firestore import AsyncClient
 from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
-from app.services import auth_service, jwt_service
+from app.services import auth_service, email_service, jwt_service
 from app.services import geo_service
 from app.services.bq_streaming import stream_event
 
@@ -52,6 +53,10 @@ class AgeVerifyRequest(BaseModel):
 class AgeVerifyResponse(BaseModel):
     is_child: bool
     consent_age_threshold: int
+
+
+class ParentalConsentRequestBody(BaseModel):
+    parent_email: str
 
 
 class RefreshRequest(BaseModel):
@@ -341,6 +346,148 @@ async def age_verify(
     })
 
     return AgeVerifyResponse(is_child=is_child, consent_age_threshold=threshold)
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/parental-consent/request  (T-401 ST-03)
+# ---------------------------------------------------------------------------
+
+@router.post("/parental-consent/request", status_code=202)
+async def parental_consent_request(
+    body: ParentalConsentRequestBody,
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+    settings: Settings = Depends(get_settings),
+):
+    user_id = claims["uid"]
+
+    if "@" not in body.parent_email or "." not in body.parent_email.split("@")[-1]:
+        raise HTTPException(
+            400,
+            detail={"error_code": "CONSENT_INVALID_EMAIL", "message": "parent_email is not a valid email address"},
+        )
+
+    snap = await db.collection("users").document(user_id).get()
+    if not snap.exists:
+        raise HTTPException(404, detail={"error_code": "USER_NOT_FOUND"})
+
+    data = snap.to_dict() or {}
+    consent = data.get("consent") or {}
+
+    if consent.get("is_child") is not True:
+        raise HTTPException(
+            400,
+            detail={"error_code": "CONSENT_NOT_REQUIRED", "message": "User has not been identified as a minor"},
+        )
+
+    if consent.get("coppa_compliant") is True:
+        return {"message": "Parental consent already verified"}
+
+    consent_token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+
+    await db.collection("parental_consents").document(consent_token).set({
+        "uid": user_id,
+        "parent_email": body.parent_email,
+        "created_at": now,
+        "expires_at": now + timedelta(hours=72),
+        "status": "pending",
+    })
+
+    consent_url = (
+        f"{settings.parental_consent_base_url}/auth/parental-consent/verify?token={consent_token}"
+    )
+    child_name = data.get("display_name") or "your child"
+
+    try:
+        await email_service.send_parental_consent_email(
+            to_email=body.parent_email,
+            child_name=child_name,
+            consent_url=consent_url,
+            api_key=settings.sendgrid_api_key,
+            from_email=settings.sendgrid_from_email,
+        )
+    except Exception as exc:
+        logger.error("parental_consent: email send failed uid=%s err=%s", user_id, exc)
+        raise HTTPException(
+            503,
+            detail={"error_code": "CONSENT_EMAIL_FAILED", "message": "Failed to send consent email, please try again"},
+        )
+
+    return {"message": "Consent email sent"}
+
+
+# ---------------------------------------------------------------------------
+# GET /auth/parental-consent/verify  (T-401 ST-03) — public, parent clicks link
+# ---------------------------------------------------------------------------
+
+@router.get("/parental-consent/verify", response_class=HTMLResponse)
+async def parental_consent_verify(
+    token: str = Query(...),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    snap = await db.collection("parental_consents").document(token).get()
+
+    if not snap.exists:
+        return HTMLResponse(_consent_page_error(
+            "Link Not Found",
+            "This consent link is invalid or has already been used.",
+        ), status_code=404)
+
+    data = snap.to_dict() or {}
+    now = datetime.now(timezone.utc)
+
+    if now > data.get("expires_at", now):
+        return HTMLResponse(_consent_page_error(
+            "Link Expired",
+            "This consent link has expired (valid for 72 hours). "
+            "Please ask your child to request a new one from the MotaMaze app.",
+        ), status_code=410)
+
+    if data.get("status") == "approved":
+        return HTMLResponse(_consent_page_success(already_done=True))
+
+    uid = data["uid"]
+    await db.collection("parental_consents").document(token).update({"status": "approved"})
+    await db.collection("users").document(uid).update({
+        "consent.coppa_compliant": True,
+        "consent.parental_consent_verified_at": now,
+    })
+
+    return HTMLResponse(_consent_page_success(already_done=False))
+
+
+def _consent_page_success(already_done: bool) -> str:
+    msg = "Already approved." if already_done else "Thank you! The account has been approved."
+    detail = (
+        "This account was already verified previously."
+        if already_done else
+        "Your child can now use MotaMaze. Their account will not show personalized ads "
+        "or appear on public leaderboards."
+    )
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MotaMaze — Consent Approved</title>
+<style>body{{font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:40px 16px;}}
+.card{{background:#fff;border-radius:8px;max-width:480px;margin:0 auto;padding:32px;text-align:center;}}
+h1{{color:#1a7340;font-size:22px;}} p{{color:#444;line-height:1.6;}}</style></head>
+<body><div class="card"><h1>&#10003; {msg}</h1><p>{detail}</p>
+<p style="margin-top:24px;font-size:13px;color:#888;">
+Ingenious Crucible Studios &mdash; <a href="https://motamaze.com">motamaze.com</a></p>
+</div></body></html>"""
+
+
+def _consent_page_error(title: str, detail: str) -> str:
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MotaMaze — {title}</title>
+<style>body{{font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:40px 16px;}}
+.card{{background:#fff;border-radius:8px;max-width:480px;margin:0 auto;padding:32px;text-align:center;}}
+h1{{color:#b91c1c;font-size:22px;}} p{{color:#444;line-height:1.6;}}</style></head>
+<body><div class="card"><h1>{title}</h1><p>{detail}</p>
+<p style="margin-top:24px;font-size:13px;color:#888;">
+Questions? <a href="mailto:privacy@motamaze.com">privacy@motamaze.com</a></p>
+</div></body></html>"""
 
 
 # ---------------------------------------------------------------------------
