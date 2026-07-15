@@ -28,3 +28,4 @@
 | [T-443](T-443-leaderboard-backend.md) | leaderboard-backend | Game Services | ✅ Done — POST /leaderboard/score (App Check + BQ anomaly) + GET /leaderboard (CDN 5-min) + Firestore leaderboards/{season}/scores/{uid} (2026-07-14) | 2026-07-14 |
 | [T-254](T-254-refund-notifications.md) | refund-notifications | Payments | ✅ Done — ST-01 ✅ código completo; ST-02 ✅ GCP infra completa (topic + IAM + push subscription); ST-03 → T-607 (Play Console RTDN config, pending publicación) | 2026-07-14 |
 | [T-407](T-407-latam-age-thresholds.md) | latam-age-thresholds | Compliance | ✅ Done — MX=18 / AR=16 / PE=14 / UY=18 agregados a consent_age_threshold(); 16/16 tests PASS (2026-07-14) | 2026-07-14 |
+| [T-401](T-401-verifiable-parental-consent.md) | verifiable-parental-consent | Compliance | In Progress — ST-01 ✅ POST /auth/age-verify (DOB→is_child+restricted_features); ST-02 ✅ is_child en LoginResponse; ST-03 ⬜ email-plus (pending email service approval) | 2026-07-14 |
