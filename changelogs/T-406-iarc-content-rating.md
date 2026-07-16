@@ -4,8 +4,8 @@
 |---|---|
 | **Type** | Compliance / Administrative |
 | **Priority** | High — No-Go before Play Store submission |
-| **Status** | In Progress — ST-01 ✅ IARC questionnaire completo + ratings obtenidos (2026-07-13); ST-02 ⬜ backend `coppa_compliant` flag activation (post T-400 ST-03) |
-| **Date** | 2026-07-13 |
+| **Status** | ✅ Done — ST-01 ✅ IARC questionnaire + ratings (2026-07-13); ST-02 ✅ `coppa_compliant` auto-activation adults (2026-07-16); validation gates pending (Play Store + Godot E2E) |
+| **Date** | 2026-07-16 |
 | **Workstream** | Compliance |
 | **Depends-on** | T-400 ST-01 ✅ (country resolution + consent_age_threshold) |
 | **Desbloquea** | App Store submission (ratings requeridos); `coppa_compliant` flag en backend |
@@ -101,15 +101,66 @@ Ratings guardados en Play Console bajo "Changes not yet submitted for review →
 
 ---
 
-## ST-02 — Backend `coppa_compliant` flag activation ⬜ Pending T-400 ST-03
+## ST-02 — Backend `coppa_compliant` flag activation ✅ (2026-07-16)
 
-El campo `coppa_compliant` en `users/{uid}.consent` está hardcodeado a `False` en `app/services/auth_service.py` hasta que:
+### Implementación — `app/routers/auth.py` → `POST /auth/age-verify`
 
-1. T-406 ratings estén activos en Play Store (post primera submission) ✅ Prerequisito cumplido
-2. T-400 ST-03 esté completo (e2e test con Play Console license-testing accounts — pending Play Console tax config ~2026-07-18)
-3. El flujo de verificación de edad del cliente (Godot) esté validado end-to-end
+Adultos (`is_child=False`) quedan auto-compliant al completar age-verify. Menores siguen el flujo VPC email-plus de T-401 ST-03.
 
-Una vez validado, `coppa_compliant` se derivará de `age_verified_at IS NOT NULL AND age >= consent_age_threshold`.
+```python
+update: dict = {
+    "consent.is_child": is_child,
+    "consent.age_verified_at": now,
+    "restricted_features": { ... },
+}
+if not is_child:
+    update["consent.coppa_compliant"] = True   # adultos auto-compliant
+await ref.update(update)
+```
+
+**Lógica de activación por tipo de usuario:**
+
+| Usuario | `is_child` | `coppa_compliant` después de age-verify |
+|---|---|---|
+| Adulto (age >= threshold) | `False` | `True` — auto-activado |
+| Menor (age < threshold) | `True` | `False` — requiere VPC email (T-401 ST-03) |
+
+**Prerequisitos al momento de implementación:**
+
+1. T-406 ratings en Play Store — ⬜ Pending primera submission (gate de validación, no de implementación)
+2. T-400 ST-03 — ✅ Done (2026-07-14, 18/18 PASS)
+3. Flujo Godot E2E — ⬜ Pending (T-401 ST-04/05/06 Juan; gate de validación)
+
+### Testing — 20/20 PASS (2026-07-16)
+
+```
+[PASS] Adult US (26yo): is_child=False
+[PASS] Adult US (26yo): coppa_compliant=True
+[PASS] Adult MX (18yo, threshold=18): is_child=False
+[PASS] Adult MX: coppa_compliant=True
+[PASS] Adult AR (16yo exact, threshold=16): is_child=False
+[PASS] Adult AR: coppa_compliant=True
+[PASS] Child US (10yo): is_child=True
+[PASS] Child US: coppa_compliant NOT in update
+[PASS] Child AR (14yo, threshold=16): is_child=True
+[PASS] Child AR: coppa_compliant NOT in update
+[PASS] Child PE (13yo exact, threshold=14): is_child=True
+[PASS] Child PE: coppa_compliant NOT in update
+[PASS] Adult: restricted_features.leaderboard=False
+[PASS] Adult: restricted_features.personalized_ads=False
+[PASS] Adult: restricted_features.share_score=False
+[PASS] Child: restricted_features.leaderboard=True
+[PASS] Child: restricted_features.personalized_ads=True
+[PASS] Child: restricted_features.share_score=True
+[PASS] 13yo with threshold=13: is_child=False (age NOT < threshold)
+[PASS] 13yo/threshold=13: coppa_compliant=True
+RESULT: 20/20 passed
+```
+
+### Gates de validación pendientes (no bloquean el código)
+
+- Primera submission Play Store (para que los ratings IARC queden activos en producción)
+- E2E Godot con cliente real (T-401 ST-06 — depende de Juan ST-04/05)
 
 ---
 

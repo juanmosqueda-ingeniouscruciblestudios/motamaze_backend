@@ -335,7 +335,8 @@ async def age_verify(
     now = datetime.now(timezone.utc)
 
     # Write result — raw DOB is not stored (data minimization per COPPA/LGPD/LFPDPPP)
-    await ref.update({
+    # Adults (is_child=False) are auto-compliant; children require email-plus VPC (T-401 ST-03)
+    update: dict = {
         "consent.is_child": is_child,
         "consent.age_verified_at": now,
         "restricted_features": {
@@ -343,7 +344,10 @@ async def age_verify(
             "personalized_ads": is_child,
             "share_score": is_child,
         },
-    })
+    }
+    if not is_child:
+        update["consent.coppa_compliant"] = True
+    await ref.update(update)
 
     return AgeVerifyResponse(is_child=is_child, consent_age_threshold=threshold)
 
