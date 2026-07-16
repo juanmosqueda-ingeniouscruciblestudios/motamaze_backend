@@ -234,6 +234,53 @@ Al aprobar, escribe en `users/{uid}`:
 RESULT: 20/20 passed
 ```
 
+### GCP Secret Manager + Cloud Run deployment (2026-07-15)
+
+```bash
+# Paso 1 — Crear secret
+gcloud secrets create sendgrid-api-key --project=motamaze
+# Created secret [sendgrid-api-key].
+
+# Paso 2 — Agregar API key como versión 1
+$key = "<API_KEY>"
+[System.Text.Encoding]::UTF8.GetBytes($key) |
+  gcloud secrets versions add sendgrid-api-key --data-file=- --project=motamaze
+# Created version [1] of the secret [sendgrid-api-key].
+
+# Paso 3 — IAM: secretAccessor para Cloud Run SA
+gcloud secrets add-iam-policy-binding sendgrid-api-key `
+  --member="serviceAccount:game-api-backend@motamaze.iam.gserviceaccount.com" `
+  --role="roles/secretmanager.secretAccessor" `
+  --project=motamaze
+# Updated IAM policy for secret [sendgrid-api-key].
+# bindings: serviceAccount:game-api-backend@motamaze.iam.gserviceaccount.com
+#   role: roles/secretmanager.secretAccessor
+
+# Paso 4 — Montar como env var en Cloud Run
+gcloud run services update motamaze-backend `
+  --update-secrets=SENDGRID_API_KEY=sendgrid-api-key:latest `
+  --region=us-central1 `
+  --project=motamaze
+# Done. Service [motamaze-backend] revision [motamaze-backend-00066-5mb]
+# serving 100 percent of traffic.
+```
+
+**Verificación post-deployment:**
+
+```
+gcloud secrets versions list sendgrid-api-key --project=motamaze
+NAME  STATE    CREATED                  DESTROYED
+1     enabled  2026-07-16T00:00:39      –
+
+gcloud run services describe motamaze-backend --region=us-central1 --project=motamaze \
+  --format="value(spec.template.spec.containers[0].env)"
+{'name': 'GCP_PROJECT_ID', 'value': 'motamaze'}
+{'name': 'ENVIRONMENT', 'value': 'prod'}
+{'name': 'SENDGRID_API_KEY', 'valueFrom': {'secretKeyRef': {'key': 'latest', 'name': 'sendgrid-api-key'}}}
+```
+
+`SENDGRID_API_KEY` confirmado en Cloud Run prod. Secret version 1 enabled. Revisión `motamaze-backend-00066-5mb` sirviendo 100% tráfico.
+
 ## Pending (ST-04 a ST-06)
 
 - **ST-04/ST-05 — Client (Juan):** Pantalla DOB intake + UI parental consent + waiting state.
