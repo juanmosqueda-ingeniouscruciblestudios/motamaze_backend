@@ -473,7 +473,7 @@ def _consent_page_success(already_done: bool) -> str:
 h1{{color:#1a7340;font-size:22px;}} p{{color:#444;line-height:1.6;}}</style></head>
 <body><div class="card"><h1>&#10003; {msg}</h1><p>{detail}</p>
 <p style="margin-top:24px;font-size:13px;color:#888;">
-Ingenious Crucible Studios &mdash; <a href="https://motamaze.com">motamaze.com</a></p>
+Ingenious Crucible Studios &mdash; <a href="https://ingeniouscruciblestudios.com/motamaze/">MotaMaze</a></p>
 </div></body></html>"""
 
 
@@ -486,7 +486,7 @@ def _consent_page_error(title: str, detail: str) -> str:
 h1{{color:#b91c1c;font-size:22px;}} p{{color:#444;line-height:1.6;}}</style></head>
 <body><div class="card"><h1>{title}</h1><p>{detail}</p>
 <p style="margin-top:24px;font-size:13px;color:#888;">
-Questions? <a href="mailto:privacy@motamaze.com">privacy@motamaze.com</a></p>
+Questions? <a href="mailto:privacy@ingeniouscruciblestudios.com">privacy@ingeniouscruciblestudios.com</a></p>
 </div></body></html>"""
 
 

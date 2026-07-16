@@ -67,8 +67,8 @@ def _build_consent_html(child_name: str, consent_url: str) -> str:
   <p>If you did not expect this email or do not wish to approve, simply ignore it.
   The account will remain inactive.</p>
   <p class="footer">
-    Ingenious Crucible Studios &mdash; <a href="https://motamaze.com">motamaze.com</a><br>
-    Questions? Contact us at <a href="mailto:privacy@motamaze.com">privacy@motamaze.com</a>
+    Ingenious Crucible Studios &mdash; <a href="https://ingeniouscruciblestudios.com/motamaze/">MotaMaze</a><br>
+    Questions? Contact us at <a href="mailto:privacy@ingeniouscruciblestudios.com">privacy@ingeniouscruciblestudios.com</a>
   </p>
 </div>
 </body>
