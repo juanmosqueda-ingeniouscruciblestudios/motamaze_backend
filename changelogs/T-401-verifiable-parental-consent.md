@@ -279,12 +279,40 @@ gcloud run services describe motamaze-backend --region=us-central1 --project=mot
 {'name': 'SENDGRID_API_KEY', 'valueFrom': {'secretKeyRef': {'key': 'latest', 'name': 'sendgrid-api-key'}}}
 ```
 
-`SENDGRID_API_KEY` confirmado en Cloud Run prod. Secret version 1 enabled. Revisión `motamaze-backend-00066-5mb` sirviendo 100% tráfico.
+`SENDGRID_API_KEY` confirmado en Cloud Run prod. Secret version 3 (ASCII, sin BOM) es latest. Revisión `motamaze-backend-00066-5mb` sirviendo 100% tráfico.
+
+**Nota:** versiones 1 y 2 descartadas — v1 almacenó bytes decimales (pipe PowerShell), v2 incluyó BOM UTF-8. v3 usa `[System.Text.Encoding]::ASCII` y es válida.
+
+**Env vars actualizados en Cloud Run:**
+- `SENDGRID_FROM_EMAIL=saulmorin@ingeniouscruciblestudios.com` (sender verificado temporalmente, revision 00067)
+- `PARENTAL_CONSENT_BASE_URL=https://motamaze-backend-542009654415.us-central1.run.app` (revision 00069)
+
+### Smoke test SendGrid — 2026-07-15 ✅
+
+Prueba directa vía `api.sendgrid.com/v3/mail/send` (sin pasar por Cloud Run):
+
+```
+HTTP 202 — SendGrid aceptó el envío
+Emails recibidos: 2/2 ✅
+```
+
+**Resultado:** emails llegan al inbox — pero en **spam**. Causa: `@ingeniouscruciblestudios.com` no tiene DKIM configurado en SendGrid (el domain auth pendiente es para `motamaze.com`, dominio que no existe). Sin DKIM, Gmail clasifica como spam.
+
+**Pre-production gate (bloquea lanzamiento):** Resolver domain authentication antes de Oct 15. Ver Follow-ups / Notes.
 
 ## Pending (ST-04 a ST-06)
 
 - **ST-04/ST-05 — Client (Juan):** Pantalla DOB intake + UI parental consent + waiting state.
 - **ST-06 — E2E:** 7 países (US, BR, MX, AR, PE, UY + default).
+
+## Pre-production gates (antes de Oct 15)
+
+| Gate | Responsable | Estado |
+|---|---|---|
+| Decidir sender email definitivo: `@ingeniouscruciblestudios.com` vs registrar `motamaze.com` | Juan | ⬜ Pending |
+| SendGrid domain authentication para el dominio elegido + DNS records en Wix | Juan | ⬜ Pending (bloqueado por decisión anterior) |
+| Actualizar `SENDGRID_FROM_EMAIL` en Cloud Run al sender definitivo (`noreply@<dominio>`) | Saul | ⬜ Pending |
+| Verificar que emails de consentimiento llegan a inbox (no spam) con DKIM activo | Saul | ⬜ Pending |
 
 ## Follow-ups / Notes
 
