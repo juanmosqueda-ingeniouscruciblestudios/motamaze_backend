@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Compliance / Administrative |
 | **Priority** | High — No-Go before Play Store submission |
-| **Status** | ✅ Done — ST-01 ✅ IARC questionnaire + ratings (2026-07-13); ST-02 ✅ `coppa_compliant` auto-activation adults (2026-07-16); validation gates pending (Play Store + Godot E2E) |
+| **Status** | In Progress — ST-01 ✅ IARC questionnaire + ratings (2026-07-13); ST-02 ⏳ código ✅ (2026-07-16), validación ⬜ (Play Store submission + Godot E2E pendientes) |
 | **Date** | 2026-07-16 |
 | **Workstream** | Compliance |
 | **Depends-on** | T-400 ST-01 ✅ (country resolution + consent_age_threshold) |
