@@ -25,16 +25,24 @@ async def send_parental_consent_email(
     consent_url: str,
     api_key: str,
     from_email: str,
+    company_website_url: str,
+    privacy_email: str,
 ) -> None:
     """Sends the COPPA email-plus parental consent request to the parent."""
     subject = f"Parental Consent Required — {child_name}’s MotaMaze Account"
-    html = _build_consent_html(child_name, consent_url)
+    html = _build_consent_html(child_name, consent_url, company_website_url, privacy_email)
     await asyncio.to_thread(_send_sync, api_key, from_email, to_email, subject, html)
 
 
-def _build_consent_html(child_name: str, consent_url: str) -> str:
+def _build_consent_html(
+    child_name: str,
+    consent_url: str,
+    company_website_url: str,
+    privacy_email: str,
+) -> str:
     safe_name = child_name.replace("<", "&lt;").replace(">", "&gt;")
     safe_url = consent_url.replace('"', "%22")
+    safe_website = company_website_url.replace('"', "%22")
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -67,8 +75,8 @@ def _build_consent_html(child_name: str, consent_url: str) -> str:
   <p>If you did not expect this email or do not wish to approve, simply ignore it.
   The account will remain inactive.</p>
   <p class="footer">
-    Ingenious Crucible Studios &mdash; <a href="https://ingeniouscruciblestudios.com/motamaze/">MotaMaze</a><br>
-    Questions? Contact us at <a href="mailto:privacy@ingeniouscruciblestudios.com">privacy@ingeniouscruciblestudios.com</a>
+    Ingenious Crucible Studios &mdash; <a href="{safe_website}">MotaMaze</a><br>
+    Questions? Contact us at <a href="mailto:{privacy_email}">{privacy_email}</a>
   </p>
 </div>
 </body>

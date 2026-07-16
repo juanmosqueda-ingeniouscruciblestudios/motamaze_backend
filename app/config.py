@@ -22,5 +22,7 @@ class Settings(BaseSettings):
     sendgrid_api_key: str = ""
     sendgrid_from_email: str = "noreply@ingeniouscruciblestudios.com"
     parental_consent_base_url: str = "https://motamaze-backend-542009654415.us-central1.run.app"
+    company_website_url: str = "https://ingeniouscruciblestudios.com/motamaze/"
+    privacy_email: str = "privacy@ingeniouscruciblestudios.com"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

@@ -406,6 +406,8 @@ async def parental_consent_request(
             consent_url=consent_url,
             api_key=settings.sendgrid_api_key,
             from_email=settings.sendgrid_from_email,
+            company_website_url=settings.company_website_url,
+            privacy_email=settings.privacy_email,
         )
     except Exception as exc:
         logger.error("parental_consent: email send failed uid=%s err=%s", user_id, exc)
@@ -425,6 +427,7 @@ async def parental_consent_request(
 async def parental_consent_verify(
     token: str = Query(...),
     db: AsyncClient = Depends(get_firestore_client),
+    settings: Settings = Depends(get_settings),
 ):
     snap = await db.collection("parental_consents").document(token).get()
 
@@ -432,6 +435,7 @@ async def parental_consent_verify(
         return HTMLResponse(_consent_page_error(
             "Link Not Found",
             "This consent link is invalid or has already been used.",
+            settings.privacy_email,
         ), status_code=404)
 
     data = snap.to_dict() or {}
@@ -442,10 +446,11 @@ async def parental_consent_verify(
             "Link Expired",
             "This consent link has expired (valid for 72 hours). "
             "Please ask your child to request a new one from the MotaMaze app.",
+            settings.privacy_email,
         ), status_code=410)
 
     if data.get("status") == "approved":
-        return HTMLResponse(_consent_page_success(already_done=True))
+        return HTMLResponse(_consent_page_success(already_done=True, company_website_url=settings.company_website_url))
 
     uid = data["uid"]
     await db.collection("parental_consents").document(token).update({"status": "approved"})
@@ -454,10 +459,10 @@ async def parental_consent_verify(
         "consent.parental_consent_verified_at": now,
     })
 
-    return HTMLResponse(_consent_page_success(already_done=False))
+    return HTMLResponse(_consent_page_success(already_done=False, company_website_url=settings.company_website_url))
 
 
-def _consent_page_success(already_done: bool) -> str:
+def _consent_page_success(already_done: bool, company_website_url: str) -> str:
     msg = "Already approved." if already_done else "Thank you! The account has been approved."
     detail = (
         "This account was already verified previously."
@@ -473,11 +478,11 @@ def _consent_page_success(already_done: bool) -> str:
 h1{{color:#1a7340;font-size:22px;}} p{{color:#444;line-height:1.6;}}</style></head>
 <body><div class="card"><h1>&#10003; {msg}</h1><p>{detail}</p>
 <p style="margin-top:24px;font-size:13px;color:#888;">
-Ingenious Crucible Studios &mdash; <a href="https://ingeniouscruciblestudios.com/motamaze/">MotaMaze</a></p>
+Ingenious Crucible Studios &mdash; <a href="{company_website_url}">MotaMaze</a></p>
 </div></body></html>"""
 
 
-def _consent_page_error(title: str, detail: str) -> str:
+def _consent_page_error(title: str, detail: str, privacy_email: str) -> str:
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MotaMaze — {title}</title>
@@ -486,7 +491,7 @@ def _consent_page_error(title: str, detail: str) -> str:
 h1{{color:#b91c1c;font-size:22px;}} p{{color:#444;line-height:1.6;}}</style></head>
 <body><div class="card"><h1>{title}</h1><p>{detail}</p>
 <p style="margin-top:24px;font-size:13px;color:#888;">
-Questions? <a href="mailto:privacy@ingeniouscruciblestudios.com">privacy@ingeniouscruciblestudios.com</a></p>
+Questions? <a href="mailto:{privacy_email}">{privacy_email}</a></p>
 </div></body></html>"""
 
 
