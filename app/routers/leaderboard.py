@@ -40,7 +40,19 @@ async def verify_app_check(
     x_firebase_appcheck: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
 ) -> None:
-    """Dependency: verifies Firebase App Check token (mandatory for leaderboard writes)."""
+    """Dependency: verifies Firebase App Check token (mandatory for leaderboard writes).
+
+    Already platform-agnostic — no iOS-specific code needed here (T-443/AUTH-IOS
+    review, 2026-07-18). App Check itself is the platform abstraction: the client
+    SDK exchanges a platform-specific attestation (Play Integrity on Android,
+    App Attest/DeviceCheck on iOS) for this same Firebase-issued JWT format, so
+    the backend never sees a raw Play Integrity or App Attest token — only ever
+    this normalized token, verified identically regardless of platform. The
+    remaining iOS work is client-side (T-IOS-8: Godot App Check SDK + App Attest
+    provider) plus registering a "MotaMaze iOS" app in Firebase Console → App
+    Check (today only "MotaMaze Android" exists — see
+    changelogs/T-443-leaderboard-backend.md).
+    """
     if not x_firebase_appcheck:
         raise HTTPException(
             401,

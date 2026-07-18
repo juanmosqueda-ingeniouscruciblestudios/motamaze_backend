@@ -88,13 +88,95 @@ class FakeDocRef:
     async def delete(self) -> None:
         self._collection._docs.pop(self.id, None)
 
+    def collection(self, name: str) -> "FakeCollection":
+        """Subcollection under this document, e.g. leaderboards/{season}/scores."""
+        sub = self._collection._subcollections.setdefault(self.id, {})
+        return FakeCollection(sub.setdefault(name, {}))
+
+
+class FakeAggregationResult:
+    def __init__(self, value: int):
+        self.value = value
+
+
+class FakeCountQuery:
+    def __init__(self, query: "FakeQuery"):
+        self._query = query
+
+    async def get(self):
+        return [[FakeAggregationResult(len(self._query._filtered_items()))]]
+
+
+_OPS = {
+    ">": lambda a, b: a > b,
+    ">=": lambda a, b: a >= b,
+    "<": lambda a, b: a < b,
+    "<=": lambda a, b: a <= b,
+    "==": lambda a, b: a == b,
+    "=": lambda a, b: a == b,
+}
+
+
+class FakeQuery:
+    """Minimal emulation of a Firestore Query — only what leaderboard.py needs:
+    where()/order_by()/limit()/count()/get()."""
+
+    def __init__(self, docs_dict: dict):
+        self._docs_dict = docs_dict
+        self._filters: list[tuple] = []
+        self._order: tuple | None = None
+        self._limit_n: int | None = None
+
+    def where(self, field: str, op: str, value) -> "FakeQuery":
+        self._filters.append((field, op, value))
+        return self
+
+    def order_by(self, field: str, direction: str = "ASCENDING") -> "FakeQuery":
+        self._order = (field, direction)
+        return self
+
+    def limit(self, n: int) -> "FakeQuery":
+        self._limit_n = n
+        return self
+
+    def count(self) -> FakeCountQuery:
+        return FakeCountQuery(self)
+
+    def _filtered_items(self) -> list[tuple]:
+        items = list(self._docs_dict.items())
+        for field, op, value in self._filters:
+            fn = _OPS[op]
+            items = [(k, v) for k, v in items if fn(v.get(field, 0), value)]
+        if self._order:
+            field, direction = self._order
+            items = sorted(items, key=lambda kv: kv[1].get(field, 0), reverse=(direction == "DESCENDING"))
+        if self._limit_n is not None:
+            items = items[: self._limit_n]
+        return items
+
+    async def get(self):
+        return [FakeDocSnapshot(k, v) for k, v in self._filtered_items()]
+
 
 class FakeCollection:
     def __init__(self, docs: dict):
         self._docs = docs
+        self._subcollections: dict[str, dict] = {}
 
     def document(self, doc_id: str) -> FakeDocRef:
         return FakeDocRef(self, doc_id)
+
+    def where(self, field: str, op: str, value) -> FakeQuery:
+        return FakeQuery(self._docs).where(field, op, value)
+
+    def order_by(self, field: str, direction: str = "ASCENDING") -> FakeQuery:
+        return FakeQuery(self._docs).order_by(field, direction)
+
+    def count(self) -> FakeCountQuery:
+        return FakeCountQuery(FakeQuery(self._docs))
+
+    async def get(self):
+        return [FakeDocSnapshot(k, v) for k, v in self._docs.items()]
 
 
 class FakeFirestoreClient:
@@ -259,6 +341,7 @@ def _patch_bq_streaming(monkeypatch):
 
     monkeypatch.setattr("app.routers.auth.stream_event", _noop)
     monkeypatch.setattr("app.routers.payments.stream_event", _noop)
+    monkeypatch.setattr("app.routers.leaderboard.stream_event", _noop)
 
 
 @pytest.fixture
