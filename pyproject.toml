@@ -16,6 +16,7 @@ dependencies = [
     "cachetools>=5.3",
     "geoip2>=4.8",
     "sendgrid>=6.11",
+    "app-store-server-library>=3.1.2",
 ]
 
 [project.optional-dependencies]

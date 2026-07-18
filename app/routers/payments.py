@@ -12,9 +12,11 @@ from fastapi.responses import JSONResponse, Response
 from google.cloud.firestore import ArrayUnion, AsyncClient
 from pydantic import BaseModel
 
+from appstoreserverlibrary.models.NotificationTypeV2 import NotificationTypeV2
+
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
-from app.services import play_api, reconcile_service
+from app.services import app_store_api, play_api, reconcile_service
 from app.services.bq_streaming import stream_event
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,36 @@ async def _grant_lives_iap(db: AsyncClient, user_id: str, quantity: int, now: da
         "updated_at": now,
     }, merge=True)
     return new_count
+
+
+async def _grant_entitlement(
+    db: AsyncClient,
+    user_id: str,
+    entitlement_type: str,
+    product_id: str,
+    quantity: int | None,
+    now: datetime,
+    settings: Settings,
+) -> int | None:
+    """Grants the given entitlement in Firestore. Returns current_lives if the
+    grant was a life_pack, else None. Shared by android_verify and ios_verify."""
+    current_lives = None
+    if entitlement_type == "life_pack" and quantity:
+        current_lives = await _grant_lives_iap(db, user_id, quantity, now)
+    elif entitlement_type == "no_ads":
+        await db.collection("entitlements").document(user_id).set(
+            {"no_ads": True, "updated_at": now}, merge=True
+        )
+    elif entitlement_type == "skin":
+        await db.collection("entitlements").document(user_id).set(
+            {"skins": ArrayUnion([product_id]), "updated_at": now}, merge=True
+        )
+    elif entitlement_type == "season_pass":
+        await db.collection("season_progress").document(user_id).set(
+            {"has_gold_pass": True, "season_id": settings.active_season_id, "updated_at": now},
+            merge=True,
+        )
+    return current_lives
 
 
 def _bq_purchase_row(
@@ -143,8 +175,12 @@ class AndroidVerifyRequest(BaseModel):
 
 
 class IosVerifyRequest(BaseModel):
-    transaction_id: str
-    product_id: str
+    # Raw signed transaction JWS from StoreKit 2 (Transaction.jwsRepresentation).
+    # transaction_id/product_id are deliberately NOT accepted from the client —
+    # they're derived from the verified payload so a client can't claim a
+    # mismatched product_id for a genuinely-signed transaction of a different
+    # product. See app/services/app_store_api.py.
+    signed_transaction: str
     session_id: str
 
 
@@ -213,6 +249,7 @@ async def android_verify(
 
         await db.collection("purchases").document(token_hash).set({
             "uid": user_id,
+            "platform": "android",
             "product_id": body.product_id,
             "product_type": product_type,
             "order_id": order_id,
@@ -247,26 +284,14 @@ async def android_verify(
         }
 
     # Grant entitlement in Firestore
-    current_lives = None
-    if entitlement_type == "life_pack" and quantity:
-        current_lives = await _grant_lives_iap(db, user_id, quantity, now)
-    elif entitlement_type == "no_ads":
-        await db.collection("entitlements").document(user_id).set(
-            {"no_ads": True, "updated_at": now}, merge=True
-        )
-    elif entitlement_type == "skin":
-        await db.collection("entitlements").document(user_id).set(
-            {"skins": ArrayUnion([body.product_id]), "updated_at": now}, merge=True
-        )
-    elif entitlement_type == "season_pass":
-        await db.collection("season_progress").document(user_id).set(
-            {"has_gold_pass": True, "season_id": settings.active_season_id, "updated_at": now},
-            merge=True,
-        )
+    current_lives = await _grant_entitlement(
+        db, user_id, entitlement_type, body.product_id, quantity, now, settings
+    )
 
     # Write purchase record so PAY-002 reconciliation job can find un-acknowledged tokens.
     await db.collection("purchases").document(token_hash).set({
         "uid": user_id,
+        "platform": "android",
         "product_id": body.product_id,
         "product_type": product_type,
         "order_id": order_id,
@@ -327,7 +352,7 @@ async def android_verify(
 
 
 # ---------------------------------------------------------------------------
-# POST /payments/ios/verify  (DATA-002 ST-08 — stub, iOS en PAY-001 fase 2)
+# POST /payments/ios/verify  (T-251 / T-IOS-1 — App Store Server Library, local JWS verification)
 # ---------------------------------------------------------------------------
 
 @router.post("/ios/verify")
@@ -336,45 +361,116 @@ async def ios_verify(
     background_tasks: BackgroundTasks,
     claims: dict = Depends(verify_jwt),
     settings: Settings = Depends(get_settings),
+    db: AsyncClient = Depends(get_firestore_client),
 ):
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
-    entitlement_type, product_type, quantity = _infer_entitlement(body.product_id)
 
-    # PAY-001 phase 2: replace with App Store Server API call + JWS verification
-    verification_status = "verified"
-    grant_status = "granted"
+    try:
+        decoded = await app_store_api.verify_signed_transaction(body.signed_transaction, settings)
+    except app_store_api.AppStoreAPIError as e:
+        if e.http_status >= 500:
+            raise HTTPException(503, detail={"error_code": "PAY_STORE_UNAVAILABLE"})
+        raise HTTPException(402, detail={"error_code": "PAY_VERIFICATION_FAILED"})
+    except Exception:
+        raise HTTPException(503, detail={"error_code": "PAY_STORE_UNAVAILABLE"})
+
+    # An already-refunded transaction being replayed — Apple will happily decode
+    # an old, since-revoked JWS (unlike Play, which wouldn't return "purchased"
+    # for a voided token), so this check is iOS-specific.
+    if decoded.revocationDate is not None:
+        raise HTTPException(402, detail={"error_code": "PAY_VERIFICATION_FAILED"})
+
+    transaction_id = decoded.transactionId
+    product_id = decoded.productId
+    entitlement_type, product_type, quantity = _infer_entitlement(product_id)
+    if entitlement_type is None:
+        raise HTTPException(400, detail={"error_code": "PAY_PRODUCT_NOT_FOUND"})
+
+    # Idempotency: already processed by a previous request. No hashing — unlike
+    # Android's purchase_token, Apple's transaction_id isn't a bearer credential
+    # (the JWS is), and a plaintext ID makes cross-referencing App Store Connect
+    # and ASSN notifications trivial for support/debugging.
+    existing = await db.collection("purchases").document(transaction_id).get()
+    if existing.exists:
+        current_lives = None
+        if entitlement_type == "life_pack":
+            snap = await db.collection("lives").document(user_id).get()
+            current_lives = snap.to_dict().get("count", 0) if snap.exists else 0
+
+        background_tasks.add_task(
+            stream_event, "purchase_events",
+            _bq_purchase_row(
+                now, user_id, body.session_id, "ios",
+                product_id, product_type, transaction_id,
+                None, "verified", "already_granted",
+            ),
+            settings.gcp_project_id, settings.bq_dataset,
+            row_id=f"purchase_ios_{transaction_id}",
+        )
+
+        return {
+            "transaction_id": transaction_id,
+            "product_id": product_id,
+            "product_type": product_type,
+            "verification_status": "verified",
+            "grant_status": "already_granted",
+            "entitlement": {
+                "type": entitlement_type,
+                "quantity": quantity,
+                "current_lives": current_lives,
+            },
+        }
+
+    # Grant entitlement in Firestore
+    current_lives = await _grant_entitlement(
+        db, user_id, entitlement_type, product_id, quantity, now, settings
+    )
+
+    # StoreKit 2 / App Store Server has no ack/consume concept — grant happens
+    # once, acknowledged=True immediately, nothing for PAY-002-style reconcile.
+    await db.collection("purchases").document(transaction_id).set({
+        "uid": user_id,
+        "platform": "ios",
+        "product_id": product_id,
+        "product_type": product_type,
+        "order_id": None,
+        "purchase_token": None,
+        "acknowledged": True,
+        "acknowledged_at": now,
+        "created_at": now,
+    }, merge=True)
 
     background_tasks.add_task(
         stream_event, "purchase_events",
         _bq_purchase_row(
             now, user_id, body.session_id, "ios",
-            body.product_id, product_type or "unknown", body.transaction_id,
-            None, verification_status, grant_status,
+            product_id, product_type, transaction_id,
+            None, "verified", "granted",
         ),
         settings.gcp_project_id, settings.bq_dataset,
-        row_id=f"purchase_ios_{body.transaction_id}",
+        row_id=f"purchase_ios_{transaction_id}",
     )
     background_tasks.add_task(
         stream_event, "entitlement_grants",
         _bq_entitlement_row(
             now, user_id, body.session_id, "ios",
-            entitlement_type or "unknown", body.product_id, quantity,
+            entitlement_type, product_id, quantity,
         ),
         settings.gcp_project_id, settings.bq_dataset,
-        row_id=f"entitlement_ios_{body.transaction_id}",
+        row_id=f"entitlement_ios_{transaction_id}",
     )
 
     return {
-        "transaction_id": body.transaction_id,
-        "product_id": body.product_id,
+        "transaction_id": transaction_id,
+        "product_id": product_id,
         "product_type": product_type,
-        "verification_status": verification_status,
-        "grant_status": grant_status,
+        "verification_status": "verified",
+        "grant_status": "granted",
         "entitlement": {
             "type": entitlement_type,
             "quantity": quantity,
-            "current_lives": None,
+            "current_lives": current_lives,
         },
     }
 
@@ -509,10 +605,102 @@ async def android_refund_notification(
 
 
 # ---------------------------------------------------------------------------
-# POST /payments/ios/refund-notification  (T-254 / PAY-003 — stub, iOS post-MVP)
+# POST /payments/ios/refund-notification  (T-254 / PAY-003 — Apple ASSN v2)
 # ---------------------------------------------------------------------------
+# Apple posts ASSN v2 directly to this URL (configured in App Store Connect) —
+# unlike Android's Pub/Sub push, there's no OIDC bearer token and no envelope
+# to unwrap. The JWS signature chain to Apple's root CA *is* the authentication:
+# nothing here is trusted until verify_notification succeeds.
 
 @router.post("/ios/refund-notification")
-async def ios_refund_notification(request: Request):
-    # PAY-003 phase 2: Apple ASSN v2 JWS chain verification — iOS out of MVP scope
+async def ios_refund_notification(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    try:
+        body_json = await request.json()
+        signed_payload = body_json.get("signedPayload", "")
+    except Exception:
+        logger.warning("T-254 ASSN: malformed request body")
+        return Response(status_code=204)
+
+    if not signed_payload:
+        return Response(status_code=204)
+
+    try:
+        notification = await app_store_api.verify_notification(signed_payload, settings)
+    except app_store_api.AppStoreAPIError as exc:
+        logger.warning("T-254 ASSN: verification failed: %s", exc.error_body)
+        return Response(status_code=204)
+    except Exception as exc:
+        logger.error("T-254 ASSN: unexpected verification error: %s", exc)
+        return Response(status_code=204)
+
+    if notification.notificationType != NotificationTypeV2.REFUND:
+        return Response(status_code=204)
+
+    if not notification.data or not notification.data.signedTransactionInfo:
+        logger.warning("T-254 ASSN: REFUND notification missing signedTransactionInfo")
+        return Response(status_code=204)
+
+    try:
+        transaction = await app_store_api.verify_signed_transaction(
+            notification.data.signedTransactionInfo, settings
+        )
+    except app_store_api.AppStoreAPIError as exc:
+        logger.warning("T-254 ASSN: nested transaction verification failed: %s", exc.error_body)
+        return Response(status_code=204)
+
+    now = datetime.now(timezone.utc)
+
+    try:
+        doc = await db.collection("purchases").document(transaction.transactionId).get()
+    except Exception as exc:
+        logger.error("T-254 ASSN: Firestore lookup failed: %s", exc)
+        return Response(status_code=204)
+
+    if not doc.exists:
+        logger.warning("T-254 ASSN: purchase not found for transaction_id=%s", transaction.transactionId)
+        return Response(status_code=204)
+
+    data = doc.to_dict()
+
+    # Idempotency guard — same field names Android already uses.
+    if data.get("voided"):
+        return Response(status_code=204)
+
+    uid = data.get("uid", "")
+    product_id = data.get("product_id", "")
+    entitlement_type, _, _ = _infer_entitlement(product_id)
+
+    if uid and entitlement_type:
+        try:
+            await reconcile_service.revoke_entitlement(db, uid, entitlement_type, product_id, now)
+        except Exception as exc:
+            logger.error("T-254 ASSN: revoke_entitlement failed uid=%s: %s", uid, exc)
+
+    try:
+        await db.collection("purchases").document(transaction.transactionId).set(
+            {"voided": True, "voided_at": now}, merge=True
+        )
+    except Exception as exc:
+        logger.error("T-254 ASSN: voided flag write failed: %s", exc)
+
+    background_tasks.add_task(
+        stream_event,
+        "purchase_events",
+        _bq_purchase_row(
+            now, uid, "", "ios",
+            product_id, data.get("product_type", ""),
+            transaction.transactionId, None,
+            "refunded", "revoked",
+        ),
+        settings.gcp_project_id,
+        settings.bq_dataset,
+        row_id=f"refund_ios_{transaction.transactionId}",
+    )
+
+    logger.info("T-254 ASSN: revoked uid=%s product=%s", uid, product_id)
     return Response(status_code=204)
