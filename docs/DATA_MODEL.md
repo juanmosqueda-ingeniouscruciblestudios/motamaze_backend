@@ -1,7 +1,7 @@
 # MotaMaze — Firestore Data Model
 
-> Última actualización: 2026-06-22
-> Fuente: INFRA-005 ST-04 + REST-001 actualización 2026-06-22 (Season Pass, Achievements, Leaderboard)
+> Última actualización: 2026-07-18
+> Fuente: INFRA-005 ST-04 + REST-001 actualización 2026-06-22 (Season Pass, Achievements, Leaderboard) + AUTH-004 (Sign in with Apple / multi-provider) + PAY-001/T-251 (Apple purchase verification, discriminador platform, documentación de purchases/{doc_id})
 > Scope: MVP (soft launch 2026-09-14)
 
 Todas las escrituras y lecturas de Firestore pasan por FastAPI (Admin SDK).
@@ -23,19 +23,22 @@ El cliente Godot **nunca accede directamente** a Firestore — solo hace HTTP a 
 
 ### `users/{uid}`
 
-Perfil del jugador. Se crea/actualiza en `POST /auth/login` (upsert por Google `sub`).
+Perfil del jugador. Se crea/actualiza en `POST /auth/login` (upsert por `sub` del proveedor de identidad — Google o Apple).
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `uid` | `string` | = document ID = Google OAuth `sub` |
-| `email` | `string` | Email de Google |
-| `display_name` | `string` | Nombre de Google |
-| `photo_url` | `string \| null` | URL de foto de perfil |
+| `uid` | `string` | = document ID = `sub` del proveedor de identidad (Google `sub` o Apple `sub`) — sin prefijo de proveedor, ver nota abajo |
+| `provider` | `"google" \| "apple"` | Proveedor de autenticación de origen. Ver nota de colisión/no-linking abajo |
+| `email` | `string` | Email del proveedor. Apple puede entregar una dirección privada `@privaterelay.appleid.com` — es válida y usable |
+| `display_name` | `string` | Nombre del proveedor. Para Apple, solo llega en la primera autorización (el cliente lo captura y lo reenvía en logins futuros) |
+| `photo_url` | `string \| null` | URL de foto de perfil. Apple nunca la provee → siempre `null` para cuentas Apple |
 | `created_at` | `timestamp` | Primera vez que inició sesión |
 | `updated_at` | `timestamp` | Último upsert |
 | `equipped_skin` | `string \| null` | Skin activo: `"skin_gold"`, `"skin_silver"`, `null` = default |
 | `consent` | `map` | Ver campos anidados abajo |
 | `delete_requested_at` | `timestamp \| null` | `null` = activo; non-null = en cola de borrado (DELETE /auth/account) |
+
+> **Nota — multi-provider (AUTH-004, 2026-07-17):** el document ID sigue siendo el `sub` crudo, sin prefijo de proveedor. Se decidió así porque los formatos de `sub` de Google (numérico) y Apple (alfanumérico con puntos) son estructuralmente disjuntos — la colisión es, en la práctica, imposible — y evita migrar `sessions`, `revoked_jtis`, `progress`, `lives`, `entitlements`, `season_progress` y `achievement_progress`, todos referenciando el mismo `uid`. Como red de seguridad adicional, `upsert_user` rechaza (`409 AUTH_PROVIDER_MISMATCH`) cualquier intento de login cuyo `provider` no coincida con el ya almacenado en el documento, en vez de fusionar identidades silenciosamente. **Limitación aceptada:** esta versión no soporta account linking — un jugador que use Google y luego Apple obtiene dos cuentas independientes (progreso/vidas/entitlements separados). Documentos creados antes de este cambio no tienen `provider`; se hace backfill automático en su próximo login.
 
 **`consent` (anidado):**
 
@@ -64,6 +67,7 @@ Registro de sesiones de juego. Sirve para calcular `session_duration_secs` en Bi
 |---|---|---|
 | `session_id` | `string` | = document ID = UUID v4, generado por FastAPI en login |
 | `uid` | `string` | Referencia a `users/{uid}` |
+| `provider` | `"google" \| "apple"` | Proveedor usado en el login que originó esta sesión. Ausente en sesiones creadas antes de AUTH-004 (2026-07-17) — `POST /auth/refresh` usa fallback `"google"` para esos casos, y se auto-limpian por el TTL de 14 días |
 | `started_at` | `timestamp` | Momento del `POST /auth/login` |
 | `ended_at` | `timestamp \| null` | `null` = sesión activa. Se escribe en `POST /auth/logout` |
 | `duration_secs` | `number \| null` | `ended_at - started_at` en segundos. `null` si la app murió sin logout |
@@ -223,6 +227,39 @@ Compras y entitlements del jugador. Se actualiza tras verificar compras en `POST
 | `POST /lives/grant` | `update` (increment `life_packs_total` si es IAP) |
 | `POST /profile/equip-skin` | `get` (verificar ownership) |
 | `POST /auth/login` | `get` (para incluir entitlements en JWT claims) |
+
+---
+
+### `purchases/{doc_id}` *(documentado 2026-07-18 — PAY-001/T-251, existía desde antes sin documentar)*
+
+Registro de cada compra verificada, usado para idempotencia (`POST /payments/*/verify`) y por `reconcile_service.py` (PAY-002 reconciliación de acks pendientes, detección de reembolsos). `doc_id` difiere por plataforma:
+
+- **Android:** `SHA-256(purchase_token)` hex — el `purchase_token` crudo es un *bearer credential* (permite llamar `consume`/`acknowledge` en la Play API en nombre del usuario), por eso se hashea antes de usarlo como ID.
+- **iOS:** `transaction_id` crudo de Apple (sin hash) — no es un bearer credential (el JWS firmado ES la credencial, no el ID), y mantenerlo en texto plano facilita cruzar contra App Store Connect y las notificaciones ASSN v2 para debugging/soporte.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `uid` | `string` | Referencia a `users/{uid}` |
+| `platform` | `"android" \| "ios"` | *(agregado 2026-07-18)* Discriminador de plataforma |
+| `product_id` | `string` | SKU del producto |
+| `product_type` | `"consumable" \| "non_consumable"` | Determina la lógica de idempotencia |
+| `order_id` | `string \| null` | Android: `orderId` de Play. iOS: siempre `null` — no existe concepto equivalente |
+| `purchase_token` | `string \| null` | Android: token crudo (usado por `reconcile_pending_acks`). iOS: siempre `null` |
+| `acknowledged` | `boolean` | Android: `false` hasta completar ack/consume vía Play API. iOS: siempre `true` desde la creación — StoreKit 2 / App Store Server no tiene concepto de ack/consume, por lo que los docs iOS quedan naturalmente excluidos de la query `.where("acknowledged", "==", False)` de `reconcile_pending_acks()` (Android-only) sin necesidad de código adicional |
+| `acknowledged_at` | `timestamp \| null` | Cuándo se confirmó el ack/consume (Android) o creación (iOS) |
+| `voided` | `boolean` | *(unificado entre plataformas 2026-07-18 — antes solo existía para Android)* `true` tras un reembolso procesado |
+| `voided_at` | `timestamp` | Cuándo se marcó como reembolsado |
+| `created_at` | `timestamp` | Cuándo se verificó la compra |
+
+**Endpoints que usan esta colección:**
+
+| Endpoint | Operación |
+|---|---|
+| `POST /payments/android/verify` | `get` (idempotencia) + `set` (merge) |
+| `POST /payments/ios/verify` | `get` (idempotencia) + `set` (merge) |
+| `POST /payments/android/refund-notification` | `get` + `update` (`voided`) |
+| `POST /payments/ios/refund-notification` | `get` + `update` (`voided`) |
+| `POST /jobs/reconcile-purchases` | `get`/`query` (Android-only: `reconcile_pending_acks`, `detect_refunds`) |
 
 ---
 

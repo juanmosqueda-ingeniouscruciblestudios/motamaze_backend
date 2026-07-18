@@ -30,6 +30,11 @@ class LoginRequest(BaseModel):
     app_version: str
     device_model: str | None = None
     os_version: str | None = None
+    # Apple only: ASAuthorizationAppleIDCredential.fullName is given to the client
+    # by Apple on the FIRST authorization only — never present in the identity
+    # token itself, on any login. Ignored for provider="google" (name comes from
+    # the id_token claims there).
+    display_name: str | None = None
     # Signal 1 (primary): Google Play BillingConfig.countryCode — wired in T-252
     store_country_code: str | None = None
     # Signal 2 (secondary): Godot OS.get_locale_country()
@@ -104,10 +109,28 @@ async def login(
         photo_url = claims.get("picture")
 
     elif body.provider == "apple":
-        raise HTTPException(
-            501,
-            detail={"error_code": "NOT_IMPLEMENTED", "message": "Apple sign-in not yet implemented"},
-        )
+        try:
+            claims = await auth_service.verify_apple_token(
+                body.id_token, settings.apple_bundle_id
+            )
+        except ValueError as exc:
+            msg = str(exc).lower()
+            if "expired" in msg:
+                raise HTTPException(
+                    401,
+                    detail={"error_code": "AUTH_TOKEN_EXPIRED", "message": "id_token has expired"},
+                )
+            raise HTTPException(
+                401,
+                detail={"error_code": "AUTH_TOKEN_INVALID", "message": "id_token verification failed"},
+            )
+        sub = claims["sub"]
+        email = claims.get("email", "")
+        # Apple never puts the name in the identity token — client sends it once,
+        # captured from ASAuthorizationAppleIDCredential.fullName on first auth.
+        display_name = body.display_name or ""
+        photo_url = None  # Apple never provides a profile photo
+
     else:
         raise HTTPException(
             400,
@@ -123,12 +146,23 @@ async def login(
     )
     age_threshold = geo_service.consent_age_threshold(resolved_country)
 
-    user_id, is_new_user, is_child = await auth_service.upsert_user(
-        db, sub, email, display_name, photo_url, body.provider,
-        country_code=resolved_country,
-        consent_age_threshold=age_threshold,
-        country_signal_mismatch=signal_mismatch,
-    )
+    try:
+        user_id, is_new_user, is_child = await auth_service.upsert_user(
+            db, sub, email, display_name, photo_url, body.provider,
+            country_code=resolved_country,
+            consent_age_threshold=age_threshold,
+            country_signal_mismatch=signal_mismatch,
+        )
+    except ValueError as exc:
+        if str(exc) == "AUTH_PROVIDER_MISMATCH":
+            raise HTTPException(
+                409,
+                detail={
+                    "error_code": "AUTH_PROVIDER_MISMATCH",
+                    "message": "This account is already linked to a different sign-in provider",
+                },
+            )
+        raise
 
     session_id = str(uuid.uuid4())
     refresh_tok = jwt_service.create_refresh_token(session_id)
@@ -136,7 +170,8 @@ async def login(
     token_hash = jwt_service.hash_refresh_token(secret)
 
     await auth_service.create_session(
-        db, user_id, session_id, token_hash, body.platform, body.os_version, body.app_version
+        db, user_id, session_id, token_hash, body.provider,
+        body.platform, body.os_version, body.app_version,
     )
 
     access_tok, _jti = jwt_service.create_access_token(
@@ -217,7 +252,9 @@ async def refresh(
         status = 401
         raise HTTPException(status, detail={"error_code": error_code, "message": error_code})
 
-    provider = old_session.get("device", {}) and "google"  # provider not stored in session — default google for MVP
+    # Fallback covers sessions created before provider persistence shipped —
+    # those age out naturally via the 14-day session TTL, no backfill needed.
+    provider = old_session.get("provider", "google")
 
     new_session_id = str(uuid.uuid4())
     new_refresh = jwt_service.create_refresh_token(new_session_id)
@@ -230,6 +267,7 @@ async def refresh(
         uid,
         new_session_id,
         token_hash,
+        provider,
         device.get("platform"),
         device.get("os_version"),
         device.get("app_version"),
@@ -237,7 +275,7 @@ async def refresh(
 
     access_tok, _jti = jwt_service.create_access_token(
         user_id=uid,
-        provider="google",
+        provider=provider,
         session_id=new_session_id,
         project_id=settings.gcp_project_id,
         secret_name=settings.jwt_secret_name,

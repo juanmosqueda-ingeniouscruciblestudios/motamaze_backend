@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     cloudinary_share_image_id: str = "motamaze_1200x630_v2_yivwuj"
     share_base_url: str = "https://motamaze.com"
     play_package_name: str = "com.ingeniouscruciblestudios.motamaze"
+    # aud claim on a native iOS identity_token is the app's bundle ID (not a
+    # separate "Services ID" — that's only for web-based Sign in with Apple JS).
+    apple_bundle_id: str = "com.ingeniouscruciblestudios.motamaze"
+    apple_environment: str = "Sandbox"  # "Sandbox" | "Production" (appstoreserverlibrary Environment)
+    # Numeric App Store listing ID — required by SignedDataVerifier only when
+    # apple_environment="Production". None is fine for Sandbox. Doesn't exist
+    # until the app is created in App Store Connect (T-IOS-3) — deferred.
+    apple_app_apple_id: int | None = None
     geoip2_db_path: str = "/gcs/geolite2/GeoLite2-Country.mmdb"
     firebase_project_number: str = "542009654415"
     pubsub_rtdn_sa_email: str = "game-api-backend@motamaze.iam.gserviceaccount.com"

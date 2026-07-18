@@ -1,10 +1,15 @@
 import asyncio
+import json
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from cachetools import TTLCache
 from google.auth.transport import requests as google_requests
 from google.cloud.firestore import AsyncClient
 from google.oauth2 import id_token as google_id_token
+from jose import ExpiredSignatureError, JWTError, jwk
+from jose import jwt as jose_jwt
 
 from app.services import jwt_service
 
@@ -21,6 +26,61 @@ async def verify_google_token(token: str, client_id: str) -> dict:
     # verify_oauth2_token fetches Google certs over HTTPS — run in thread to avoid
     # blocking the async event loop.
     return await asyncio.to_thread(_verify_google_token_sync, token, client_id)
+
+
+_APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
+_APPLE_ISSUER = "https://appleid.apple.com"
+_apple_jwks_cache: TTLCache = TTLCache(maxsize=1, ttl=3600)
+
+
+async def _get_apple_jwks() -> list[dict]:
+    if "keys" in _apple_jwks_cache:
+        return _apple_jwks_cache["keys"]
+
+    def _fetch() -> list[dict]:
+        with urllib.request.urlopen(_APPLE_JWKS_URL, timeout=5) as r:
+            return json.loads(r.read())["keys"]
+
+    keys = await asyncio.to_thread(_fetch)
+    _apple_jwks_cache["keys"] = keys
+    return keys
+
+
+async def verify_apple_token(token: str, audience: str) -> dict:
+    """Verifies an Apple `identity_token` (JWT) against Apple's published JWKS.
+    Mirrors verify_google_token's error contract: raises ValueError whose message
+    contains 'expired' iff the failure was expiry (app/routers/auth.py branches on
+    this to pick AUTH_TOKEN_EXPIRED vs AUTH_TOKEN_INVALID)."""
+    try:
+        header = jose_jwt.get_unverified_header(token)
+    except JWTError:
+        raise ValueError("Malformed Apple identity_token")
+
+    kid = header.get("kid")
+    keys = await _get_apple_jwks()
+    key_data = next((k for k in keys if k.get("kid") == kid), None)
+    if key_data is None:
+        # Same pattern as leaderboard.py's App Check JWKS handling: clear and let
+        # the *next* request refresh, avoids hammering Apple's JWKS mid-request.
+        _apple_jwks_cache.clear()
+        raise ValueError("Unknown Apple signing key (kid) — JWKS refreshed")
+
+    public_key = jwk.construct(key_data)
+    try:
+        claims = jose_jwt.decode(
+            token,
+            public_key,
+            algorithms=["RS256"],
+            audience=audience,
+            issuer=_APPLE_ISSUER,
+            options={"leeway": 30},
+        )
+    except ExpiredSignatureError:
+        raise ValueError("Apple identity_token has expired")
+    except JWTError as exc:
+        raise ValueError(f"Apple identity_token verification failed: {exc}")
+
+    return claims
 
 
 async def upsert_user(
@@ -41,6 +101,7 @@ async def upsert_user(
     if is_new:
         await ref.set({
             "uid": sub,
+            "provider": provider,
             "email": email,
             "display_name": display_name,
             "photo_url": photo_url,
@@ -62,16 +123,34 @@ async def upsert_user(
         return sub, True, None
     else:
         existing = snap.to_dict() or {}
+        existing_provider = existing.get("provider")
+        if existing_provider and existing_provider != provider:
+            # Structurally near-impossible (Google sub is numeric, Apple sub is
+            # alphanumeric-with-dots) — but if it ever happens, fail loudly
+            # instead of silently merging two different humans' accounts.
+            raise ValueError("AUTH_PROVIDER_MISMATCH")
+
         is_child: bool | None = (existing.get("consent") or {}).get("is_child")
-        await ref.update({
-            "email": email,
-            "display_name": display_name,
-            "photo_url": photo_url,
+        update: dict = {
             "updated_at": now,
             "consent.country_code": country_code,
             "consent.consent_age_threshold": consent_age_threshold,
             "consent.country_signal_mismatch": country_signal_mismatch,
-        })
+        }
+        if not existing_provider:
+            # Backfill for docs created before multi-provider support shipped.
+            update["provider"] = provider
+        # Apple only returns `name` to the client on the FIRST authorization, and
+        # `email`/`photo_url` can legitimately be blank on later logins for either
+        # provider — never clobber a previously-stored value with a blank.
+        if email:
+            update["email"] = email
+        if display_name:
+            update["display_name"] = display_name
+        if photo_url:
+            update["photo_url"] = photo_url
+
+        await ref.update(update)
         return sub, False, is_child
 
 
@@ -80,6 +159,7 @@ async def create_session(
     uid: str,
     session_id: str,
     token_hash: str,
+    provider: str,
     platform: str | None,
     os_version: str | None,
     app_version: str | None,
@@ -95,6 +175,7 @@ async def create_session(
     await db.collection("sessions").document(session_id).set({
         "session_id": session_id,
         "uid": uid,
+        "provider": provider,
         "token_hash": token_hash,
         "started_at": now,
         "expires_at": now + timedelta(days=14),
