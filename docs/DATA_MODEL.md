@@ -407,13 +407,14 @@ Token de share de score creado por `POST /share/create`. El `token` es el docume
 
 ```
 shares/{token}
-  uid                 string       ← user_id del creador (no expuesto en la URL pública)
+  uid                 string       ← uid del creador (no expuesto en la URL pública)
   score               integer      ← score al momento de compartir
   level_reached       integer      ← nivel alcanzado (1–30)
   season_id           string       ← ID de la temporada activa
   og_image_url        string       ← URL de Cloudinary (<600 KB WebP, 1200×630 px)
+  share_url           string       ← URL pública devuelta al cliente (ver nota)
   created_at          timestamp
-  expires_at          timestamp    ← fin de la temporada activa
+  expires_at          timestamp    ← fin de la temporada activa (ver nota)
 ```
 
 | Campo | Tipo | Descripción |
@@ -423,8 +424,11 @@ shares/{token}
 | `level_reached` | integer | Nivel alcanzado, para el copy de la OG card |
 | `season_id` | string | Vincula el share a la temporada — el documento expira con ella |
 | `og_image_url` | string | URL Cloudinary de la imagen generada |
+| `share_url` | string | URL pública (`{share_base_url}/s/{token}`) — ver nota sobre T-311 |
 | `created_at` | timestamp | Cuándo se creó el share |
 | `expires_at` | timestamp | Fin de la temporada — after this, `GET /s/{token}` devuelve 404 |
+
+> **Nota — dos valores intencionalmente hardcodeados (pendientes de tickets separados, no bloquean T-440):** `expires_at` usa una fecha fija (2026-09-14) en vez de leer la temporada activa (pendiente de un ticket de Season Pass aún sin código formal en Monday, referenciado como "Social-001" en comentarios del código). `share_url` es una URL directa, no un link de tracking Tenjin (pendiente T-311 — la decisión Juan+Saul de Tenjin vs. URL directa, agendada 2026-06-24, no tiene resultado registrado).
 
 **Escritores:**
 

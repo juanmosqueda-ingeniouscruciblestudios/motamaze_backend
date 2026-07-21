@@ -94,7 +94,7 @@ async def share_create(
     share_url = f"{settings.share_base_url}/s/{token}"
 
     await doc_ref.set({
-        "user_id":       user_id,
+        "uid":           user_id,
         "score":         body.score,
         "level_reached": body.level_reached,
         "season_id":     body.season_id,
