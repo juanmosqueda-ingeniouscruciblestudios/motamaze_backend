@@ -4,8 +4,8 @@
 |---|---|
 | **Type** | Feature |
 | **Priority** | High |
-| **Status** | Done — ST-01 ✅ POST /share/create + GET /s/{token} + GET /ogimg/{token} |
-| **Date** | 2026-06-30 |
+| **Status** | Done — ST-01 ✅ (2026-06-30); ST-02 ✅ integration test contra Cloud Run dev real (2026-07-21) |
+| **Date** | 2026-07-21 |
 | **Workstream** | INFRA-003 (FastAPI services) |
 | **Commit** | `e355b67` |
 | **Depends-on** | INFRA-003 (Cloud Run), DATA-002 (Firestore), Decision L (Tenjin — T-311 stub) |
@@ -179,9 +179,26 @@ All 3 files committed and pushed as `e355b67`:
 **og:image isolation:** HTML uses `/ogimg/{token}`, not direct Cloudinary URL ✅
 **Config constant for image ID:** `cloudinary_share_image_id` in Settings ✅
 
+### ST-02: Integration test against live Cloud Run dev ✅ (2026-07-21)
+
+Also verifies the `tests/test_social_router.py` unit-test suite (2026-07-20, `uid`/`user_id` rename) holds against real infra, not just the fake Firestore double.
+
+**Setup:** deployed revision `motamaze-backend-00079-429` (commit `658bdad`) on `motamaze-dev`, confirmed current via `gcloud run revisions list`. Authenticated tunnel: `gcloud run services proxy motamaze-backend --port=8082 --region=us-central1 --project=motamaze-dev`. JWT generated locally via `jwt_service.create_access_token()` against the real `motamaze-dev` Secret Manager key (`jwt-private-key`), same signing path the app uses in production — not a mock.
+
+```
+[PASS] POST /share/create → 200, {share_url, token, og_image_url, expires_at} shape correct
+[PASS] GET /s/{token} → 200, HTML with correct og:title/og:image/og:url + Fredoka score/level text
+[PASS] GET /ogimg/{token} → 302, Location = real Cloudinary URL with correct score/level text overlays
+[PASS] Firestore shares/{token} doc written with `uid` field (not `user_id`) — confirms 2026-07-20 rename is correct against real Firestore, not just the test double
+[PASS] Cloudinary URL resolves → 200, valid image/png
+[FAIL] Cloudinary image size/format — returned 1,214,983 bytes (1.19 MB) image/png. Spec (this doc + T-440 original acceptance criteria) requires <600 KB WebP. Current `_og_image_url()` URL has no format/quality/dimension transformation flags (`f_auto`, `q_auto`, explicit `w_1200,h_630`) — only the two `l_text` overlay layers. Test data cleaned up (doc + JWT deleted) after the run.
+```
+
+**New follow-up from this run:** `_og_image_url()` needs a transformation prefix (e.g. `f_auto,q_auto,w_1200,h_630`) to actually meet the documented <600KB WebP target — today it silently serves an untransformed ~1.2MB PNG. Not a blocker for ST-02 itself (the endpoint works correctly end-to-end), but worth its own quick follow-up before relying on the <600KB assumption for CDN cost/social-preview load time.
+
 ### Follow-ups / notes
 
-- **ST-02 (integration tests):** Must be done after next `gcloud run deploy` — requires live Cloud Run endpoint + valid JWT
+- **New (2026-07-21):** Add Cloudinary transformation flags to `_og_image_url()` to actually hit the <600KB WebP target — see ST-02 results above.
 - **T-311:** Replace `share_url` stub with Tenjin tracking link
 - **T-210:** Add server-side score cross-validation (cross-reference with progression record)
 - **Social-001:** Replace `expires_at` hardcoded stub with active season lookup
