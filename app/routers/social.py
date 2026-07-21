@@ -24,9 +24,16 @@ def _og_image_url(settings: Settings, score: int, level_reached: int) -> str:
     base  = settings.cloudinary_share_image_id
     score_layer = f"l_text:Fredoka@google_90_700:{score}%20pts,co_white,g_center,y_-60"
     level_layer = f"l_text:Fredoka@google_55_500:Nivel%20{level_reached},co_white,g_center,y_40"
+    # f_auto,q_auto as the final chained component (right before the public_id)
+    # controls the delivery encoding of the fully-composited image (base +
+    # both text overlays) — auto-selects WebP/AVIF per the requester's Accept
+    # header and an auto-tuned quality level. Without this, Cloudinary served
+    # the untransformed base PNG (~1.2MB) instead of the <600KB WebP the spec
+    # calls for (found during T-440 ST-02 integration testing, 2026-07-21).
+    delivery = "f_auto,q_auto"
     return (
         f"https://res.cloudinary.com/{cloud}/image/upload"
-        f"/{score_layer}/{level_layer}/{base}"
+        f"/{score_layer}/{level_layer}/{delivery}/{base}"
     )
 
 

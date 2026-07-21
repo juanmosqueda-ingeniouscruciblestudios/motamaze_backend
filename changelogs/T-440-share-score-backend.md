@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Feature |
 | **Priority** | High |
-| **Status** | Done — ST-01 ✅ (2026-06-30); ST-02 ✅ integration test contra Cloud Run dev real (2026-07-21) |
+| **Status** | Done — ST-01 ✅ (2026-06-30); ST-02 ✅ integration test contra Cloud Run dev real + fix de tamaño de imagen Cloudinary (2026-07-21) |
 | **Date** | 2026-07-21 |
 | **Workstream** | INFRA-003 (FastAPI services) |
 | **Commit** | `e355b67` |
@@ -194,12 +194,18 @@ Also verifies the `tests/test_social_router.py` unit-test suite (2026-07-20, `ui
 [FAIL] Cloudinary image size/format — returned 1,214,983 bytes (1.19 MB) image/png. Spec (this doc + T-440 original acceptance criteria) requires <600 KB WebP. Current `_og_image_url()` URL has no format/quality/dimension transformation flags (`f_auto`, `q_auto`, explicit `w_1200,h_630`) — only the two `l_text` overlay layers. Test data cleaned up (doc + JWT deleted) after the run.
 ```
 
-**New follow-up from this run:** `_og_image_url()` needs a transformation prefix (e.g. `f_auto,q_auto,w_1200,h_630`) to actually meet the documented <600KB WebP target — today it silently serves an untransformed ~1.2MB PNG. Not a blocker for ST-02 itself (the endpoint works correctly end-to-end), but worth its own quick follow-up before relying on the <600KB assumption for CDN cost/social-preview load time.
+**Fixed same day (2026-07-21):** added `f_auto,q_auto` as the final chained transformation component in `_og_image_url()` (right before the public_id — controls delivery encoding of the fully-composited image). Base image public_id already encodes the 1200×630 canvas size, so no explicit `w_/h_/c_` resize was needed. Verified directly against real Cloudinary (no redeploy needed, Cloudinary is a separate CDN from our Cloud Run service):
+
+```
+[PASS] Accept: image/webp -> 200, Content-Type: image/webp, 124,756 bytes (122 KB)
+[PASS] No Accept header (curl default) -> 200, Content-Type: image/jpeg, 141,353 bytes (138 KB)
+```
+Both well under the 600KB target (down from 1.19MB). `tests/test_social_router.py` updated with a regression assertion (`f_auto,q_auto` present in the generated URL).
 
 ### Follow-ups / notes
 
-- **New (2026-07-21):** Add Cloudinary transformation flags to `_og_image_url()` to actually hit the <600KB WebP target — see ST-02 results above.
-- **T-311:** Replace `share_url` stub with Tenjin tracking link
+- ~~Add Cloudinary transformation flags to `_og_image_url()` to hit the <600KB WebP target~~ — ✅ Fixed 2026-07-21, see ST-02 results above.
+- **T-311:** Replace `share_url` stub with Tenjin tracking link — decision meeting scheduled Juan+Saul, 2026-07-27 (contract start date for T-311 is 2026-07-28; still on track)
 - **T-210:** Add server-side score cross-validation (cross-reference with progression record)
 - **Social-001:** Replace `expires_at` hardcoded stub with active season lookup
 - **Pre-production gates 5-8:** See Monday tickets created 2026-06-30

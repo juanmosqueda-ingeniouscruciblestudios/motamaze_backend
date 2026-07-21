@@ -58,6 +58,9 @@ async def test_share_create_success_writes_uid_not_user_id(client, fake_db, test
     assert "cloudinary.com" in doc["og_image_url"]
     assert "4200%20pts" in doc["og_image_url"]
     assert "Nivel%2012" in doc["og_image_url"]
+    # f_auto,q_auto delivery flags (2026-07-21 fix) — without these the real
+    # Cloudinary URL served an untransformed ~1.2MB PNG instead of <600KB WebP.
+    assert "f_auto,q_auto" in doc["og_image_url"]
 
 
 async def test_share_create_invalid_level_reached(client, test_settings):
