@@ -63,6 +63,41 @@ async def test_share_create_success_writes_uid_not_user_id(client, fake_db, test
     assert "f_auto,q_auto" in doc["og_image_url"]
 
 
+async def test_share_create_falls_back_to_direct_url_when_tenjin_unset(client, test_settings):
+    # test_settings.tenjin_share_tracking_link defaults to "" — this is the
+    # regression guard that share_create behaves exactly as before Decision L
+    # until the real Tenjin dashboard link is configured.
+    assert test_settings.tenjin_share_tracking_link == ""
+    resp = await client.post(
+        CREATE_URL, json=_valid_body(), headers=_auth_headers(test_settings)
+    )
+    body = resp.json()
+    assert body["share_url"] == f"{test_settings.share_base_url}/s/{body['token']}"
+    assert "tenjin" not in body["share_url"].lower()
+
+
+async def test_share_create_uses_tenjin_tracking_link_when_configured(client, fake_db, test_settings):
+    test_settings.tenjin_share_tracking_link = "https://track.tenjin.io/v0/motamaze/organic"
+
+    resp = await client.post(
+        CREATE_URL, json=_valid_body(), headers=_auth_headers(test_settings, "user-share-tenjin")
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    token = body["token"]
+    expected_deeplink = f"{test_settings.share_base_url}/s/{token}"
+
+    import urllib.parse
+    expected_url = (
+        "https://track.tenjin.io/v0/motamaze/organic"
+        f"?deeplink_url={urllib.parse.quote(expected_deeplink, safe='')}"
+    )
+    assert body["share_url"] == expected_url
+
+    doc = (await fake_db.collection("shares").document(token).get()).to_dict()
+    assert doc["share_url"] == expected_url
+
+
 async def test_share_create_invalid_level_reached(client, test_settings):
     for bad_level in (0, 31, -1):
         resp = await client.post(

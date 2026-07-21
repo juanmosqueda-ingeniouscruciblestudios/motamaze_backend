@@ -148,10 +148,17 @@ Replace the "Device or other IDs" table in Part 1 with:
 |---|---|---|---|---|
 | Device or other IDs (Advertising ID / App Set ID) | Yes | Yes — AdMob | Required | Advertising or marketing, Analytics |
 
-**Do not add Tenjin to the "Shared" column at this point.** Tenjin-wrapped share links are
-post-MVP (Decision L / Option B chose a direct URL with no attribution for MVP; Tenjin is v1.1
-scope with no ticket yet). Add Tenjin to this row only when that work actually ships, under its own
-ticket — not automatically alongside T-261.
+**Correction (2026-07-21):** this section previously said Decision L chose Option B (direct URL,
+Tenjin deferred to v1.1, no ticket) — that was wrong; T-311 has existed as an active MVP ticket the
+whole time, and **Decision L was confirmed as Option A** (Tenjin tracking link) by Juan on
+2026-07-21. Backend code shipped the same day (`app/routers/social.py:_tenjin_share_url()`) — it
+falls back to a direct URL until `tenjin_share_tracking_link` is set to a real value from Tenjin's
+dashboard, so no data flows to Tenjin yet in practice, but this is no longer "post-MVP, no ticket."
+**This row needs a real Data Safety review before the tracking link goes live** — not done here,
+since it requires checking what Tenjin's tracking-link redirect itself collects (at minimum
+IP/device info on click) versus what a future client-side Tenjin SDK would add, and that's a
+judgment call this doc's own framing (see Part 2) reserves for verified-against-shipped-code
+review, not a guess. Add to Part 1B below.
 
 Also flip the separate **App content → Ads** declaration (Part 1 above):
 
@@ -172,7 +179,7 @@ nothing in this document depends on it.
 
 # Part 2 — Engineering / verification notes (not for direct entry)
 
-**Currently identified third-party data transfers: Advertising ID → AdMob, Tenjin (Tenjin deferred, see Part 1B).**
+**Currently identified third-party data transfers: Advertising ID → AdMob (T-261, not yet shipped); Tenjin tracking link → Tenjin (T-311, code shipped 2026-07-21 with a direct-URL fallback until the real dashboard link is configured — see Part 1B).**
 
 Note on the rest of this section: Google never states "Cloudinary image generation is not shared" or
 "displaying an OAuth photo by URL is not collection" — those are reasoned interpretations of Google's
@@ -246,6 +253,9 @@ changes, review the other. Part 1 reflects the CURRENT submission; Part 1B track
 owed and by which ticket — keep Part 1B's checkboxes below updated as each lands.
 
 - [ ] T-310 (Crashlytics) shipped → Part 1B "Crashlytics" values entered in Play Console
-- [ ] T-261 (AdMob) shipped → Part 1B "AdMob" values entered in Play Console (Tenjin excluded per
-      note) — **both** the Data Safety "Device or other IDs" row **and** the separate App content →
-      Ads declaration ("Does your app contain ads?" → Yes)
+- [ ] T-261 (AdMob) shipped → Part 1B "AdMob" values entered in Play Console (Tenjin tracked
+      separately below, not bundled with this item) — **both** the Data Safety "Device or other IDs"
+      row **and** the separate App content → Ads declaration ("Does your app contain ads?" → Yes)
+- [ ] T-311 Tenjin tracking link goes live (`tenjin_share_tracking_link` set to a real value) →
+      Data Safety review needed for the share-link flow (Decision L / Option A, confirmed
+      2026-07-21 — corrected from this doc's earlier "deferred to v1.1" note, which was wrong)

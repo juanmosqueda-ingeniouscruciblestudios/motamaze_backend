@@ -32,5 +32,10 @@ class Settings(BaseSettings):
     parental_consent_base_url: str = "https://motamaze-backend-542009654415.us-central1.run.app"
     company_website_url: str = "https://ingeniouscruciblestudios.com/motamaze/"
     privacy_email: str = "privacy@ingeniouscruciblestudios.com"
+    # Decision L (2026-07-21): Option A — static tracking link created once in
+    # Tenjin's dashboard (organic/referral channel). Empty until Juan/Saul set
+    # it up there; falls back to a direct URL (no attribution) when unset —
+    # see social.py's _tenjin_share_url().
+    tenjin_share_tracking_link: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

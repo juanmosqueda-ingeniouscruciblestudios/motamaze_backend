@@ -205,7 +205,7 @@ Both well under the 600KB target (down from 1.19MB). `tests/test_social_router.p
 ### Follow-ups / notes
 
 - ~~Add Cloudinary transformation flags to `_og_image_url()` to hit the <600KB WebP target~~ — ✅ Fixed 2026-07-21, see ST-02 results above.
-- **T-311:** Replace `share_url` stub with Tenjin tracking link — decision meeting scheduled Juan+Saul, 2026-07-27 (contract start date for T-311 is 2026-07-28; still on track)
+- ~~T-311: Replace `share_url` stub with Tenjin tracking link~~ — ✅ Resuelto 2026-07-21 (Option A confirmada por Juan, antes de la junta agendada 2026-07-27). Ver `changelogs/T-311-tenjin-share-tracking-link.md`.
 - **T-210:** Add server-side score cross-validation (cross-reference with progression record)
 - **Social-001:** Replace `expires_at` hardcoded stub with active season lookup
 - **Pre-production gates 5-8:** See Monday tickets created 2026-06-30

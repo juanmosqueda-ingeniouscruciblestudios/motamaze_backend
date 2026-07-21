@@ -424,11 +424,13 @@ shares/{token}
 | `level_reached` | integer | Nivel alcanzado, para el copy de la OG card |
 | `season_id` | string | Vincula el share a la temporada — el documento expira con ella |
 | `og_image_url` | string | URL Cloudinary de la imagen generada |
-| `share_url` | string | URL pública (`{share_base_url}/s/{token}`) — ver nota sobre T-311 |
+| `share_url` | string | URL de Tenjin (`{tenjin_share_tracking_link}?deeplink_url=...`) si está configurado, si no URL directa (`{share_base_url}/s/{token}`) — ver nota |
 | `created_at` | timestamp | Cuándo se creó el share |
 | `expires_at` | timestamp | Fin de la temporada — after this, `GET /s/{token}` devuelve 404 |
 
-> **Nota — dos valores intencionalmente hardcodeados (pendientes de tickets separados, no bloquean T-440):** `expires_at` usa una fecha fija (2026-09-14) en vez de leer la temporada activa (pendiente de un ticket de Season Pass aún sin código formal en Monday, referenciado como "Social-001" en comentarios del código). `share_url` es una URL directa, no un link de tracking Tenjin (pendiente T-311 — la decisión Juan+Saul de Tenjin vs. URL directa, agendada 2026-06-24, no tiene resultado registrado).
+> **Nota — `expires_at` hardcodeado (pendiente de ticket separado, no bloquea T-440):** usa una fecha fija (2026-09-14) en vez de leer la temporada activa (pendiente de un ticket de Season Pass aún sin código formal en Monday, referenciado como "Social-001" en comentarios del código).
+>
+> **`share_url` / Decision L — resuelto 2026-07-21:** Option A confirmada por Juan (Tenjin tracking link). Implementado en T-311 vía `_tenjin_share_url()` (`app/routers/social.py`) — usa el link estático de Tenjin (`tenjin_share_tracking_link` en `Settings`, configurado una vez en el dashboard de Tenjin, sin llamada a API) con el token embebido como `deeplink_url`. Hace fallback automático a URL directa mientras esa setting esté vacía (todavía lo está — falta que Juan/Saul creen el link en Tenjin).
 
 **Escritores:**
 

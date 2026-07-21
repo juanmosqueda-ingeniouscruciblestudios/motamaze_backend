@@ -1,5 +1,6 @@
 import secrets
 import string
+import urllib.parse
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,6 +40,20 @@ def _og_image_url(settings: Settings, score: int, level_reached: int) -> str:
 
 def _og_proxy_url(settings: Settings, token: str) -> str:
     return f"{settings.share_base_url}/ogimg/{token}"
+
+
+def _tenjin_share_url(settings: Settings, token: str) -> str:
+    """Decision L (2026-07-21, Option A): wrap the share URL in a Tenjin
+    tracking link so installs from a shared score can be attributed back to
+    the sharing player. Tenjin tracking links are a single static URL created
+    once per channel in Tenjin's dashboard (no API call needed) — the
+    deeplink_url query param is what carries per-share context through
+    install; Tenjin's SDK hands it back to the client on first launch."""
+    direct_url = f"{settings.share_base_url}/s/{token}"
+    if not settings.tenjin_share_tracking_link:
+        return direct_url  # Tenjin dashboard link not configured yet
+    deeplink = urllib.parse.quote(direct_url, safe="")
+    return f"{settings.tenjin_share_tracking_link}?deeplink_url={deeplink}"
 
 
 # ---------------------------------------------------------------------------
@@ -96,9 +111,7 @@ async def share_create(
     og_image_url = _og_image_url(settings, body.score, body.level_reached)
     og_proxy     = _og_proxy_url(settings, token)
 
-    # T-311: replace with Tenjin tracking link
-    # share_url = tenjin_create_link(deeplink_url=f"{settings.share_base_url}/s/{token}")
-    share_url = f"{settings.share_base_url}/s/{token}"
+    share_url = _tenjin_share_url(settings, token)
 
     await doc_ref.set({
         "uid":           user_id,
