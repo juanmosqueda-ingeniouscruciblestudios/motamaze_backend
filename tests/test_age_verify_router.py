@@ -143,3 +143,54 @@ async def test_age_verify_user_not_found(client, test_settings):
     )
     assert resp.status_code == 404
     assert resp.json()["detail"]["error_code"] == "USER_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# T-402: Brazil store_age_signal outranks DOB (subtask 5)
+# ---------------------------------------------------------------------------
+
+
+async def test_age_verify_br_signal_already_minor_dob_cannot_override(client, fake_db, test_settings):
+    # Simulates: login already reconciled is_child=True from store_age_signal
+    # (as upsert_user now does). An adult-claiming DOB must NOT flip it.
+    uid = "user-br-signal-minor"
+    fake_db.seed("users", uid, {
+        "uid": uid,
+        "consent": {
+            "consent_age_threshold": 18,
+            "country_code": "BR",
+            "store_age_signal": "13-15",
+            "is_child": True,
+        },
+        "restricted_features": {"leaderboard": True, "personalized_ads": True, "share_score": True},
+    })
+
+    resp = await client.post(
+        URL, json={"dob": _dob_for_age(30)}, headers=_auth_headers(test_settings, uid)
+    )
+    assert resp.status_code == 200
+    assert resp.json()["is_child"] is True  # signal wins, not the adult DOB
+
+    doc = (await fake_db.collection("users").document(uid).get()).to_dict()
+    assert doc["consent"]["is_child"] is True
+    assert doc["consent"].get("coppa_compliant") is not True  # never flipped by DOB
+    assert doc["consent"]["age_verified_at"] is not None  # still recorded
+
+
+async def test_age_verify_br_without_signal_dob_flow_unchanged(client, fake_db, test_settings):
+    # BR user, but no store_age_signal yet (pre-T-402 client) — Rama 1
+    # (DOB-only) behavior must be identical to every other country.
+    uid = "user-br-no-signal"
+    fake_db.seed("users", uid, {
+        "uid": uid,
+        "consent": {"consent_age_threshold": 18, "country_code": "BR"},
+    })
+
+    resp = await client.post(
+        URL, json={"dob": _dob_for_age(30)}, headers=_auth_headers(test_settings, uid)
+    )
+    assert resp.status_code == 200
+    assert resp.json()["is_child"] is False
+
+    doc = (await fake_db.collection("users").document(uid).get()).to_dict()
+    assert doc["consent"]["coppa_compliant"] is True

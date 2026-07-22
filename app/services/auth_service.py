@@ -11,7 +11,7 @@ from google.oauth2 import id_token as google_id_token
 from jose import ExpiredSignatureError, JWTError, jwk
 from jose import jwt as jose_jwt
 
-from app.services import jwt_service
+from app.services import geo_service, jwt_service
 
 
 def _verify_google_token_sync(token: str, client_id: str) -> dict:
@@ -100,8 +100,17 @@ async def upsert_user(
     ref = db.collection("users").document(sub)
     snap = await ref.get()
     is_new = not snap.exists
+
+    # T-402: in Brazil, a store/OS age-band signal outranks the DOB flow
+    # (T-401) — Digital ECA prohibits self-declaration as the deciding
+    # signal there. None for every other country (or an unparseable/absent
+    # signal), which leaves DOB as the sole determinant, unchanged.
+    signal_is_minor = None
+    if country_code == "BR":
+        signal_is_minor = geo_service.store_age_signal_is_minor(store_age_signal, consent_age_threshold)
+
     if is_new:
-        await ref.set({
+        doc_payload: dict = {
             "uid": sub,
             "provider": provider,
             "email": email,
@@ -112,11 +121,14 @@ async def upsert_user(
             "equipped_skin": None,
             "delete_requested_at": None,
             "consent": {
-                "coppa_compliant": False,
+                # (signal_is_minor is False) is True only when the signal
+                # confirmed an adult — mirrors age_verify's adult-auto-compliant
+                # rule; stays False (default) when signal_is_minor is None/True.
+                "coppa_compliant": signal_is_minor is False,
                 "gdpr_consent": None,
                 "ccpa_opt_out": False,
                 "age_verified_at": None,
-                "is_child": None,
+                "is_child": signal_is_minor,
                 "country_code": country_code,
                 "consent_age_threshold": consent_age_threshold,
                 "country_signal_mismatch": country_signal_mismatch,
@@ -125,8 +137,15 @@ async def upsert_user(
                 "store_age_signal_source": store_age_signal_source,
                 "store_age_signal_captured_at": now if store_age_signal else None,
             },
-        })
-        return sub, True, None
+        }
+        if signal_is_minor is not None:
+            doc_payload["restricted_features"] = {
+                "leaderboard": signal_is_minor,
+                "personalized_ads": signal_is_minor,
+                "share_score": signal_is_minor,
+            }
+        await ref.set(doc_payload)
+        return sub, True, signal_is_minor
     else:
         existing = snap.to_dict() or {}
         existing_provider = existing.get("provider")
@@ -162,6 +181,9 @@ async def upsert_user(
             update["consent.store_age_signal"] = store_age_signal
             update["consent.store_age_signal_source"] = store_age_signal_source
             update["consent.store_age_signal_captured_at"] = now
+            if signal_is_minor is not None:
+                update.update(geo_service.age_gate_update(signal_is_minor, now))
+                is_child = signal_is_minor
 
         await ref.update(update)
         return sub, False, is_child

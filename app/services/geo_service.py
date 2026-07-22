@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import re
+from datetime import datetime
 
 import geoip2.database
 import geoip2.errors
@@ -32,6 +34,51 @@ def consent_age_threshold(country_code: str | None) -> int:
     if not country_code:
         return _DEFAULT_THRESHOLD
     return _AGE_THRESHOLD.get(country_code.upper(), _DEFAULT_THRESHOLD)
+
+
+# T-402 — Brazil store/OS age-signal reconciliation.
+#
+# Digital ECA prohibits self-declared age in Brazil, so a store/OS age-band
+# signal (Apple Declared Age Range / Google Play Age Signals) must take
+# priority over the DOB-based flow (T-401) there. DOB remains the ONLY
+# signal for every other country — none of this is consulted outside BR.
+
+_AGE_BAND_RE = re.compile(r"^(\d+)(?:-(\d+))?\+?$")
+
+
+def store_age_signal_is_minor(signal: str | None, threshold: int) -> bool | None:
+    """Conservative interpretation of a raw store/OS age-band signal.
+
+    Returns True if the band's lower bound is below `threshold` (possibly a
+    minor — err toward protecting), False if the lower bound is >= threshold
+    (confirmed not a minor), None if absent/unparseable (caller falls back to
+    DOB). Real-world Apple Declared Age Range / Play Age Signals band formats
+    aren't confirmed yet — extend the regex once a real client payload is seen.
+    """
+    if not signal:
+        return None
+    m = _AGE_BAND_RE.match(signal.strip())
+    if not m:
+        return None
+    lower = int(m.group(1))
+    return lower < threshold
+
+
+def age_gate_update(is_child: bool, now: datetime) -> dict:
+    """The consent/restricted_features fields written whenever an age
+    determination is made — shared by the DOB path (POST /auth/age-verify)
+    and the BR store-signal path (upsert_user), so both stay consistent."""
+    update: dict = {
+        "consent.is_child": is_child,
+        "restricted_features": {
+            "leaderboard": is_child,
+            "personalized_ads": is_child,
+            "share_score": is_child,
+        },
+    }
+    if not is_child:
+        update["consent.coppa_compliant"] = True
+    return update
 
 
 def _get_reader(db_path: str) -> geoip2.database.Reader | None:

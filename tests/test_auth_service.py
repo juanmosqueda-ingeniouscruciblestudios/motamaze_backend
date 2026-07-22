@@ -115,6 +115,90 @@ async def test_upsert_user_legacy_doc_backfills_provider(fake_db):
 
 
 # ---------------------------------------------------------------------------
+# T-402: BR store_age_signal reconciliation (subtask 5)
+# ---------------------------------------------------------------------------
+
+
+async def test_upsert_user_br_signal_minor_sets_is_child_at_creation(fake_db):
+    uid, is_new, is_child = await auth_service.upsert_user(
+        fake_db, "br-minor-1", "p@example.com", "Player", None, "google",
+        country_code="BR", consent_age_threshold=18,
+        store_age_signal="13-15", store_age_signal_source="play_age_signals",
+    )
+    assert is_new is True
+    assert is_child is True  # returned value already reflects the signal
+
+    doc = (await fake_db.collection("users").document(uid).get()).to_dict()
+    assert doc["consent"]["is_child"] is True
+    assert doc["consent"]["coppa_compliant"] is False
+    assert doc["restricted_features"] == {
+        "leaderboard": True, "personalized_ads": True, "share_score": True,
+    }
+
+
+async def test_upsert_user_br_signal_adult_sets_coppa_compliant_at_creation(fake_db):
+    uid, is_new, is_child = await auth_service.upsert_user(
+        fake_db, "br-adult-1", "p@example.com", "Player", None, "google",
+        country_code="BR", consent_age_threshold=18,
+        store_age_signal="18+", store_age_signal_source="play_age_signals",
+    )
+    assert is_child is False
+
+    doc = (await fake_db.collection("users").document(uid).get()).to_dict()
+    assert doc["consent"]["is_child"] is False
+    assert doc["consent"]["coppa_compliant"] is True
+    assert doc["restricted_features"]["leaderboard"] is False
+
+
+async def test_upsert_user_br_without_signal_unchanged(fake_db):
+    # No store_age_signal sent (e.g. pre-T-402 client, or platform didn't
+    # return one) — falls back to today's DOB-only flow, is_child stays None.
+    uid, is_new, is_child = await auth_service.upsert_user(
+        fake_db, "br-no-signal-1", "p@example.com", "Player", None, "google",
+        country_code="BR", consent_age_threshold=18,
+    )
+    assert is_child is None
+    doc = (await fake_db.collection("users").document(uid).get()).to_dict()
+    assert doc["consent"]["is_child"] is None
+    assert "restricted_features" not in doc
+
+
+async def test_upsert_user_non_br_signal_never_triggers_reconciliation(fake_db):
+    # Regression guard: a store_age_signal present for a NON-Brazil user must
+    # be captured (raw) but must never drive is_child — DOB (T-401) remains
+    # the sole determinant everywhere except BR.
+    uid, is_new, is_child = await auth_service.upsert_user(
+        fake_db, "mx-user-1", "p@example.com", "Player", None, "google",
+        country_code="MX", consent_age_threshold=18,
+        store_age_signal="13-15", store_age_signal_source="play_age_signals",
+    )
+    assert is_child is None
+    doc = (await fake_db.collection("users").document(uid).get()).to_dict()
+    assert doc["consent"]["store_age_signal"] == "13-15"  # still captured raw
+    assert doc["consent"]["is_child"] is None  # but not acted on
+    assert "restricted_features" not in doc
+
+
+async def test_upsert_user_br_signal_reconciles_on_repeat_login_too(fake_db):
+    # First login: no signal yet (matches today's client not sending it).
+    await auth_service.upsert_user(
+        fake_db, "br-later-signal", "p@example.com", "Player", None, "google",
+        country_code="BR", consent_age_threshold=18,
+    )
+    # Second login: client updated, now sends the signal.
+    uid, is_new, is_child = await auth_service.upsert_user(
+        fake_db, "br-later-signal", "p@example.com", "Player", None, "google",
+        country_code="BR", consent_age_threshold=18,
+        store_age_signal="13-15", store_age_signal_source="play_age_signals",
+    )
+    assert is_new is False
+    assert is_child is True
+    doc = (await fake_db.collection("users").document(uid).get()).to_dict()
+    assert doc["consent"]["is_child"] is True
+    assert doc["restricted_features"]["share_score"] is True
+
+
+# ---------------------------------------------------------------------------
 # create_session / consume_refresh_session
 # ---------------------------------------------------------------------------
 

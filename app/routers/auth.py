@@ -378,23 +378,31 @@ async def age_verify(
         )
 
     data = snap.to_dict() or {}
-    threshold = (data.get("consent") or {}).get("consent_age_threshold", 13)
+    consent = data.get("consent") or {}
+    threshold = consent.get("consent_age_threshold", 13)
     is_child = age < threshold
     now = datetime.now(timezone.utc)
 
+    # T-402: in Brazil, a store/OS age-band signal (already reconciled at
+    # login by upsert_user) outranks this self-declared DOB — Digital ECA
+    # prohibits self-declaration as the deciding signal there. Everywhere
+    # else this is None and the DOB path below is unchanged from T-401.
+    signal_is_minor = None
+    if consent.get("country_code") == "BR":
+        signal_is_minor = geo_service.store_age_signal_is_minor(
+            consent.get("store_age_signal"), threshold
+        )
+
     # Write result — raw DOB is not stored (data minimization per COPPA/LGPD/LFPDPPP)
     # Adults (is_child=False) are auto-compliant; children require email-plus VPC (T-401 ST-03)
-    update: dict = {
-        "consent.is_child": is_child,
-        "consent.age_verified_at": now,
-        "restricted_features": {
-            "leaderboard": is_child,
-            "personalized_ads": is_child,
-            "share_score": is_child,
-        },
-    }
-    if not is_child:
-        update["consent.coppa_compliant"] = True
+    update: dict = {"consent.age_verified_at": now}
+    if signal_is_minor is None:
+        update.update(geo_service.age_gate_update(is_child, now))
+    else:
+        # BR store signal already decided is_child/restricted_features/
+        # coppa_compliant at login — DOB is recorded (age_verified_at above)
+        # but must not override that determination, including in the response.
+        is_child = signal_is_minor
     await ref.update(update)
 
     return AgeVerifyResponse(is_child=is_child, consent_age_threshold=threshold)
