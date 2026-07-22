@@ -342,6 +342,7 @@ def _patch_bq_streaming(monkeypatch):
     monkeypatch.setattr("app.routers.auth.stream_event", _noop)
     monkeypatch.setattr("app.routers.payments.stream_event", _noop)
     monkeypatch.setattr("app.routers.leaderboard.stream_event", _noop)
+    monkeypatch.setattr("app.routers.jobs.stream_event", _noop)
 
 
 @pytest.fixture
