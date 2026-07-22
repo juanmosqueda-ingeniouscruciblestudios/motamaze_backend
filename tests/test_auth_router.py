@@ -246,3 +246,76 @@ async def test_refresh_rejects_pending_deletion(client, fake_db, apple_signing_k
     resp = await client.post(REFRESH_URL, json={"refresh_token": refresh_token})
     assert resp.status_code == 401
     assert resp.json()["detail"]["error_code"] == "AUTH_ACCOUNT_DELETION_PENDING"
+
+
+# ---------------------------------------------------------------------------
+# T-123 (subtask 3): POST /auth/account/cancel-deletion
+# ---------------------------------------------------------------------------
+
+CANCEL_URL = "/auth/account/cancel-deletion"
+
+
+async def test_cancel_deletion_clears_pending_state(client, fake_db, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-cancel")
+    login_resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    access_token = login_resp.json()["access_token"]
+
+    del_resp = await client.delete("/auth/account", headers={"Authorization": f"Bearer {access_token}"})
+    assert del_resp.status_code == 202
+    doc = (await fake_db.collection("users").document("apple-sub-cancel").get()).to_dict()
+    assert doc["delete_requested_at"] is not None
+
+    # DELETE /auth/account revoked that access token — re-login for a fresh
+    # one (login stays open with a pending deletion, subtask 1).
+    token2 = make_apple_token(apple_signing_key, sub="apple-sub-cancel")
+    relogin_resp = await client.post(LOGIN_URL, json=_apple_login_body(token2))
+    assert relogin_resp.json()["deletion_pending"] is True
+    new_access_token = relogin_resp.json()["access_token"]
+
+    cancel_resp = await client.post(CANCEL_URL, headers={"Authorization": f"Bearer {new_access_token}"})
+    assert cancel_resp.status_code == 200
+
+    doc2 = (await fake_db.collection("users").document("apple-sub-cancel").get()).to_dict()
+    assert doc2["delete_requested_at"] is None
+
+
+async def test_cancel_deletion_reactivates_refresh(client, fake_db, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-reactivate")
+    login_resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    await client.delete(
+        "/auth/account", headers={"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+    )
+
+    token2 = make_apple_token(apple_signing_key, sub="apple-sub-reactivate")
+    relogin_resp = await client.post(LOGIN_URL, json=_apple_login_body(token2))
+    new_access_token = relogin_resp.json()["access_token"]
+    new_refresh_token = relogin_resp.json()["refresh_token"]
+
+    cancel_resp = await client.post(CANCEL_URL, headers={"Authorization": f"Bearer {new_access_token}"})
+    assert cancel_resp.status_code == 200
+
+    # Refresh was blocked while deletion was pending (previous test class) —
+    # confirm cancelling actually lifts that cutoff, not just the flag.
+    refresh_resp = await client.post(REFRESH_URL, json={"refresh_token": new_refresh_token})
+    assert refresh_resp.status_code == 200
+
+
+async def test_cancel_deletion_without_pending_deletion_404(client, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-no-pending")
+    login_resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    access_token = login_resp.json()["access_token"]
+
+    resp = await client.post(CANCEL_URL, headers={"Authorization": f"Bearer {access_token}"})
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["error_code"] == "AUTH_NO_PENDING_DELETION"
+
+
+async def test_cancel_deletion_user_not_found(client, test_settings):
+    token, _ = jwt_service.create_access_token(
+        user_id="ghost-user", provider="google", session_id="ghost-session",
+        project_id=test_settings.gcp_project_id, secret_name=test_settings.jwt_secret_name,
+        key_id=test_settings.jwt_key_id, issuer=test_settings.jwt_issuer,
+    )
+    resp = await client.post(CANCEL_URL, headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["error_code"] == "USER_NOT_FOUND"

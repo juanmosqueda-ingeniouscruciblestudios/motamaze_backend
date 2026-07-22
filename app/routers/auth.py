@@ -636,3 +636,70 @@ async def delete_account(
         status_code=202,
         content={"message": "Account deletion queued", "deletion_id": deletion_id},
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/account/cancel-deletion  (T-123 subtask 3)
+# ---------------------------------------------------------------------------
+
+@router.post("/account/cancel-deletion")
+async def cancel_deletion(
+    background_tasks: BackgroundTasks,
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+    settings: Settings = Depends(get_settings),
+):
+    """Cancels a pending account deletion within the 30-day grace period.
+    Login stays open for accounts with a pending deletion specifically so
+    this endpoint is reachable — see the deletion_pending flag on
+    POST /auth/login and the refresh cutoff in consume_refresh_session()."""
+    user_id = claims.get("uid", "")
+
+    user_snap = await db.collection("users").document(user_id).get()
+    if not user_snap.exists:
+        raise HTTPException(
+            404,
+            detail={"error_code": "USER_NOT_FOUND", "message": "User not found"},
+        )
+
+    data = user_snap.to_dict() or {}
+    if data.get("delete_requested_at") is None:
+        raise HTTPException(
+            404,
+            detail={"error_code": "AUTH_NO_PENDING_DELETION", "message": "No pending account deletion to cancel"},
+        )
+
+    now = datetime.now(timezone.utc)
+
+    # Firestore is the source of truth checked everywhere (login's
+    # deletion_pending flag, refresh's AUTH_ACCOUNT_DELETION_PENDING cutoff) —
+    # clearing this synchronously is what actually reactivates the account.
+    await db.collection("users").document(user_id).update({"delete_requested_at": None})
+
+    # BQ: audit trail row (best-effort background task, same pattern as
+    # delete_account above). account_deletions is an append-only event log,
+    # not a mutable record — this is a NEW row, not an update to the
+    # "pending" row inserted when deletion was first requested. A future
+    # purge job (subtask 4) must resolve status per user from the latest
+    # row (by requested_at), not assume one row per user.
+    background_tasks.add_task(
+        stream_event, "account_deletions",
+        {
+            "requested_at": now.isoformat(),
+            "request_date": now.date().isoformat(),
+            "user_id": user_id,
+            "platform": None,
+            "request_source": "user_request",
+            "status": "cancelled",
+            "completed_at": None,
+            "tables_purged": [],
+            "notes": "cancelled_by_user",
+        },
+        settings.gcp_project_id, settings.bq_dataset,
+        row_id=f"deletion_cancel_{user_id}_{int(now.timestamp())}",
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={"message": "Account deletion cancelled"},
+    )
