@@ -114,6 +114,26 @@ async def test_purge_skips_missing_collections_gracefully(fake_db):
     assert touched == ["users"]
 
 
+async def test_purge_firestore_is_idempotent_on_second_run(fake_db):
+    # jobs.py relies on this: a BQ failure after Firestore already succeeded
+    # would never happen given the BQ-first ordering, but a retry of a
+    # fully-completed user (e.g. a re-queued job) must not raise.
+    await _seed_full_user(fake_db, "purge-user-5")
+    first = await account_deletion_service.purge_user_firestore_data(fake_db, "purge-user-5", now=NOW)
+    assert "users" in first
+
+    second = await account_deletion_service.purge_user_firestore_data(fake_db, "purge-user-5", now=NOW)
+    # Nothing left to touch except the (already-gone) users doc — delete()
+    # on a non-existent doc is a Firestore no-op, not an error.
+    assert second == ["users"]
+
+    # Anonymized purchase doc from the first run is untouched by the
+    # second — its uid is already None, so the uid-match query no longer
+    # finds it (this is fine: it's already in its final anonymized state).
+    doc = (await fake_db.collection("purchases").document("purge-user-5-purchase-1").get()).to_dict()
+    assert doc["uid"] is None
+
+
 # ---------------------------------------------------------------------------
 # purge_user_bigquery_data
 # ---------------------------------------------------------------------------

@@ -319,3 +319,77 @@ async def test_cancel_deletion_user_not_found(client, test_settings):
     resp = await client.post(CANCEL_URL, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 404
     assert resp.json()["detail"]["error_code"] == "USER_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# T-123 (ST-06): DELETE /auth/account direct coverage — shipped 2026-06-25
+# (commit 62250da) with zero tests until now; exercised only indirectly via
+# the cancel-deletion flow tests above.
+# ---------------------------------------------------------------------------
+
+DELETE_URL = "/auth/account"
+
+
+async def test_delete_account_returns_202_and_marks_pending(client, fake_db, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-delete-1")
+    login_resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    access_token = login_resp.json()["access_token"]
+
+    resp = await client.delete(DELETE_URL, headers={"Authorization": f"Bearer {access_token}"})
+    assert resp.status_code == 202
+    assert resp.json()["deletion_id"].startswith("del_")
+
+    doc = (await fake_db.collection("users").document("apple-sub-delete-1").get()).to_dict()
+    assert doc["delete_requested_at"] is not None
+
+
+async def test_delete_account_409_if_already_pending(client, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-delete-2")
+    login_resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    access_token = login_resp.json()["access_token"]
+
+    first = await client.delete(DELETE_URL, headers={"Authorization": f"Bearer {access_token}"})
+    assert first.status_code == 202
+
+    # Re-login is needed for a second attempt — the first DELETE revoked
+    # this access token (see test_delete_account_revokes_current_session).
+    token2 = make_apple_token(apple_signing_key, sub="apple-sub-delete-2")
+    relogin = await client.post(LOGIN_URL, json=_apple_login_body(token2))
+    second = await client.delete(
+        DELETE_URL, headers={"Authorization": f"Bearer {relogin.json()['access_token']}"}
+    )
+    assert second.status_code == 409
+    assert second.json()["detail"]["error_code"] == "AUTH_DELETION_PENDING"
+
+
+async def test_delete_account_revokes_current_session(client, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-delete-3")
+    login_resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    access_token = login_resp.json()["access_token"]
+
+    await client.delete(DELETE_URL, headers={"Authorization": f"Bearer {access_token}"})
+
+    # Same access token, reused on any protected route — must be dead.
+    resp = await client.post(CANCEL_URL, headers={"Authorization": f"Bearer {access_token}"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["error_code"] == "AUTH_JWT_INVALID"
+
+
+async def test_delete_account_streams_pending_bq_row(client, apple_signing_key, monkeypatch):
+    captured = {}
+
+    async def _capture(table, row, *args, **kwargs):
+        if table == "account_deletions":
+            captured["row"] = row
+
+    monkeypatch.setattr("app.routers.auth.stream_event", _capture)
+
+    token = make_apple_token(apple_signing_key, sub="apple-sub-delete-4")
+    login_resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    await client.delete(
+        DELETE_URL, headers={"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+    )
+
+    assert captured["row"]["user_id"] == "apple-sub-delete-4"
+    assert captured["row"]["status"] == "pending"
+    assert captured["row"]["tables_purged"] == []

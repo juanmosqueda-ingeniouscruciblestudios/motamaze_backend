@@ -99,3 +99,70 @@ async def test_purge_job_bigquery_failure_leaves_firestore_untouched_for_retry(c
     doc = (await fake_db.collection("users").document("bq-fails-user").get()).to_dict()
     assert doc is not None
     assert doc["delete_requested_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# T-123 (ST-06): the actual account_deletions row content, not just the
+# response summary — status transition is the whole point of ST-05.
+# ---------------------------------------------------------------------------
+
+
+async def test_purge_job_streams_completed_status_with_all_tables(client, fake_db, monkeypatch):
+    captured = {}
+
+    async def _capture(table, row, *args, **kwargs):
+        if table == "account_deletions":
+            captured["row"] = row
+
+    async def _one_row_affected(query, params):
+        return 1
+
+    monkeypatch.setattr("app.routers.jobs.stream_event", _capture)
+    monkeypatch.setattr(bq_streaming, "run_dml", _one_row_affected)
+
+    now = datetime.now(timezone.utc)
+    fake_db.seed("users", "status-complete-user", {
+        "uid": "status-complete-user", "delete_requested_at": now - timedelta(days=31),
+    })
+    fake_db.seed("progress", "status-complete-user", {"uid": "status-complete-user"})
+
+    resp = await client.post(PURGE_URL, headers=JOB_HEADERS)
+    assert resp.status_code == 200
+
+    row = captured["row"]
+    assert row["user_id"] == "status-complete-user"
+    assert row["status"] == "completed"
+    assert row["completed_at"] is not None
+    assert "progress" in row["tables_purged"]
+    assert "users" in row["tables_purged"]
+    assert "login_events" in row["tables_purged"]  # from the (mocked) BQ purge
+
+
+async def test_purge_job_streams_failed_status_with_error_in_notes(client, fake_db, monkeypatch):
+    captured = {}
+
+    async def _capture(table, row, *args, **kwargs):
+        if table == "account_deletions":
+            captured["row"] = row
+
+    monkeypatch.setattr("app.routers.jobs.stream_event", _capture)
+
+    async def _fails(query, params):
+        raise RuntimeError("BQ DML quota exceeded")
+
+    monkeypatch.setattr(bq_streaming, "run_dml", _fails)
+
+    now = datetime.now(timezone.utc)
+    fake_db.seed("users", "status-failed-user", {
+        "uid": "status-failed-user", "delete_requested_at": now - timedelta(days=31),
+    })
+
+    resp = await client.post(PURGE_URL, headers=JOB_HEADERS)
+    assert resp.status_code == 200
+
+    row = captured["row"]
+    assert row["user_id"] == "status-failed-user"
+    assert row["status"] == "failed"
+    assert row["completed_at"] is None
+    assert row["tables_purged"] == []
+    assert "BQ DML quota exceeded" in row["notes"]
