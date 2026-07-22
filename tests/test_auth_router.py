@@ -1,7 +1,7 @@
 """Integration tests for POST /auth/login and POST /auth/refresh (AUTH-004:
 Sign in with Apple + the provider-persistence bug fix on refresh)."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.services import auth_service, jwt_service
 from tests.conftest import make_apple_token
@@ -201,3 +201,48 @@ async def test_login_repeat_does_not_clobber_store_age_signal(client, fake_db, a
     consent = doc["consent"]
     assert consent["store_age_signal"] == "18+"
     assert consent["store_age_signal_source"] == "apple_declared_age_range"
+
+
+# ---------------------------------------------------------------------------
+# T-123: grace-period access cutoff (login stays open, refresh is blocked)
+# ---------------------------------------------------------------------------
+
+
+async def test_login_surfaces_deletion_pending_flag(client, fake_db, apple_signing_key):
+    # Seed an existing user with a pending deletion — login must still
+    # succeed (so the client can reach cancel-deletion) but flag it.
+    fake_db.seed("users", "apple-sub-deleting", {
+        "uid": "apple-sub-deleting",
+        "provider": "apple",
+        "email": "d@example.com",
+        "display_name": "Deleting Player",
+        "photo_url": None,
+        "delete_requested_at": datetime.now(timezone.utc),
+        "consent": {},
+    })
+    token = make_apple_token(apple_signing_key, sub="apple-sub-deleting")
+    resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    assert resp.status_code == 200
+    assert resp.json()["deletion_pending"] is True
+
+
+async def test_login_without_pending_deletion_flag_is_false(client, fake_db, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-not-deleting")
+    resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    assert resp.status_code == 200
+    assert resp.json()["deletion_pending"] is False
+
+
+async def test_refresh_rejects_pending_deletion(client, fake_db, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-refresh-deleting")
+    login_resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    refresh_token = login_resp.json()["refresh_token"]
+
+    # Deletion requested after login (e.g. via DELETE /auth/account on another device).
+    await fake_db.collection("users").document("apple-sub-refresh-deleting").update(
+        {"delete_requested_at": datetime.now(timezone.utc)}
+    )
+
+    resp = await client.post(REFRESH_URL, json={"refresh_token": refresh_token})
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["error_code"] == "AUTH_ACCOUNT_DELETION_PENDING"

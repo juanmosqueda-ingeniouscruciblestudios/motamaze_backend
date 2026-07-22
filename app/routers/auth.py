@@ -57,6 +57,10 @@ class LoginResponse(BaseModel):
     user_id: str
     is_new_user: bool
     is_child: bool | None = None
+    # T-123: true if the account has a pending deletion (grace period) — the
+    # client should show a "cancel deletion?" screen instead of normal
+    # gameplay. Login itself is never blocked by a pending deletion.
+    deletion_pending: bool = False
 
 
 class AgeVerifyRequest(BaseModel):
@@ -155,7 +159,7 @@ async def login(
     age_threshold = geo_service.consent_age_threshold(resolved_country)
 
     try:
-        user_id, is_new_user, is_child = await auth_service.upsert_user(
+        user_id, is_new_user, is_child, deletion_pending = await auth_service.upsert_user(
             db, sub, email, display_name, photo_url, body.provider,
             country_code=resolved_country,
             consent_age_threshold=age_threshold,
@@ -236,6 +240,7 @@ async def login(
         user_id=user_id,
         is_new_user=is_new_user,
         is_child=is_child,
+        deletion_pending=deletion_pending,
     )
 
 

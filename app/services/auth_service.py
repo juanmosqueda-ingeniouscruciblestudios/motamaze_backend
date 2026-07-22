@@ -95,7 +95,7 @@ async def upsert_user(
     country_signal_mismatch: bool = False,
     store_age_signal: str | None = None,
     store_age_signal_source: str | None = None,
-) -> tuple[str, bool, bool | None]:
+) -> tuple[str, bool, bool | None, bool]:
     now = datetime.now(timezone.utc)
     ref = db.collection("users").document(sub)
     snap = await ref.get()
@@ -145,9 +145,15 @@ async def upsert_user(
                 "share_score": signal_is_minor,
             }
         await ref.set(doc_payload)
-        return sub, True, signal_is_minor
+        return sub, True, signal_is_minor, False
     else:
         existing = snap.to_dict() or {}
+        # T-123: surfaced to the login response so the client can show a
+        # "cancel deletion?" screen instead of normal gameplay — login itself
+        # is deliberately NOT blocked here (see consume_refresh_session for
+        # the actual access cutoff), otherwise a user with a pending deletion
+        # would have no way to reach POST /auth/account/cancel-deletion.
+        deletion_pending = existing.get("delete_requested_at") is not None
         existing_provider = existing.get("provider")
         if existing_provider and existing_provider != provider:
             # Structurally near-impossible (Google sub is numeric, Apple sub is
@@ -186,7 +192,7 @@ async def upsert_user(
                 is_child = signal_is_minor
 
         await ref.update(update)
-        return sub, False, is_child
+        return sub, False, is_child, deletion_pending
 
 
 async def create_session(
@@ -241,6 +247,13 @@ async def consume_refresh_session(
 
     if not jwt_service.verify_refresh_token(secret, session["token_hash"]):
         raise ValueError("AUTH_REFRESH_INVALID")
+
+    # T-123: a pending account deletion must not be silently extendable via
+    # refresh on another device — this is the actual access cutoff (login
+    # itself stays open so the user can reach cancel-deletion; see upsert_user).
+    user_snap = await db.collection("users").document(session["uid"]).get()
+    if user_snap.exists and (user_snap.to_dict() or {}).get("delete_requested_at") is not None:
+        raise ValueError("AUTH_ACCOUNT_DELETION_PENDING")
 
     # Delete old session immediately — prevents replay attacks.
     await db.collection("sessions").document(session_id).delete()

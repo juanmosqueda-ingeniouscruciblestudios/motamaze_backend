@@ -1,11 +1,11 @@
 """Unit tests for app/services/auth_service.py — Apple token verification and
 the multi-provider upsert_user()/create_session() changes (AUTH-004)."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services import auth_service
+from app.services import auth_service, jwt_service
 from tests.conftest import make_apple_token
 
 APPLE_AUD = "com.ingeniouscruciblestudios.motamaze"
@@ -62,7 +62,7 @@ async def test_verify_apple_token_forged_signature(
 
 
 async def test_upsert_user_new_apple_user(fake_db):
-    uid, is_new, is_child = await auth_service.upsert_user(
+    uid, is_new, is_child, _ = await auth_service.upsert_user(
         fake_db, "apple-sub-1", "p@example.com", "Player One", None, "apple"
     )
     assert is_new is True
@@ -78,7 +78,7 @@ async def test_upsert_user_repeat_apple_login_blank_fields_preserved(fake_db):
         fake_db, "apple-sub-2", "p2@example.com", "Player Two", None, "apple"
     )
     # Second login: Apple gives no name (and simulate a blank email edge case too).
-    uid, is_new, _ = await auth_service.upsert_user(
+    uid, is_new, _, _ = await auth_service.upsert_user(
         fake_db, "apple-sub-2", "", "", None, "apple"
     )
     assert is_new is False
@@ -106,7 +106,7 @@ async def test_upsert_user_legacy_doc_backfills_provider(fake_db):
         "photo_url": None,
         "consent": {},
     })
-    uid, is_new, _ = await auth_service.upsert_user(
+    uid, is_new, _, _ = await auth_service.upsert_user(
         fake_db, "legacy-sub", "old@example.com", "Old User", None, "google"
     )
     assert is_new is False
@@ -120,7 +120,7 @@ async def test_upsert_user_legacy_doc_backfills_provider(fake_db):
 
 
 async def test_upsert_user_br_signal_minor_sets_is_child_at_creation(fake_db):
-    uid, is_new, is_child = await auth_service.upsert_user(
+    uid, is_new, is_child, _ = await auth_service.upsert_user(
         fake_db, "br-minor-1", "p@example.com", "Player", None, "google",
         country_code="BR", consent_age_threshold=18,
         store_age_signal="13-15", store_age_signal_source="play_age_signals",
@@ -137,7 +137,7 @@ async def test_upsert_user_br_signal_minor_sets_is_child_at_creation(fake_db):
 
 
 async def test_upsert_user_br_signal_adult_sets_coppa_compliant_at_creation(fake_db):
-    uid, is_new, is_child = await auth_service.upsert_user(
+    uid, is_new, is_child, _ = await auth_service.upsert_user(
         fake_db, "br-adult-1", "p@example.com", "Player", None, "google",
         country_code="BR", consent_age_threshold=18,
         store_age_signal="18+", store_age_signal_source="play_age_signals",
@@ -153,7 +153,7 @@ async def test_upsert_user_br_signal_adult_sets_coppa_compliant_at_creation(fake
 async def test_upsert_user_br_without_signal_unchanged(fake_db):
     # No store_age_signal sent (e.g. pre-T-402 client, or platform didn't
     # return one) — falls back to today's DOB-only flow, is_child stays None.
-    uid, is_new, is_child = await auth_service.upsert_user(
+    uid, is_new, is_child, _ = await auth_service.upsert_user(
         fake_db, "br-no-signal-1", "p@example.com", "Player", None, "google",
         country_code="BR", consent_age_threshold=18,
     )
@@ -167,7 +167,7 @@ async def test_upsert_user_non_br_signal_never_triggers_reconciliation(fake_db):
     # Regression guard: a store_age_signal present for a NON-Brazil user must
     # be captured (raw) but must never drive is_child — DOB (T-401) remains
     # the sole determinant everywhere except BR.
-    uid, is_new, is_child = await auth_service.upsert_user(
+    uid, is_new, is_child, _ = await auth_service.upsert_user(
         fake_db, "mx-user-1", "p@example.com", "Player", None, "google",
         country_code="MX", consent_age_threshold=18,
         store_age_signal="13-15", store_age_signal_source="play_age_signals",
@@ -186,7 +186,7 @@ async def test_upsert_user_br_signal_reconciles_on_repeat_login_too(fake_db):
         country_code="BR", consent_age_threshold=18,
     )
     # Second login: client updated, now sends the signal.
-    uid, is_new, is_child = await auth_service.upsert_user(
+    uid, is_new, is_child, _ = await auth_service.upsert_user(
         fake_db, "br-later-signal", "p@example.com", "Player", None, "google",
         country_code="BR", consent_age_threshold=18,
         store_age_signal="13-15", store_age_signal_source="play_age_signals",
@@ -196,6 +196,51 @@ async def test_upsert_user_br_signal_reconciles_on_repeat_login_too(fake_db):
     doc = (await fake_db.collection("users").document(uid).get()).to_dict()
     assert doc["consent"]["is_child"] is True
     assert doc["restricted_features"]["share_score"] is True
+
+
+# ---------------------------------------------------------------------------
+# T-123: deletion_pending flag from upsert_user
+# ---------------------------------------------------------------------------
+
+
+async def test_upsert_user_new_user_deletion_pending_false(fake_db):
+    uid, is_new, is_child, deletion_pending = await auth_service.upsert_user(
+        fake_db, "new-user-1", "p@example.com", "Player", None, "google"
+    )
+    assert deletion_pending is False
+
+
+async def test_upsert_user_existing_user_with_pending_deletion(fake_db):
+    fake_db.seed("users", "deleting-user", {
+        "uid": "deleting-user",
+        "provider": "google",
+        "email": "d@example.com",
+        "display_name": "Deleting Player",
+        "photo_url": None,
+        "delete_requested_at": datetime.now(timezone.utc),
+        "consent": {},
+    })
+    uid, is_new, is_child, deletion_pending = await auth_service.upsert_user(
+        fake_db, "deleting-user", "d@example.com", "Deleting Player", None, "google"
+    )
+    assert is_new is False
+    assert deletion_pending is True
+
+
+async def test_upsert_user_existing_user_without_pending_deletion(fake_db):
+    fake_db.seed("users", "normal-user", {
+        "uid": "normal-user",
+        "provider": "google",
+        "email": "n@example.com",
+        "display_name": "Normal Player",
+        "photo_url": None,
+        "delete_requested_at": None,
+        "consent": {},
+    })
+    uid, is_new, is_child, deletion_pending = await auth_service.upsert_user(
+        fake_db, "normal-user", "n@example.com", "Normal Player", None, "google"
+    )
+    assert deletion_pending is False
 
 
 # ---------------------------------------------------------------------------
@@ -210,3 +255,40 @@ async def test_create_session_persists_provider(fake_db):
     doc = (await fake_db.collection("sessions").document("session-1").get()).to_dict()
     assert doc["provider"] == "apple"
     assert doc["device"]["platform"] == "ios"
+
+
+# ---------------------------------------------------------------------------
+# T-123: consume_refresh_session blocks pending-deletion accounts
+# ---------------------------------------------------------------------------
+
+
+async def test_consume_refresh_session_rejects_pending_deletion(fake_db):
+    fake_db.seed("users", "deleting-user-2", {
+        "uid": "deleting-user-2",
+        "delete_requested_at": datetime.now(timezone.utc),
+    })
+    token_hash = jwt_service.hash_refresh_token("secret-abc")
+    fake_db.seed("sessions", "session-del", {
+        "session_id": "session-del",
+        "uid": "deleting-user-2",
+        "token_hash": token_hash,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=1),
+    })
+    with pytest.raises(ValueError, match="AUTH_ACCOUNT_DELETION_PENDING"):
+        await auth_service.consume_refresh_session(fake_db, "session-del.secret-abc")
+
+    # Session must survive the rejected attempt — not consumed/deleted.
+    assert (await fake_db.collection("sessions").document("session-del").get()).exists
+
+
+async def test_consume_refresh_session_allows_normal_user(fake_db):
+    fake_db.seed("users", "normal-user-2", {"uid": "normal-user-2", "delete_requested_at": None})
+    token_hash = jwt_service.hash_refresh_token("secret-xyz")
+    fake_db.seed("sessions", "session-ok", {
+        "session_id": "session-ok",
+        "uid": "normal-user-2",
+        "token_hash": token_hash,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=1),
+    })
+    uid, session = await auth_service.consume_refresh_session(fake_db, "session-ok.secret-xyz")
+    assert uid == "normal-user-2"
