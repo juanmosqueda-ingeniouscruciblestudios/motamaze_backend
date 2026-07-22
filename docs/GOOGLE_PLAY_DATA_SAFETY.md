@@ -169,6 +169,39 @@ Also flip the separate **App content → Ads** declaration (Part 1 above):
 This is a different Play Console section from Data Safety — both need updating the same day T-261
 ships, not just the Data Safety row.
 
+## When the Godot Android client ships the Play Age Signals API call (T-402)
+
+**Not for today's submission** — same two-stage rule as AdMob/Crashlytics above. Backend support for
+receiving a store/OS age-band signal shipped 2026-07-22 (`LoginRequest.store_age_signal` /
+`store_age_signal_source`, `app/routers/auth.py` + `app/services/auth_service.py` — see
+`logic/age-assurance.md`), but the Godot client doesn't call Google Play's Age Signals API yet
+("Godot Android: integrar Google Play Age Signals API", still open) — so **no real signal reaches
+the backend today**, and this doc's own rule ("never describe a practice that isn't live yet") means
+Part 1 stays unchanged for now. Apple's Declared Age Range API (iOS) is out of scope for this
+document entirely — Google Play Data Safety only covers Google Play, and Apple's Privacy Nutrition
+Label review is separate and already noted as out of scope in the header above.
+
+Once the Godot Android client ships the Play Age Signals API call:
+
+- **No new row needed** in Part 1 — the existing "Other info (age/consent status)" row (Personal
+  info table) already declares Collected: Yes / Shared: No / Required / "App functionality, Fraud
+  prevention/compliance," and that description already covers this signal; it's the same category as
+  the DOB-based age/consent status already being collected, just a second source for it in Brazil.
+- **Shared: stays No.** The signal flows *from* Google Play's own API *into* the app — MotaMaze
+  doesn't send anything to Google to obtain it, and doesn't forward it to any third party (BR-only,
+  written to `users/{uid}.consent.store_age_signal` in Firestore, read only by MotaMaze's own
+  backend — see `geo_service.store_age_signal_is_minor()`).
+- **Scope: Brazil only.** `country_code == "BR"` gates every code path that reads this field — every
+  other country ignores it even if a client sent one (verified by an explicit regression test,
+  `tests/test_auth_service.py::test_upsert_user_non_br_signal_never_triggers_reconciliation`).
+
+**Provisional — pending final ANPD guidance.** Brazil's Digital ECA age-assurance requirement is
+implemented against the best available reading of the law as of 2026-07-22, not a final ANPD
+regulatory ruling (ANPD is Brazil's data protection authority; no final guidance on acceptable
+age-assurance mechanisms was found as of this writing — same caveat already tracked in
+`logic/age-assurance.md` and `docs/DATA_MODEL.md`). **Revisit this section — and confirm the "No new
+row needed" reasoning above still holds — before scaling paid UA or traffic in Brazil.**
+
 ## T-414 (Firebase Blaze) — no update needed here
 
 Firebase Blaze is a billing-plan upgrade (pay-as-you-go), not a new data flow or SDK integration.
@@ -229,6 +262,14 @@ on, not strong enough to treat as beyond question if Google's guidance shifts.
       device/permission signals rather than IP specifically, so "recommended" rather than "resolved"
       — strong support, not verbatim-identical wording.
 
+- [x] **Brazil `store_age_signal` (Play Age Signals API) — Recommended: no new Data Safety row,
+      Shared stays No.** Confirmed against shipped backend code — `app/services/auth_service.py`
+      (`upsert_user`) and `app/services/geo_service.py` (`store_age_signal_is_minor`,
+      `age_gate_update`): the field is gated on `country_code == "BR"`, stored only in
+      `users/{uid}.consent`, never transmitted to any third party. Client-side (Godot, Android)
+      hasn't shipped yet, so this doesn't change today's Part 1 submission — tracked in Part 1B above
+      for when it does. **Provisional pending final ANPD guidance — see Part 1B.**
+
 - [ ] **AdMob (T-261) and Crashlytics (T-310) — verify shipped code against architecture spec, not
       just re-run this document.** Every "Recommended" answer above for these two is based on what
       the architecture *says* will happen — there's no code yet to check, unlike Cloudinary and
@@ -259,3 +300,6 @@ owed and by which ticket — keep Part 1B's checkboxes below updated as each lan
 - [ ] T-311 Tenjin tracking link goes live (`tenjin_share_tracking_link` set to a real value) →
       Data Safety review needed for the share-link flow (Decision L / Option A, confirmed
       2026-07-21 — corrected from this doc's earlier "deferred to v1.1" note, which was wrong)
+- [ ] Godot Android ships the Google Play Age Signals API call (T-402) → re-verify the "No new row
+      needed" reasoning in Part 1B against the actually-shipped client behavior; if ANPD has issued
+      final guidance by then, review this whole section against it too
