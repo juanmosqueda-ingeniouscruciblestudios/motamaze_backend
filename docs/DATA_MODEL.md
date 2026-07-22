@@ -47,7 +47,16 @@ Perfil del jugador. Se crea/actualiza en `POST /auth/login` (upsert por `sub` de
 | `coppa_compliant` | `boolean` | `true` si usuario ≥ 13 años (US) / ≥ 18 (BR) |
 | `gdpr_consent` | `boolean \| null` | `null` si no está en EU |
 | `ccpa_opt_out` | `boolean` | `false` = opt-in (default) |
-| `age_verified_at` | `timestamp \| null` | Cuándo se verificó la edad |
+| `age_verified_at` | `timestamp \| null` | Cuándo se verificó la edad (DOB autodeclarado, T-401) |
+| `is_child` | `boolean \| null` | Derivado del DOB vs. `consent_age_threshold` (T-401). `null` hasta el primer `/auth/age-verify` |
+| `country_code` | `string \| null` | Resuelto por `geo_service.resolve_country()` en cada login (T-400) |
+| `consent_age_threshold` | `number` | Umbral de edad del país resuelto (US=13, BR=18, MX=18, AR=16, PE=14, UY=18 — T-400/T-407) |
+| `country_signal_mismatch` | `boolean` | `true` si la señal primaria (store/device) no coincide con la IP — señal de fraude, no cambia la resolución |
+| `store_age_signal` | `string \| null` | *(T-402, solo Brasil)* Banda de edad cruda de Apple Declared Age Range / Google Play Age Signals, ej. `"13-15"`. **Sin normalizar** — la lógica de reconciliación contra el DOB es trabajo aparte, todavía no implementado |
+| `store_age_signal_source` | `string \| null` | `"apple_declared_age_range"` \| `"play_age_signals"` — qué API entregó `store_age_signal` |
+| `store_age_signal_captured_at` | `timestamp \| null` | Cuándo se capturó `store_age_signal` por última vez |
+
+> **Nota — T-402 (2026-07-22):** Brasil prohíbe la autodeclaración de edad (Digital ECA) — el DOB de T-401 no es suficiente ahí por sí solo. `store_age_signal` captura la señal cruda de la API de tienda correspondiente, enviada por el cliente en `POST /auth/login` (mismo mecanismo que `store_country_code`). Estos campos **solo se llenan si el cliente los envía** (Godot, Juan — pendiente) y **no se sobreescriben con vacío** en logins posteriores (mismo patrón que `email`/`display_name`). Todavía no hay lógica que reaccione a estos valores — la reconciliación (señal de tienda con prioridad sobre el DOB en Brasil) es una subtarea aparte de T-402, sin implementar. Tratar como **provisional**: el mecanismo (Apple Declared Age Range / Google Play Age Signals) está disponible y es gratis, pero ANPD solo tiene lineamientos preliminares — revisar antes de escalar en Brasil.
 
 **Endpoints que usan esta colección:**
 

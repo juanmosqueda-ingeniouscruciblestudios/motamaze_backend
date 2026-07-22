@@ -148,3 +148,56 @@ async def test_google_login_still_works(client, fake_db, monkeypatch):
     assert doc["provider"] == "google"
     assert doc["email"] == "reg@example.com"
     assert doc["display_name"] == "Regress Player"
+
+
+# ---------------------------------------------------------------------------
+# T-402: store_age_signal contract (subtasks 1+2 — capture/store only, no
+# reconciliation logic yet)
+# ---------------------------------------------------------------------------
+
+
+async def test_login_persists_store_age_signal(client, fake_db, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-br")
+    resp = await client.post(LOGIN_URL, json=_apple_login_body(
+        token,
+        store_age_signal="13-15",
+        store_age_signal_source="apple_declared_age_range",
+    ))
+    assert resp.status_code == 200
+
+    doc = (await fake_db.collection("users").document("apple-sub-br").get()).to_dict()
+    consent = doc["consent"]
+    assert consent["store_age_signal"] == "13-15"
+    assert consent["store_age_signal_source"] == "apple_declared_age_range"
+    assert consent["store_age_signal_captured_at"] is not None
+
+
+async def test_login_without_store_age_signal_leaves_fields_none(client, fake_db, apple_signing_key):
+    token = make_apple_token(apple_signing_key, sub="apple-sub-non-br")
+    resp = await client.post(LOGIN_URL, json=_apple_login_body(token))
+    assert resp.status_code == 200
+
+    doc = (await fake_db.collection("users").document("apple-sub-non-br").get()).to_dict()
+    consent = doc["consent"]
+    assert consent["store_age_signal"] is None
+    assert consent["store_age_signal_source"] is None
+    assert consent["store_age_signal_captured_at"] is None
+
+
+async def test_login_repeat_does_not_clobber_store_age_signal(client, fake_db, apple_signing_key):
+    first_token = make_apple_token(apple_signing_key, sub="apple-sub-repeat")
+    await client.post(LOGIN_URL, json=_apple_login_body(
+        first_token,
+        store_age_signal="18+",
+        store_age_signal_source="apple_declared_age_range",
+    ))
+
+    # Second login (e.g. app relaunch) omits the signal — must NOT wipe it out.
+    second_token = make_apple_token(apple_signing_key, sub="apple-sub-repeat")
+    resp = await client.post(LOGIN_URL, json=_apple_login_body(second_token))
+    assert resp.status_code == 200
+
+    doc = (await fake_db.collection("users").document("apple-sub-repeat").get()).to_dict()
+    consent = doc["consent"]
+    assert consent["store_age_signal"] == "18+"
+    assert consent["store_age_signal_source"] == "apple_declared_age_range"

@@ -39,6 +39,14 @@ class LoginRequest(BaseModel):
     store_country_code: str | None = None
     # Signal 2 (secondary): Godot OS.get_locale_country()
     device_country_code: str | None = None
+    # T-402 (Brazil only): raw age-band string from Apple Declared Age Range API
+    # (iOS) or Google Play Age Signals API (Android) — e.g. "13-15", "18+". Format
+    # is platform-specific and NOT normalized here; this field only captures and
+    # stores the raw signal. Interpreting/reconciling it against DOB-based
+    # is_child is separate work (T-402 subtask 5), not done yet.
+    store_age_signal: str | None = None
+    # Which API provided store_age_signal — "apple_declared_age_range" | "play_age_signals"
+    store_age_signal_source: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -152,6 +160,8 @@ async def login(
             country_code=resolved_country,
             consent_age_threshold=age_threshold,
             country_signal_mismatch=signal_mismatch,
+            store_age_signal=body.store_age_signal,
+            store_age_signal_source=body.store_age_signal_source,
         )
     except ValueError as exc:
         if str(exc) == "AUTH_PROVIDER_MISMATCH":

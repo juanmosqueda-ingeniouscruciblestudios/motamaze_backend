@@ -93,6 +93,8 @@ async def upsert_user(
     country_code: str | None = None,
     consent_age_threshold: int = 13,
     country_signal_mismatch: bool = False,
+    store_age_signal: str | None = None,
+    store_age_signal_source: str | None = None,
 ) -> tuple[str, bool, bool | None]:
     now = datetime.now(timezone.utc)
     ref = db.collection("users").document(sub)
@@ -118,6 +120,10 @@ async def upsert_user(
                 "country_code": country_code,
                 "consent_age_threshold": consent_age_threshold,
                 "country_signal_mismatch": country_signal_mismatch,
+                # T-402 (Brazil): raw, unnormalized — see LoginRequest comment in auth.py
+                "store_age_signal": store_age_signal,
+                "store_age_signal_source": store_age_signal_source,
+                "store_age_signal_captured_at": now if store_age_signal else None,
             },
         })
         return sub, True, None
@@ -149,6 +155,13 @@ async def upsert_user(
             update["display_name"] = display_name
         if photo_url:
             update["photo_url"] = photo_url
+        # T-402: only overwrite when this login actually provided a signal —
+        # a login without it (non-BR user, or a pre-T-402 client) must never
+        # clobber a previously-captured value.
+        if store_age_signal:
+            update["consent.store_age_signal"] = store_age_signal
+            update["consent.store_age_signal_source"] = store_age_signal_source
+            update["consent.store_age_signal_captured_at"] = now
 
         await ref.update(update)
         return sub, False, is_child

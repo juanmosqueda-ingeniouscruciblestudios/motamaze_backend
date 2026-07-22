@@ -316,6 +316,15 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 | `os_version` | string | ⬜ | Versión de OS, ej: `"Android 14"` |
 | `country` | string | ⬜ | ISO 3166-1 alpha-2, ej: `"MX"`, `"BR"`. Si ausente, backend lo infiere del IP. |
 
+> **Addendum T-402 (2026-07-22):** dos campos nuevos, opcionales, solo relevantes para Brasil (Digital ECA prohíbe autodeclaración de edad — el DOB de T-401 no basta ahí). Mismo mecanismo que `store_country_code`/`device_country_code` (T-400, tampoco reflejados en la tabla original de arriba — doc-lag preexistente, no de este cambio).
+>
+> | Campo | Tipo | Requerido | Descripción |
+> |---|---|---|---|
+> | `store_age_signal` | string | ⬜ | Banda de edad cruda de Apple Declared Age Range (iOS) / Google Play Age Signals (Android), ej. `"13-15"`, `"18+"`. Formato específico de cada plataforma, **sin normalizar** por el backend. |
+> | `store_age_signal_source` | string | ⬜ | `"apple_declared_age_range"` \| `"play_age_signals"` |
+>
+> Se guardan crudos en `users/{uid}.consent` (ver `docs/DATA_MODEL.md`). **No hay lógica de reconciliación todavía** — eso es una subtarea aparte de T-402, sin implementar.
+
 **Response `200 OK`:**
 ```json
 {
