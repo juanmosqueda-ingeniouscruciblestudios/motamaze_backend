@@ -1,6 +1,10 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 
+from google.cloud import bigquery
 from google.cloud.firestore import AsyncClient
+
+from app.services import bq_streaming
 
 GRACE_PERIOD_DAYS = 30
 
@@ -10,6 +14,32 @@ GRACE_PERIOD_DAYS = 30
 # derived operational state (what the user currently owns), not a financial
 # transaction record — nothing requires keeping it once the user is gone.
 _HARD_DELETE_COLLECTIONS = ["progress", "lives", "entitlements", "season_progress", "achievement_progress"]
+
+# BigQuery historical tables (DATA-001) with no retention need for a deleted
+# user — rows fully removed. Same reasoning as the Firestore hard-delete set
+# above: analytics/behavioral data, not a financial record.
+# admob_daily_report and account_deletions are NOT here on purpose: the
+# former is aggregate (ad_unit_id + country), no user_id column at all; the
+# latter is this very deletion's own audit trail — deleting from it would
+# erase the evidence that erasure occurred.
+_BQ_HARD_DELETE_TABLES = [
+    "login_events", "session_durations", "player_behavior",
+    "ad_impressions", "entitlement_grants",
+]
+
+# Financial transaction ledger — anonymized (user_id replaced with a
+# one-way hash), never deleted. Same GDPR Art.17(3)(b) reasoning as the
+# Firestore `purchases` anonymization above (accounting/fraud audit).
+_BQ_ANONYMIZE_TABLES = ["purchase_events"]
+
+
+def _anon_bq_user_id(user_id: str) -> str:
+    """One-way, deterministic — a deleted user's rows across tables still
+    group together (useful for aggregate revenue reporting or a refund
+    dispute audit) without being reversible to the real uid. Same SHA-256
+    technique already used for Android purchase_token hashing
+    (purchases/{doc_id})."""
+    return "deleted_" + hashlib.sha256(user_id.encode()).hexdigest()[:16]
 
 
 async def find_users_due_for_purge(db: AsyncClient, now: datetime | None = None) -> list[str]:
@@ -82,5 +112,45 @@ async def purge_user_firestore_data(
 
     await db.collection("users").document(uid).delete()
     touched.append("users")
+
+    return touched
+
+
+async def purge_user_bigquery_data(project_id: str, dataset_id: str, uid: str) -> list[str]:
+    """Mirrors purge_user_firestore_data's split for the BigQuery historical
+    tables (DATA-001): hard-deletes analytics/behavioral tables, anonymizes
+    purchase_events (financial ledger — user_id is NOT NULL on every one of
+    these tables, so "anonymize" means replacing it with a deterministic
+    hash, not nulling it out).
+
+    Runs after the 30-day grace period, so these rows are always well past
+    BigQuery's streaming buffer window (rows inserted in roughly the last
+    90 minutes can't be mutated by DML) — not expected to ever hit that
+    restriction here, but a failure on one table doesn't stop the others:
+    each DML call is independent, and the caller (jobs.py) catches any
+    exception from this function as a whole and marks the deletion "failed"
+    rather than reporting a silent partial success.
+    """
+    touched: list[str] = []
+
+    for table in _BQ_HARD_DELETE_TABLES:
+        affected = await bq_streaming.run_dml(
+            f"DELETE FROM `{project_id}.{dataset_id}.{table}` WHERE user_id = @user_id",
+            [bigquery.ScalarQueryParameter("user_id", "STRING", uid)],
+        )
+        if affected:
+            touched.append(table)
+
+    anon_id = _anon_bq_user_id(uid)
+    for table in _BQ_ANONYMIZE_TABLES:
+        affected = await bq_streaming.run_dml(
+            f"UPDATE `{project_id}.{dataset_id}.{table}` SET user_id = @anon_id WHERE user_id = @user_id",
+            [
+                bigquery.ScalarQueryParameter("anon_id", "STRING", anon_id),
+                bigquery.ScalarQueryParameter("user_id", "STRING", uid),
+            ],
+        )
+        if affected:
+            touched.append(table)
 
     return touched

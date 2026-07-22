@@ -82,10 +82,16 @@ async def run_purge_deleted_accounts(
     settings: Settings = Depends(get_settings),
     db: AsyncClient = Depends(get_firestore_client),
 ):
-    """T-123 (ST-04): daily purge of accounts past their 30-day deletion
-    grace period. Firestore purge only — BigQuery historical-table purge and
-    the final account_deletions status="completed" update are ST-05, not
-    yet wired in. This job marks status="processing" once Firestore is done."""
+    """T-123 (ST-04/ST-05): daily purge of accounts past their 30-day
+    deletion grace period — BigQuery historical tables first, Firestore
+    second. That order is deliberate, not arbitrary: purge_user_firestore_data
+    deletes users/{uid} last (it's the "does this account still exist" flag
+    that find_users_due_for_purge scans for), so if the BQ purge throws,
+    the Firestore side never runs and this uid is picked up again next run —
+    both purges are idempotent (re-deleting/re-anonymizing already-purged
+    rows is a no-op), so a retry after a partial failure is always safe.
+    Reversing this order would orphan a user whose Firestore doc was already
+    gone but whose BQ purge failed, with no way to retry it."""
     if x_cloudscheduler_jobname is None:
         raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
 
@@ -95,14 +101,35 @@ async def run_purge_deleted_accounts(
     for uid in due_uids:
         now = datetime.now(timezone.utc)
         try:
-            tables_purged = await account_deletion_service.purge_user_firestore_data(db, uid, now)
+            bq_tables = await account_deletion_service.purge_user_bigquery_data(
+                settings.gcp_project_id, settings.bq_dataset, uid
+            )
+            fs_tables = await account_deletion_service.purge_user_firestore_data(db, uid, now)
         except Exception as exc:
             failed += 1
             logger.error("T-123 purge failed: uid=%s err=%s", uid, exc)
+            background_tasks.add_task(
+                stream_event, "account_deletions",
+                {
+                    "requested_at": now.isoformat(),
+                    "request_date": now.date().isoformat(),
+                    "user_id": uid,
+                    "platform": None,
+                    "request_source": "user_request",
+                    "status": "failed",
+                    "completed_at": None,
+                    "tables_purged": [],
+                    "notes": str(exc)[:500],
+                },
+                settings.gcp_project_id, settings.bq_dataset,
+                row_id=f"deletion_failed_{uid}_{int(now.timestamp())}",
+            )
             continue
 
         purged += 1
-        logger.info("T-123 purge: uid=%s tables=%s", uid, tables_purged)
+        tables_purged = bq_tables + fs_tables
+        completed_at = datetime.now(timezone.utc)
+        logger.info("T-123 purge completed: uid=%s tables=%s", uid, tables_purged)
         background_tasks.add_task(
             stream_event, "account_deletions",
             {
@@ -111,13 +138,13 @@ async def run_purge_deleted_accounts(
                 "user_id": uid,
                 "platform": None,
                 "request_source": "user_request",
-                "status": "processing",
-                "completed_at": None,
+                "status": "completed",
+                "completed_at": completed_at.isoformat(),
                 "tables_purged": tables_purged,
-                "notes": "firestore_purged_bq_pending",
+                "notes": "purge_complete",
             },
             settings.gcp_project_id, settings.bq_dataset,
-            row_id=f"deletion_process_{uid}_{int(now.timestamp())}",
+            row_id=f"deletion_complete_{uid}_{int(now.timestamp())}",
         )
 
     logger.info("T-123 purge run: due=%d purged=%d failed=%d", len(due_uids), purged, failed)

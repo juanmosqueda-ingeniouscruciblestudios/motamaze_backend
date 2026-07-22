@@ -1,10 +1,13 @@
 """Unit tests for app/services/account_deletion_service.py — T-123 (ST-04):
 finding accounts past their 30-day grace period and purging their Firestore
-data (hard-delete most collections, anonymize purchases, users/{uid} last)."""
+data (hard-delete most collections, anonymize purchases, users/{uid} last).
+ST-05 adds purge_user_bigquery_data (historical tables)."""
 
 from datetime import datetime, timedelta, timezone
 
-from app.services import account_deletion_service
+import pytest
+
+from app.services import account_deletion_service, bq_streaming
 
 NOW = datetime(2026, 8, 20, tzinfo=timezone.utc)
 
@@ -109,3 +112,92 @@ async def test_purge_skips_missing_collections_gracefully(fake_db):
     })
     touched = await account_deletion_service.purge_user_firestore_data(fake_db, "minimal-user", now=NOW)
     assert touched == ["users"]
+
+
+# ---------------------------------------------------------------------------
+# purge_user_bigquery_data
+# ---------------------------------------------------------------------------
+
+
+async def test_purge_bigquery_deletes_hard_delete_tables(monkeypatch):
+    calls = []
+
+    async def _fake_run_dml(query, params):
+        calls.append(query)
+        return 3  # pretend every DML call affected rows
+
+    monkeypatch.setattr(bq_streaming, "run_dml", _fake_run_dml)
+
+    touched = await account_deletion_service.purge_user_bigquery_data(
+        "motamaze-dev", "motamaze_analytics", "bq-user-1"
+    )
+
+    for table in ["login_events", "session_durations", "player_behavior", "ad_impressions", "entitlement_grants"]:
+        assert any(f"DELETE FROM `motamaze-dev.motamaze_analytics.{table}`" in q for q in calls)
+    assert set(touched) == {
+        "login_events", "session_durations", "player_behavior",
+        "ad_impressions", "entitlement_grants", "purchase_events",
+    }
+
+
+async def test_purge_bigquery_anonymizes_purchase_events_not_delete(monkeypatch):
+    captured_params = {}
+
+    async def _fake_run_dml(query, params):
+        if "purchase_events" in query:
+            captured_params["query"] = query
+            captured_params["params"] = {p.name: p.value for p in params}
+        return 1
+
+    monkeypatch.setattr(bq_streaming, "run_dml", _fake_run_dml)
+
+    await account_deletion_service.purge_user_bigquery_data(
+        "motamaze-dev", "motamaze_analytics", "bq-user-2"
+    )
+
+    assert captured_params["query"].startswith("UPDATE")
+    assert captured_params["params"]["user_id"] == "bq-user-2"
+    assert captured_params["params"]["anon_id"].startswith("deleted_")
+    assert captured_params["params"]["anon_id"] != "bq-user-2"
+
+
+async def test_purge_bigquery_anonymization_is_deterministic(monkeypatch):
+    # Same uid must always anonymize to the same value — lets a financial
+    # audit still group one deleted user's rows together across tables/runs.
+    seen = []
+
+    async def _fake_run_dml(query, params):
+        if "purchase_events" in query:
+            seen.append(next(p.value for p in params if p.name == "anon_id"))
+        return 1
+
+    monkeypatch.setattr(bq_streaming, "run_dml", _fake_run_dml)
+
+    await account_deletion_service.purge_user_bigquery_data("motamaze-dev", "motamaze_analytics", "bq-user-3")
+    await account_deletion_service.purge_user_bigquery_data("motamaze-dev", "motamaze_analytics", "bq-user-3")
+
+    assert seen[0] == seen[1]
+
+
+async def test_purge_bigquery_zero_affected_rows_not_reported_as_touched(monkeypatch):
+    async def _fake_run_dml(query, params):
+        return 0  # user had no rows in this table
+
+    monkeypatch.setattr(bq_streaming, "run_dml", _fake_run_dml)
+
+    touched = await account_deletion_service.purge_user_bigquery_data(
+        "motamaze-dev", "motamaze_analytics", "bq-user-4"
+    )
+    assert touched == []
+
+
+async def test_purge_bigquery_propagates_errors(monkeypatch):
+    async def _fake_run_dml(query, params):
+        raise RuntimeError("BQ DML quota exceeded")
+
+    monkeypatch.setattr(bq_streaming, "run_dml", _fake_run_dml)
+
+    with pytest.raises(RuntimeError, match="BQ DML quota exceeded"):
+        await account_deletion_service.purge_user_bigquery_data(
+            "motamaze-dev", "motamaze_analytics", "bq-user-5"
+        )

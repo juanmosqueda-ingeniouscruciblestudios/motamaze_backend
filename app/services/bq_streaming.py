@@ -62,6 +62,35 @@ async def stream_event(
     )
 
 
+def _run_dml_sync(
+    query: str,
+    params: list[bigquery.ScalarQueryParameter],
+) -> int:
+    job = _get_bq_client().query(
+        query,
+        job_config=bigquery.QueryJobConfig(query_parameters=params),
+    )
+    job.result()  # blocks until the DML job completes
+    return job.num_dml_affected_rows or 0
+
+
+async def run_dml(
+    query: str,
+    params: list[bigquery.ScalarQueryParameter],
+) -> int:
+    """Runs a parameterized DML statement (UPDATE/DELETE) and returns the
+    affected row count. The BigQuery python client has no native async query
+    surface, so this runs in a thread — same pattern as verify_google_token's
+    _verify_google_token_sync wrapper in auth_service.py.
+
+    Unlike stream_event (fire-and-forget, errors only logged), DML errors
+    propagate — the caller (account_deletion_service.purge_user_bigquery_data)
+    needs to know a purge failed so it can mark account_deletions status
+    accordingly instead of silently reporting success.
+    """
+    return await asyncio.to_thread(_run_dml_sync, query, params)
+
+
 async def stream_events(
     table_id: str,
     rows: list[dict],
