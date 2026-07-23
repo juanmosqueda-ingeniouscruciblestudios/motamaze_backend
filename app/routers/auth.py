@@ -403,6 +403,15 @@ async def age_verify(
     update: dict = {"consent.age_verified_at": now}
     if signal_is_minor is None:
         update.update(geo_service.age_gate_update(is_child, now))
+        # T-404: birth_month/birth_year (never the day — architecture doc's data-
+        # minimization directive) let the monthly recalc job detect threshold
+        # crossings later without re-verification. Stored only here, not in the
+        # BR-signal branch below: presence of these fields must mean "is_child
+        # was DOB-derived," so the recalc job can rely on it as-is without also
+        # cross-checking country_code — a BR user whose is_child came from the
+        # store signal must never be re-derived from DOB by that job.
+        update["consent.birth_month"] = dob.month
+        update["consent.birth_year"] = dob.year
     else:
         # BR store signal already decided is_child/restricted_features/
         # coppa_compliant at login — DOB is recorded (age_verified_at above)

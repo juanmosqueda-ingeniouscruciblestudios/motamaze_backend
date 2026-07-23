@@ -194,3 +194,49 @@ async def test_age_verify_br_without_signal_dob_flow_unchanged(client, fake_db, 
 
     doc = (await fake_db.collection("users").document(uid).get()).to_dict()
     assert doc["consent"]["coppa_compliant"] is True
+
+
+# ---------------------------------------------------------------------------
+# T-404: birth_month/birth_year persisted for the monthly recalc job
+# ---------------------------------------------------------------------------
+
+
+async def test_age_verify_persists_birth_month_and_year(client, fake_db, test_settings):
+    uid = "user-birth-fields"
+    _seed_user(fake_db, uid, 13)
+
+    resp = await client.post(
+        URL, json={"dob": "1995-03-17"}, headers=_auth_headers(test_settings, uid)
+    )
+    assert resp.status_code == 200
+
+    consent = (await fake_db.collection("users").document(uid).get()).to_dict()["consent"]
+    assert consent["birth_month"] == 3
+    assert consent["birth_year"] == 1995
+    # The day itself must never be persisted anywhere.
+    assert "birth_day" not in consent
+
+
+async def test_age_verify_br_signal_decided_does_not_persist_birth_fields(client, fake_db, test_settings):
+    # is_child came from the store signal here, not this DOB — birth_month/
+    # year presence must mean "is_child is DOB-derived" for the recalc job
+    # (T-404) to rely on without also cross-checking country_code.
+    uid = "user-br-signal-no-birth-fields"
+    fake_db.seed("users", uid, {
+        "uid": uid,
+        "consent": {
+            "consent_age_threshold": 18,
+            "country_code": "BR",
+            "store_age_signal": "18+",
+            "is_child": False,
+        },
+    })
+
+    resp = await client.post(
+        URL, json={"dob": "1995-03-17"}, headers=_auth_headers(test_settings, uid)
+    )
+    assert resp.status_code == 200
+
+    consent = (await fake_db.collection("users").document(uid).get()).to_dict()["consent"]
+    assert "birth_month" not in consent
+    assert "birth_year" not in consent
