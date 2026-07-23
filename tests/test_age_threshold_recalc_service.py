@@ -89,6 +89,50 @@ async def test_recalc_skips_br_store_signal_users_without_birth_fields(fake_db):
     assert doc["consent"]["is_child"] is True  # untouched
 
 
+async def test_recalc_respects_non_default_threshold_from_firestore(fake_db):
+    # BR-like threshold (18), NOW is 2026-08-01 -> someone born June 2013
+    # is only 13 -- nowhere near 18, must NOT be flipped. Regression guard
+    # against accidentally hardcoding 13 instead of reading the stored value.
+    fake_db.seed("users", "br-threshold-user", {
+        "uid": "br-threshold-user",
+        "consent": {
+            "is_child": True,
+            "birth_month": 6,
+            "birth_year": 2013,
+            "consent_age_threshold": 18,
+        },
+    })
+
+    aged_out = await age_threshold_recalc_service.find_and_recalc_aged_out_users(fake_db, now=NOW)
+    assert aged_out == []
+
+    doc = (await fake_db.collection("users").document("br-threshold-user").get()).to_dict()
+    assert doc["consent"]["is_child"] is True
+
+
+async def test_recalc_skips_user_with_missing_is_child_field(fake_db):
+    # Legacy/edge-case doc — consent exists but is_child was never set.
+    fake_db.seed("users", "legacy-user", {
+        "uid": "legacy-user",
+        "consent": {"birth_month": 6, "birth_year": 2013, "consent_age_threshold": 13},
+    })
+
+    aged_out = await age_threshold_recalc_service.find_and_recalc_aged_out_users(fake_db, now=NOW)
+    assert aged_out == []
+
+
+async def test_recalc_defaults_missing_threshold_to_13(fake_db):
+    # No consent_age_threshold stored at all -- must default to 13 (US),
+    # matching the same default used elsewhere in this codebase, not crash.
+    fake_db.seed("users", "no-threshold-user", {
+        "uid": "no-threshold-user",
+        "consent": {"is_child": True, "birth_month": 6, "birth_year": 2013},
+    })
+
+    aged_out = await age_threshold_recalc_service.find_and_recalc_aged_out_users(fake_db, now=NOW)
+    assert aged_out == ["no-threshold-user"]  # 13 years old by 2026-08-01, threshold defaults to 13
+
+
 async def test_recalc_is_idempotent_on_second_run(fake_db):
     fake_db.seed("users", "idempotent-user", {
         "uid": "idempotent-user",
