@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 import geoip2.database
 import geoip2.errors
@@ -79,6 +79,27 @@ def age_gate_update(is_child: bool, now: datetime) -> dict:
     if not is_child:
         update["consent.coppa_compliant"] = True
     return update
+
+
+def has_aged_out(birth_month: int, birth_year: int, threshold: int, today: date) -> bool:
+    """T-404: true once a user has definitely crossed their country's age
+    threshold (consent_age_threshold), for the monthly recalc job.
+
+    Only birth_month/birth_year are stored (never the day — architecture
+    doc's data-minimization directive, see POST /auth/age-verify), so the
+    exact crossing date within that month is unknown. Conservative by
+    design: the user is still treated as a minor through the LAST day of
+    their birth month, and only flips to "aged out" once the following
+    month starts — never earlier. Same protect-first bias as every other
+    age-boundary decision in this codebase (store_age_signal_is_minor,
+    age_gate_update).
+    """
+    ages_out_year = birth_year + threshold
+    if birth_month == 12:
+        ages_out_on = date(ages_out_year + 1, 1, 1)
+    else:
+        ages_out_on = date(ages_out_year, birth_month + 1, 1)
+    return today >= ages_out_on
 
 
 def _get_reader(db_path: str) -> geoip2.database.Reader | None:
