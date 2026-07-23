@@ -67,17 +67,23 @@ Perfil del jugador. Se crea/actualiza en `POST /auth/login` (upsert por `sub` de
 | `store_age_signal` | `string \| null` | *(T-402, solo Brasil)* Banda de edad cruda de Apple Declared Age Range / Google Play Age Signals, ej. `"13-15"`. **Sin normalizar** — la lógica de reconciliación contra el DOB es trabajo aparte, todavía no implementado |
 | `store_age_signal_source` | `string \| null` | `"apple_declared_age_range"` \| `"play_age_signals"` — qué API entregó `store_age_signal` |
 | `store_age_signal_captured_at` | `timestamp \| null` | Cuándo se capturó `store_age_signal` por última vez |
+| `birth_month` | `number \| null` | *(T-404)* Mes de nacimiento (1-12), derivado del DOB en `POST /auth/age-verify`. **Nunca el día** — minimización de datos (COPPA/GDPR Art.5(1)(e)). Solo se llena en la rama donde el DOB decidió `is_child` (nunca en la rama de señal BR — ver nota abajo) |
+| `birth_year` | `number \| null` | *(T-404)* Año de nacimiento, mismo origen y misma restricción de rama que `birth_month` |
 
-> **Nota — T-402 (2026-07-22):** Brasil prohíbe la autodeclaración de edad (Digital ECA) — el DOB de T-401 no es suficiente ahí por sí solo. `store_age_signal` captura la señal cruda de la API de tienda correspondiente, enviada por el cliente en `POST /auth/login` (mismo mecanismo que `store_country_code`). Estos campos **solo se llenan si el cliente los envía** (Godot, Juan — pendiente) y **no se sobreescriben con vacío** en logins posteriores (mismo patrón que `email`/`display_name`). Todavía no hay lógica que reaccione a estos valores — la reconciliación (señal de tienda con prioridad sobre el DOB en Brasil) es una subtarea aparte de T-402, sin implementar. Tratar como **provisional**: el mecanismo (Apple Declared Age Range / Google Play Age Signals) está disponible y es gratis, pero ANPD solo tiene lineamientos preliminares — revisar antes de escalar en Brasil.
+> **Nota — T-402 (2026-07-22, corregida 2026-07-23):** Brasil prohíbe la autodeclaración de edad (Digital ECA) — el DOB de T-401 no es suficiente ahí por sí solo. `store_age_signal` captura la señal cruda de la API de tienda correspondiente, enviada por el cliente en `POST /auth/login` (mismo mecanismo que `store_country_code`). Estos campos **solo se llenan si el cliente los envía** (Godot, Juan — pendiente) y **no se sobreescriben con vacío** en logins posteriores (mismo patrón que `email`/`display_name`). ~~Todavía no hay lógica que reaccione a estos valores~~ — **esto ya no es cierto**: la reconciliación (señal de tienda con prioridad sobre el DOB en Brasil) se implementó el mismo día como subtarea aparte de T-402 — ver `logic/age-assurance.md`. Tratar como **provisional**: el mecanismo (Apple Declared Age Range / Google Play Age Signals) está disponible y es gratis, pero ANPD solo tiene lineamientos preliminares — revisar antes de escalar en Brasil.
+
+> **Nota — T-404 (2026-07-23): recálculo mensual de umbral de edad.** `POST /auth/age-verify` ya recibe el DOB completo del cliente para calcular `age`, pero antes lo descartaba enteramente después — el architecture doc especificaba guardar `birth_month`/`birth_year` ("Never write birth_day") para permitir un recálculo periódico, nunca implementado hasta ahora. Un Cloud Scheduler mensual (`POST /jobs/recalc-age-thresholds`) recorre usuarios con `is_child == true` y `birth_month`/`birth_year` presentes, y voltea a `is_child = false` a quienes ya cruzaron su `consent_age_threshold` — con redondeo conservador (protegido hasta el último día de su mes de nacimiento). **Alcance limitado a usuarios verificados por DOB** (Rama 1) — los usuarios BR verificados por `store_age_signal` (Rama 2, banda sin fecha exacta) no tienen `birth_month`/`birth_year` y quedan fuera de este job. Detalle completo: `logic/age-threshold-recalc.md`.
 
 **Endpoints que usan esta colección:**
 
 | Endpoint | Operación |
 |---|---|
 | `POST /auth/login` | `set` (upsert) — incluye `deletion_pending` en la respuesta si aplica |
+| `POST /auth/age-verify` | `update` (`is_child`, `restricted_features`, `coppa_compliant`, `age_verified_at`, y `birth_month`/`birth_year` si el DOB decidió) |
 | `DELETE /auth/account` | `update` (set `delete_requested_at`) + fila `pending` en BQ `account_deletions` |
 | `POST /auth/account/cancel-deletion` | `update` (`delete_requested_at = null`) + fila `cancelled` en BQ |
 | `POST /jobs/purge-deleted-accounts` (Cloud Scheduler, T+30 días) | `delete` (borrado final) |
+| `POST /jobs/recalc-age-thresholds` (Cloud Scheduler, mensual — T-404) | `update` (`is_child = false` para quienes cruzaron su umbral) |
 | `POST /profile/equip-skin` | `update` (`equipped_skin`) |
 
 ---
