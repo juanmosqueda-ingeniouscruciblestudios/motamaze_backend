@@ -7,7 +7,13 @@ from google.cloud.firestore import AsyncClient
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings
-from app.services import account_deletion_service, admob_api, ad_revenue_reconciliation_service, reconcile_service
+from app.services import (
+    account_deletion_service,
+    admob_api,
+    ad_revenue_reconciliation_service,
+    age_threshold_recalc_service,
+    reconcile_service,
+)
 from app.services.bq_streaming import stream_event, stream_events
 
 logger = logging.getLogger(__name__)
@@ -182,3 +188,22 @@ async def run_purge_deleted_accounts(
 
     logger.info("T-123 purge run: due=%d purged=%d failed=%d", len(due_uids), purged, failed)
     return {"due": len(due_uids), "purged": purged, "failed": failed}
+
+
+@router.post("/recalc-age-thresholds")
+async def run_recalc_age_thresholds(
+    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    """T-404: monthly recalc — flips is_child to False for DOB-verified
+    users who've crossed their country's age threshold since verification.
+    Brazil store-signal users are out of scope (no stored birth_month/year
+    to recalc from) — see age_threshold_recalc_service for why that's
+    sufficient without an explicit country_code check."""
+    if x_cloudscheduler_jobname is None:
+        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
+
+    aged_out = await age_threshold_recalc_service.find_and_recalc_aged_out_users(db)
+
+    logger.info("T-404 recalc: %d users aged out: %s", len(aged_out), aged_out)
+    return {"aged_out_count": len(aged_out), "aged_out_uids": aged_out}
