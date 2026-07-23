@@ -36,9 +36,21 @@ Perfil del jugador. Se crea/actualiza en `POST /auth/login` (upsert por `sub` de
 | `updated_at` | `timestamp` | Último upsert |
 | `equipped_skin` | `string \| null` | Skin activo: `"skin_gold"`, `"skin_silver"`, `null` = default |
 | `consent` | `map` | Ver campos anidados abajo |
-| `delete_requested_at` | `timestamp \| null` | `null` = activo; non-null = en cola de borrado (DELETE /auth/account) |
+| `delete_requested_at` | `timestamp \| null` | `null` = activo; non-null = borrado solicitado, en periodo de gracia de 30 días (T-123) |
 
 > **Nota — multi-provider (AUTH-004, 2026-07-17):** el document ID sigue siendo el `sub` crudo, sin prefijo de proveedor. Se decidió así porque los formatos de `sub` de Google (numérico) y Apple (alfanumérico con puntos) son estructuralmente disjuntos — la colisión es, en la práctica, imposible — y evita migrar `sessions`, `revoked_jtis`, `progress`, `lives`, `entitlements`, `season_progress` y `achievement_progress`, todos referenciando el mismo `uid`. Como red de seguridad adicional, `upsert_user` rechaza (`409 AUTH_PROVIDER_MISMATCH`) cualquier intento de login cuyo `provider` no coincida con el ya almacenado en el documento, en vez de fusionar identidades silenciosamente. **Limitación aceptada:** esta versión no soporta account linking — un jugador que use Google y luego Apple obtiene dos cuentas independientes (progreso/vidas/entitlements separados). Documentos creados antes de este cambio no tienen `provider`; se hace backfill automático en su próximo login.
+
+> **Nota — T-123 (2026-07-22): borrado de cuenta con periodo de gracia de 30 días.**
+> `DELETE /auth/account` marca `delete_requested_at` (no borra nada todavía) y revoca la sesión que
+> hizo el request. **Login se mantiene abierto** a propósito para cuentas con borrado pendiente —
+> `LoginResponse.deletion_pending` avisa al cliente — porque es el único camino para llegar a
+> `POST /auth/account/cancel-deletion`, que limpia `delete_requested_at` y reactiva la cuenta.
+> **Refresh sí se bloquea** (`401 AUTH_ACCOUNT_DELETION_PENDING`) — ahí es donde se cierra el hueco de
+> que otro dispositivo logueado pudiera seguir renovando indefinidamente. Un Cloud Scheduler diario
+> (`POST /jobs/purge-deleted-accounts`) purga las cuentas cuyo `delete_requested_at` supera los 30
+> días: borra `progress`/`lives`/`entitlements`/`season_progress`/`achievement_progress`/`sessions`/
+> `users`, y anonimiza (no borra) `purchases` — ver la nota en esa colección más abajo. Detalle
+> completo, incluyendo el purgado de las tablas históricas de BigQuery: `logic/account-deletion.md`.
 
 **`consent` (anidado):**
 
@@ -62,8 +74,10 @@ Perfil del jugador. Se crea/actualiza en `POST /auth/login` (upsert por `sub` de
 
 | Endpoint | Operación |
 |---|---|
-| `POST /auth/login` | `set` (upsert) |
-| `DELETE /auth/account` | `update` (set `delete_requested_at`) + BQ deletion queue |
+| `POST /auth/login` | `set` (upsert) — incluye `deletion_pending` en la respuesta si aplica |
+| `DELETE /auth/account` | `update` (set `delete_requested_at`) + fila `pending` en BQ `account_deletions` |
+| `POST /auth/account/cancel-deletion` | `update` (`delete_requested_at = null`) + fila `cancelled` en BQ |
+| `POST /jobs/purge-deleted-accounts` (Cloud Scheduler, T+30 días) | `delete` (borrado final) |
 | `POST /profile/equip-skin` | `update` (`equipped_skin`) |
 
 ---
@@ -259,6 +273,16 @@ Registro de cada compra verificada, usado para idempotencia (`POST /payments/*/v
 | `voided` | `boolean` | *(unificado entre plataformas 2026-07-18 — antes solo existía para Android)* `true` tras un reembolso procesado |
 | `voided_at` | `timestamp` | Cuándo se marcó como reembolsado |
 | `created_at` | `timestamp` | Cuándo se verificó la compra |
+| `anonymized_at` | `timestamp` | *(T-123, opcional)* Presente solo si el usuario borró su cuenta — ver nota abajo |
+
+> **Nota — T-123 (2026-07-22): anonimización, no borrado.** Cuando el job de purga de cuentas
+> (`POST /jobs/purge-deleted-accounts`, T+30 días) procesa a un usuario, sus documentos en esta
+> colección **no se borran** — es el registro financiero/transaccional, retenido para auditoría
+> contable y disputas de reembolso (GDPR Art.17(3)(b), excepción por obligación legal). En su lugar,
+> `uid` se pone en `null` y se agrega `anonymized_at`; el resto del documento (producto, montos,
+> tokens, fechas) queda intacto. Contraste con `entitlements/{uid}`, que sí se borra por completo —
+> ese es estado operativo derivado, no un registro financiero. Detalle completo:
+> `logic/account-deletion.md`.
 
 **Endpoints que usan esta colección:**
 
@@ -268,6 +292,7 @@ Registro de cada compra verificada, usado para idempotencia (`POST /payments/*/v
 | `POST /payments/ios/verify` | `get` (idempotencia) + `set` (merge) |
 | `POST /payments/android/refund-notification` | `get` + `update` (`voided`) |
 | `POST /payments/ios/refund-notification` | `get` + `update` (`voided`) |
+| `POST /jobs/purge-deleted-accounts` (T-123, T+30 días) | `update` (anonimiza `uid`, agrega `anonymized_at`) |
 | `POST /jobs/reconcile-purchases` | `get`/`query` (Android-only: `reconcile_pending_acks`, `detect_refunds`) |
 
 ---
@@ -474,8 +499,8 @@ Para MVP, todos los accesos son por document ID (lookups O(1)). **No se requiere
 | Colección | Retención | Mecanismo |
 |---|---|---|
 | `revoked_jtis` | 14 días | Cloud Scheduler job cada 24h: elimina `expires_at < now()` |
-| `sessions` | Indefinido (MVP) | Se analizan en BigQuery via streaming; no se borran de Firestore en MVP |
-| `users` | Indefinido | `delete_requested_at != null` → BQ deletion queue → borrado en 30 días |
+| `sessions` | Indefinido (MVP) | Se analizan en BigQuery via streaming; no se borran de Firestore en MVP, salvo por borrado de cuenta (T-123, ver fila `users`) |
+| `users` | Indefinido, o 30 días si se solicita borrado | `delete_requested_at != null` → periodo de gracia de 30 días (cancelable vía `POST /auth/account/cancel-deletion`) → `POST /jobs/purge-deleted-accounts` (Cloud Scheduler diario) borra el documento y las colecciones asociadas (T-123). Detalle: `logic/account-deletion.md` |
 | `season_progress` | Por temporada | Al inicio de cada nueva temporada, se archiva el documento anterior y se crea uno nuevo |
 | `achievement_progress` | Indefinido | Acumulativo — no se borra entre temporadas |
 | `achievement_rarities` | Indefinido | Sobreescrito cada 24h por Cloud Scheduler |
