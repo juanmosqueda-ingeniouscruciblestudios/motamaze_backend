@@ -7,7 +7,7 @@ from google.cloud.firestore import AsyncClient
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings
-from app.services import account_deletion_service, admob_api, reconcile_service
+from app.services import account_deletion_service, admob_api, ad_revenue_reconciliation_service, reconcile_service
 from app.services.bq_streaming import stream_event, stream_events
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,39 @@ async def run_admob_daily_report(
 
     logger.info("AdMob report %s: %d rows queued", report_date, len(rows))
     return {"report_date": report_date.isoformat(), "rows_queued": len(rows)}
+
+
+@router.post("/reconcile-ad-revenue")
+async def run_reconcile_ad_revenue(
+    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
+    settings: Settings = Depends(get_settings),
+):
+    """T-302: compares our own ad_impressions counts against AdMob's
+    Reporting API (admob_daily_report) for yesterday, per ad_unit, and flags
+    discrepancies past DISCREPANCY_THRESHOLD_PERCENT. Must be scheduled to
+    run AFTER admob-daily-report — it reads admob_daily_report for the same
+    report_date, and that table is only populated by the other job."""
+    if x_cloudscheduler_jobname is None:
+        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
+
+    report_date = date.today() - timedelta(days=1)
+    results = await ad_revenue_reconciliation_service.reconcile_ad_revenue(
+        settings.gcp_project_id, settings.bq_dataset, report_date
+    )
+    flagged = [r for r in results if r["flagged"]]
+    for r in flagged:
+        logger.warning("T-302 ad revenue discrepancy: %s", r)
+
+    logger.info(
+        "T-302 reconcile %s: %d ad units checked, %d flagged",
+        report_date, len(results), len(flagged),
+    )
+    return {
+        "report_date": report_date.isoformat(),
+        "ad_units_checked": len(results),
+        "flagged": len(flagged),
+        "results": results,
+    }
 
 
 @router.post("/reconcile-purchases")

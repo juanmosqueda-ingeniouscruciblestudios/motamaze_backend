@@ -91,6 +91,27 @@ async def run_dml(
     return await asyncio.to_thread(_run_dml_sync, query, params)
 
 
+def _run_select_sync(
+    query: str,
+    params: list[bigquery.ScalarQueryParameter],
+) -> list[dict]:
+    job = _get_bq_client().query(
+        query,
+        job_config=bigquery.QueryJobConfig(query_parameters=params),
+    )
+    return [dict(row) for row in job.result()]
+
+
+async def run_select(
+    query: str,
+    params: list[bigquery.ScalarQueryParameter],
+) -> list[dict]:
+    """Runs a parameterized SELECT and returns the rows as plain dicts.
+    Same asyncio.to_thread wrapper as run_dml — first read (as opposed to
+    write) surface against BigQuery in this codebase."""
+    return await asyncio.to_thread(_run_select_sync, query, params)
+
+
 async def stream_events(
     table_id: str,
     rows: list[dict],
