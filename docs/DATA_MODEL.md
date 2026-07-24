@@ -486,6 +486,95 @@ shares/{token}
 
 ---
 
+### `config/catalog` *(agregado 2026-07-24 — T-240)*
+
+Documento único con el catálogo de productos server-resolved (architecture doc §9A.4). El cliente
+Godot nunca hardcodea precios — siempre consume `GET /store/catalog`.
+
+```
+config/catalog
+  catalog_version   string    ← fecha ISO de la última siembra (docs/scripts/seed_store_catalog.py)
+  products          array     ← ver estructura abajo
+```
+
+**`products[i]` (elemento del array):**
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `product_id` | string | ID del SKU, ej: `"lives_pack_5"`, `"no_ads"` |
+| `type` | `"consumable"` \| `"non_consumable"` | Determina si `owned` aplica (ver nota abajo) |
+| `display_name` | string | Nombre mostrado en la tienda |
+| `description` | string | Descripción corta |
+| `price_usd` | number | Precio base — **antes** de aplicar cualquier promoción |
+| `currency` | string | Siempre `"USD"` en MVP |
+| `lives_granted` | number \| null | Solo relevante en consumibles de tipo lives |
+| `display_order` | number | Orden de despliegue en la UI |
+| `visible` | boolean | Si el producto se muestra en la tienda |
+| `badge` | string \| null | Badge opcional (ej. `"NEW"`) — no confundir con el badge de promoción |
+
+> **Nota — `price_tier` (architecture doc) vs. `price_usd` (implementado):** el architecture doc
+> original (§9A.4) especifica `config/catalog.products[].price_tier` — una referencia a un tier de
+> precio de la tienda (Play/App Store), no un monto directo. Se implementó con `price_usd` plano en
+> su lugar porque **REST-001 es el contrato ya firmado por Juan** (commit `9216611`) y su ejemplo de
+> respuesta ya usa `price_usd`/`currency` directamente — seguir el contrato aprobado sobre la
+> especificación de arquitectura más temprana, no al revés.
+>
+> **Precios sembrados (2026-07-24):** solo `lives_pack_5` ($0.99) y `no_ads` ($2.99) — los únicos
+> con precio confirmado tanto en la tabla de precios del architecture doc como en REST-001.
+> `skin_gold`, `skin_silver` y el life pack grande siguen `TBD` en el architecture doc — no
+> sembrados, pendientes de que Juan confirme precio real. Ver `scripts/seed_store_catalog.py`.
+>
+> **`owned` no se guarda aquí** — se calcula en cada request desde `entitlements/{uid}`, y solo
+> aplica a `non_consumable` (un consumible nunca está "owned", se vuelve a comprar cada vez).
+
+**Endpoints que usan esta colección:**
+
+| Endpoint | Operación |
+|---|---|
+| `GET /store/catalog` | `get` |
+| `scripts/seed_store_catalog.py` (manual, no un endpoint) | `set` — siembra/actualiza el catálogo |
+
+---
+
+### `promotions/{promo_id}` *(agregado 2026-07-24 — T-240)*
+
+Promociones/descuentos activos, evaluadas server-side en cada `GET /store/catalog`. El backend
+**nunca cobra ni descuenta dinero real** — solo controla qué precio/badge se *muestra*; los precios
+reales vienen de las tiendas (architecture doc §9A.4).
+
+```
+promotions/{promo_id}
+  product_id            string      ← a qué producto de config/catalog aplica
+  audience               string      ← "all" | "new" | "lapsed" | "non_payer"
+  discount_percent       number
+  original_price_usd     number      ← snapshot del precio base al crear la promo (no se recalcula desde config/catalog)
+  starts_at               timestamp
+  ends_at                 timestamp
+  active                  boolean
+```
+
+> **Nota — colección plana, no anidada bajo `config`:** el architecture doc usa la notación
+> abreviada `config/promotions/{promo_id}`, pero eso no exige un subcollection real de Firestore —
+> se implementó como colección top-level `promotions`, igual que el resto de las colecciones de
+> este proyecto (`users`, `entitlements`, `purchases`, etc.), en vez de anidarla bajo un documento
+> llamado "promotions" dentro de `config`.
+>
+> **Segmento de audiencia (`audience`)** se deriva **server-side** desde `users.created_at` +
+> última sesión + historial de compras — nunca se confía en un segmento declarado por el cliente.
+> Detalle completo de la lógica de segmentación y de la regla de desempate cuando varias
+> promociones activas aplican al mismo producto: `logic/store-catalog.md`.
+>
+> **Sin promociones sembradas todavía** (2026-07-24) — la colección existe vacía; "sin promoción
+> activa" es un estado normal, no un error.
+
+**Endpoints que usan esta colección:**
+
+| Endpoint | Operación |
+|---|---|
+| `GET /store/catalog` | `get` (colección completa, filtrado en Python — escala MVP) |
+
+---
+
 ## Índices
 
 Para MVP, todos los accesos son por document ID (lookups O(1)). **No se requieren índices compuestos.** Firestore auto-indexa todos los campos individuales por defecto.

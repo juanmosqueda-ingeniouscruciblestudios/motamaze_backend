@@ -8,3 +8,4 @@
 | Account Deletion | [account-deletion.md](account-deletion.md) | 2026-07-22 |
 | Ad Revenue Reconciliation | [ad-revenue-reconciliation.md](ad-revenue-reconciliation.md) | 2026-07-23 |
 | Age Threshold Recalc | [age-threshold-recalc.md](age-threshold-recalc.md) | 2026-07-23 |
+| Store Catalog & Promotions | [store-catalog.md](store-catalog.md) | 2026-07-24 |
