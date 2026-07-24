@@ -23,6 +23,7 @@ Usage:
 """
 
 import argparse
+from datetime import date
 
 from google.cloud import firestore
 
@@ -59,10 +60,14 @@ PRODUCTS = [
 def main(project: str) -> None:
     client = firestore.Client(project=project)
     ref = client.collection("config").document("catalog")
-    ref.set({"products": PRODUCTS})
+    # catalog_version = today's date, per REST-001: "the client can cache if
+    # the version hasn't changed" — re-running this script IS how the
+    # catalog gets updated, so bumping it here on every run is correct, not
+    # a magic/separate value to remember to update.
+    ref.set({"products": PRODUCTS, "catalog_version": date.today().isoformat()})
 
     doc = ref.get().to_dict()
-    print(f"config/catalog seeded in project={project}")
+    print(f"config/catalog seeded in project={project} (catalog_version={doc['catalog_version']})")
     print(f"  {len(doc['products'])} products:")
     for p in doc["products"]:
         print(f"    {p['product_id']:15s} {p['type']:15s} ${p['price_usd']:.2f} {p['currency']}")

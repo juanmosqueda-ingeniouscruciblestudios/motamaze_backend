@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
+from app.services import store_service
 from app.services.bq_streaming import stream_event, stream_events
 
 router = APIRouter(tags=["game"])
@@ -596,6 +597,64 @@ async def level_complete(
     }
 
 
-# GET  /store/catalog           — GAME-003 (T-240)
+# ---------------------------------------------------------------------------
+# GET /store/catalog  (GAME-003 / T-240)
+# ---------------------------------------------------------------------------
+
+@router.get("/store/catalog")
+async def get_store_catalog(
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    user_id = claims.get("uid", "")
+    now = datetime.now(timezone.utc)
+
+    catalog_snap = await db.collection("config").document("catalog").get()
+    catalog = catalog_snap.to_dict() or {"products": [], "catalog_version": None}
+
+    # Top-level collection, not nested under config/catalog — Firestore
+    # subcollections would need "promotions" to itself be a document under
+    # "config" first, which the architecture doc's config/promotions/{id}
+    # shorthand doesn't actually require; a flat collection is simpler and
+    # matches every other collection in this codebase (users, entitlements,
+    # purchases, etc. are all top-level too).
+    promo_docs = await db.collection("promotions").get()
+    promotions = [d.to_dict() for d in promo_docs]
+
+    user_snap = await db.collection("users").document(user_id).get()
+    user_data = user_snap.to_dict() or {}
+    created_at = user_data.get("created_at", now)
+
+    entitlements_snap = await db.collection("entitlements").document(user_id).get()
+    entitlements = entitlements_snap.to_dict() or {}
+    has_paid = bool(
+        entitlements.get("no_ads")
+        or entitlements.get("skins")
+        or entitlements.get("life_packs_total")
+    )
+
+    session_docs = await (
+        db.collection("sessions")
+        .where("uid", "==", user_id)
+        .order_by("started_at", direction="DESCENDING")
+        .limit(1)
+        .get()
+    )
+    last_session_at = None
+    for s in session_docs:
+        last_session_at = s.to_dict().get("started_at")
+
+    user_segment = store_service.resolve_user_segment(created_at, last_session_at, has_paid, now)
+    owned = store_service.owned_product_ids(entitlements, catalog["products"])
+    products = store_service.resolve_catalog_products(
+        catalog["products"], promotions, owned, user_segment, now
+    )
+
+    return {
+        "catalog_version": catalog.get("catalog_version"),
+        "products": products,
+    }
+
+
 # GET  /profile                 — GAME-004
 # POST /profile/equip-skin      — GAME-004 (T-243)
