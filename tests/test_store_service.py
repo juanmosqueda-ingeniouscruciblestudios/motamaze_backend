@@ -196,3 +196,23 @@ def test_resolve_lives_granted_only_on_consumables():
     by_id = {p["product_id"]: p for p in result}
     assert by_id["lives_pack_5"]["lives_granted"] == 5
     assert "lives_granted" not in by_id["no_ads"]
+
+
+def test_resolve_promotion_active_at_exact_start_boundary():
+    promo = _promo("no_ads", "all", starts=0, ends=1)  # starts_at == now
+    result = resolve_catalog_products([NO_ADS], [promo], set(), "all", NOW)
+    assert result[0]["promotion"] is not None
+
+
+def test_resolve_promotion_active_at_exact_end_boundary():
+    promo = _promo("no_ads", "all", starts=-1, ends=0)  # ends_at == now
+    result = resolve_catalog_products([NO_ADS], [promo], set(), "all", NOW)
+    assert result[0]["promotion"] is not None
+
+
+def test_resolve_orphaned_promotion_ignored():
+    # Promotion references a product_id that isn't in the catalog products
+    # list at all -- must not crash, must not appear anywhere.
+    promo = _promo("does_not_exist", "all")
+    result = resolve_catalog_products([NO_ADS], [promo], set(), "all", NOW)
+    assert result[0]["promotion"] is None
