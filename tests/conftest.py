@@ -345,6 +345,30 @@ def _patch_bq_streaming(monkeypatch):
     monkeypatch.setattr("app.routers.jobs.stream_event", _noop)
 
 
+@pytest.fixture(autouse=True)
+def _patch_remote_config(monkeypatch):
+    """T-244: without this, every /lives call would attempt a real Remote
+    Config fetch (google.auth + a network round-trip, up to a 10s timeout).
+    Simulates "no template published" so callers fall back to their
+    defaults — the same behavior as a real, not-yet-configured project.
+    Individual tests can override _fetch_template_sync to exercise the
+    actual Remote-Config-driven path.
+
+    Also clears the module-level _template_cache before every test: it's
+    keyed by project_id, and every router test shares the same
+    test_settings.gcp_project_id — without clearing, one test populating
+    the cache would leak its template into unrelated later tests for the
+    rest of the TTL window (5 min, longer than a full suite run)."""
+    from app.services import remote_config_service
+
+    remote_config_service._template_cache.clear()
+
+    def _raise(project_id):
+        raise RuntimeError("Remote Config not mocked in this test — using fallback defaults")
+
+    monkeypatch.setattr(remote_config_service, "_fetch_template_sync", _raise)
+
+
 @pytest.fixture
 async def client(fake_db, test_settings):
     app.dependency_overrides[get_firestore_client] = lambda: fake_db

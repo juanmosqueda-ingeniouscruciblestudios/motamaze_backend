@@ -9,13 +9,28 @@ from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
-from app.services import store_service
+from app.services import remote_config_service, store_service
 from app.services.bq_streaming import stream_event, stream_events
 
 router = APIRouter(tags=["game"])
 
-REGEN_INTERVAL_SECS = 1800  # 30 minutes — Remote Config tuneable in v1.1
+# T-244: fallback defaults, used when Remote Config is unreachable or the
+# parameter isn't published yet — see _resolve_lives_config(). No longer
+# read directly anywhere else in this file.
+REGEN_INTERVAL_SECS = 1800  # 30 minutes
 DEFAULT_MAX_LIVES = 5
+
+
+async def _resolve_lives_config(settings: Settings) -> tuple[int, int]:
+    """(regen_interval_secs, default_max_lives) — Remote Config values with
+    the module constants above as fallback (T-244)."""
+    regen_interval_secs = await remote_config_service.get_value(
+        settings.gcp_project_id, "regen_interval_secs", REGEN_INTERVAL_SECS, cast=int
+    )
+    default_max_lives = await remote_config_service.get_value(
+        settings.gcp_project_id, "default_max_lives", DEFAULT_MAX_LIVES, cast=int
+    )
+    return regen_interval_secs, default_max_lives
 
 
 # ---------------------------------------------------------------------------
@@ -65,24 +80,26 @@ class LevelCompleteRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _apply_regen(
-    count: int, max_lives: int, last_regen_at: datetime, now: datetime
+    count: int, max_lives: int, last_regen_at: datetime, now: datetime, regen_interval_secs: int,
 ) -> tuple[int, datetime]:
     """Returns (new_count, new_last_regen_at). Advances last_regen_at by whole intervals."""
     if count >= max_lives:
         return count, last_regen_at
     elapsed = (now - last_regen_at).total_seconds()
-    lives_to_add = int(elapsed // REGEN_INTERVAL_SECS)
+    lives_to_add = int(elapsed // regen_interval_secs)
     if lives_to_add == 0:
         return count, last_regen_at
     new_count = min(count + lives_to_add, max_lives)
-    new_last = last_regen_at + timedelta(seconds=lives_to_add * REGEN_INTERVAL_SECS)
+    new_last = last_regen_at + timedelta(seconds=lives_to_add * regen_interval_secs)
     return new_count, new_last
 
 
-def _next_regen_dt(count: int, max_lives: int, last_regen_at: datetime) -> datetime | None:
+def _next_regen_dt(
+    count: int, max_lives: int, last_regen_at: datetime, regen_interval_secs: int,
+) -> datetime | None:
     if count >= max_lives:
         return None
-    return last_regen_at + timedelta(seconds=REGEN_INTERVAL_SECS)
+    return last_regen_at + timedelta(seconds=regen_interval_secs)
 
 
 # ---------------------------------------------------------------------------
@@ -142,35 +159,37 @@ async def events_behavior(
 async def get_lives(
     claims: dict = Depends(verify_jwt),
     db: AsyncClient = Depends(get_firestore_client),
+    settings: Settings = Depends(get_settings),
 ):
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
+    regen_interval_secs, default_max_lives = await _resolve_lives_config(settings)
     lives_ref = db.collection("lives").document(user_id)
     snap = await lives_ref.get()
 
     if not snap.exists:
         await lives_ref.set({
             "uid": user_id,
-            "count": DEFAULT_MAX_LIVES,
-            "max_lives": DEFAULT_MAX_LIVES,
+            "count": default_max_lives,
+            "max_lives": default_max_lives,
             "last_regen_at": now,
             "next_regen_at": None,
             "updated_at": now,
         })
         return {
-            "current_lives": DEFAULT_MAX_LIVES,
-            "max_lives": DEFAULT_MAX_LIVES,
+            "current_lives": default_max_lives,
+            "max_lives": default_max_lives,
             "next_regen_at": None,
-            "regen_interval_secs": REGEN_INTERVAL_SECS,
+            "regen_interval_secs": regen_interval_secs,
         }
 
     data = snap.to_dict()
-    count = data.get("count", DEFAULT_MAX_LIVES)
-    max_lives = data.get("max_lives", DEFAULT_MAX_LIVES)
+    count = data.get("count", default_max_lives)
+    max_lives = data.get("max_lives", default_max_lives)
     last_regen_at = data["last_regen_at"]
 
-    new_count, new_last = _apply_regen(count, max_lives, last_regen_at, now)
-    next_regen = _next_regen_dt(new_count, max_lives, new_last)
+    new_count, new_last = _apply_regen(count, max_lives, last_regen_at, now, regen_interval_secs)
+    next_regen = _next_regen_dt(new_count, max_lives, new_last, regen_interval_secs)
 
     if new_count != count:
         await lives_ref.update({
@@ -184,7 +203,7 @@ async def get_lives(
         "current_lives": new_count,
         "max_lives": max_lives,
         "next_regen_at": next_regen.isoformat() if next_regen else None,
-        "regen_interval_secs": REGEN_INTERVAL_SECS,
+        "regen_interval_secs": regen_interval_secs,
     }
 
 
@@ -193,16 +212,18 @@ async def get_lives(
 # ---------------------------------------------------------------------------
 
 @async_transactional
-async def _spend_txn(txn, lives_ref, user_id: str, now: datetime):
+async def _spend_txn(
+    txn, lives_ref, user_id: str, now: datetime, regen_interval_secs: int, default_max_lives: int,
+):
     """Firestore transaction: apply regen + decrement. Raises HTTPException on 0 lives."""
     snap = await lives_ref.get(transaction=txn)
     if not snap.exists:
-        new_count = DEFAULT_MAX_LIVES - 1
-        next_r = _next_regen_dt(new_count, DEFAULT_MAX_LIVES, now)
+        new_count = default_max_lives - 1
+        next_r = _next_regen_dt(new_count, default_max_lives, now, regen_interval_secs)
         txn.set(lives_ref, {
             "uid": user_id,
             "count": new_count,
-            "max_lives": DEFAULT_MAX_LIVES,
+            "max_lives": default_max_lives,
             "last_regen_at": now,
             "next_regen_at": next_r,
             "updated_at": now,
@@ -210,16 +231,16 @@ async def _spend_txn(txn, lives_ref, user_id: str, now: datetime):
         return new_count, next_r
 
     data = snap.to_dict()
-    count = data.get("count", DEFAULT_MAX_LIVES)
-    max_lives = data.get("max_lives", DEFAULT_MAX_LIVES)
+    count = data.get("count", default_max_lives)
+    max_lives = data.get("max_lives", default_max_lives)
     last_regen = data["last_regen_at"]
 
-    new_count, new_last = _apply_regen(count, max_lives, last_regen, now)
+    new_count, new_last = _apply_regen(count, max_lives, last_regen, now, regen_interval_secs)
     if new_count == 0:
         raise HTTPException(400, detail={"error_code": "LIVES_INSUFFICIENT", "message": "No lives remaining"})
 
     new_count -= 1
-    next_r = _next_regen_dt(new_count, max_lives, new_last)
+    next_r = _next_regen_dt(new_count, max_lives, new_last, regen_interval_secs)
     txn.update(lives_ref, {
         "count": new_count,
         "last_regen_at": new_last,
@@ -239,9 +260,12 @@ async def lives_spend(
 ):
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
+    regen_interval_secs, default_max_lives = await _resolve_lives_config(settings)
     lives_ref = db.collection("lives").document(user_id)
 
-    remaining, next_regen = await _spend_txn(db.transaction(), lives_ref, user_id, now)
+    remaining, next_regen = await _spend_txn(
+        db.transaction(), lives_ref, user_id, now, regen_interval_secs, default_max_lives
+    )
 
     background_tasks.add_task(
         stream_event, "player_behavior",
@@ -290,6 +314,7 @@ async def lives_grant(
 
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
+    regen_interval_secs, default_max_lives = await _resolve_lives_config(settings)
 
     entitlement_type = "life_pack"
     quantity: int | None = 1
@@ -363,8 +388,8 @@ async def lives_grant(
     # --- Firestore: grant lives ---
     actual_granted = 0
     capped = False
-    current_lives = DEFAULT_MAX_LIVES
-    max_lives = DEFAULT_MAX_LIVES
+    current_lives = default_max_lives
+    max_lives = default_max_lives
     next_regen: datetime | None = None
 
     if quantity is not None and quantity > 0:
@@ -372,30 +397,30 @@ async def lives_grant(
         lives_snap = await lives_ref.get()
 
         if not lives_snap.exists:
-            actual_granted = min(quantity, DEFAULT_MAX_LIVES)
+            actual_granted = min(quantity, default_max_lives)
             capped = actual_granted < quantity
             new_count = actual_granted
             await lives_ref.set({
                 "uid": user_id,
                 "count": new_count,
-                "max_lives": DEFAULT_MAX_LIVES,
+                "max_lives": default_max_lives,
                 "last_regen_at": now,
-                "next_regen_at": _next_regen_dt(new_count, DEFAULT_MAX_LIVES, now),
+                "next_regen_at": _next_regen_dt(new_count, default_max_lives, now, regen_interval_secs),
                 "updated_at": now,
             })
-            next_regen = _next_regen_dt(new_count, DEFAULT_MAX_LIVES, now)
+            next_regen = _next_regen_dt(new_count, default_max_lives, now, regen_interval_secs)
             current_lives = new_count
         else:
             ld = lives_snap.to_dict()
-            count = ld.get("count", DEFAULT_MAX_LIVES)
-            max_lives = ld.get("max_lives", DEFAULT_MAX_LIVES)
+            count = ld.get("count", default_max_lives)
+            max_lives = ld.get("max_lives", default_max_lives)
             last_regen_at = ld["last_regen_at"]
 
-            count, last_regen_at = _apply_regen(count, max_lives, last_regen_at, now)
+            count, last_regen_at = _apply_regen(count, max_lives, last_regen_at, now, regen_interval_secs)
             actual_granted = min(quantity, max_lives - count)
             capped = actual_granted < quantity
             new_count = count + actual_granted
-            next_regen = _next_regen_dt(new_count, max_lives, last_regen_at)
+            next_regen = _next_regen_dt(new_count, max_lives, last_regen_at, regen_interval_secs)
             await lives_ref.update({
                 "count": new_count,
                 "last_regen_at": last_regen_at,
