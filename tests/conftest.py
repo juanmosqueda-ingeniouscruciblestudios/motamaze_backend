@@ -334,7 +334,15 @@ def _patch_apple_jwks(monkeypatch, apple_signing_key):
 @pytest.fixture(autouse=True)
 def _patch_bq_streaming(monkeypatch):
     """BackgroundTasks run in-process under the test transport — without this,
-    every login/refresh/logout/payments call would attempt a real BigQuery insert."""
+    every login/refresh/logout/payments call would attempt a real BigQuery insert.
+
+    app.routers.game was missing here (T-244 ST-05) -- /lives/grant's tests
+    (added in T-244 ST-03) were silently making REAL BigQuery inserts into
+    whatever project test_settings.gcp_project_id points to every time the
+    suite ran, because bq_streaming.stream_event's own try/except only
+    catches GoogleAPIError, not auth failures -- a broken ADC token surfaced
+    it as a hard test failure instead of a silent write. Every router that
+    imports stream_event/stream_events must be listed here."""
 
     async def _noop(*args, **kwargs):
         return None
@@ -343,6 +351,8 @@ def _patch_bq_streaming(monkeypatch):
     monkeypatch.setattr("app.routers.payments.stream_event", _noop)
     monkeypatch.setattr("app.routers.leaderboard.stream_event", _noop)
     monkeypatch.setattr("app.routers.jobs.stream_event", _noop)
+    monkeypatch.setattr("app.routers.game.stream_event", _noop)
+    monkeypatch.setattr("app.routers.game.stream_events", _noop)
 
 
 @pytest.fixture(autouse=True)

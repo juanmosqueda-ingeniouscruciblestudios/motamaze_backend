@@ -1,6 +1,6 @@
 # Firebase Remote Config Integration (T-244) — Estado actual
 
-> Última actualización: 2026-07-24
+> Última actualización: 2026-07-27
 
 `app/services/remote_config_service.py` es el único punto de acceso a Firebase Remote Config del
 backend. Ningún router llama a la API de Remote Config directamente — siempre pasa por
@@ -71,6 +71,48 @@ Lista completa de parámetros + qué controla cada uno: `docs/CONFIG_REFERENCE.m
 
 ---
 
+## Validación end-to-end (ST-05, 2026-07-27) — hallazgo real de IAM
+
+Publicar el template (`scripts/seed_remote_config.py --project motamaze-dev`) **no fue suficiente**
+para que el backend desplegado en dev empezara a usarlo. Cloud Run seguía devolviendo el fallback
+(`1800`/`5`) en cada llamada real a `GET /lives`. Los logs de Cloud Run mostraron el motivo:
+
+```
+remote_config: template fetch failed, using fallback defaults: Remote Config API 403: {
+  "error": {"code": 403, "message": "[AUTHORIZATION_ERROR]: User does not have the following
+  permission: GET_TEMPLATE", "status": "PERMISSION_DENIED"}
+}
+```
+
+La cuenta de servicio (`game-api-backend@motamaze-dev.iam.gserviceaccount.com`) no tenía ningún rol
+que cubriera Remote Config. **No existe un rol de IAM dedicado** para esto — se buscó
+`roles/firebaseremoteconfig.viewer`/`.admin` (no existen como roles predefinidos, confirmado por
+`gcloud iam roles list`) y se probó `roles/firebase.developViewer` (tampoco cubre `GET_TEMPLATE`, la
+API v1 de Remote Config solo reconoce los roles clásicos de Firebase). El fix real:
+
+```bash
+gcloud projects add-iam-policy-binding motamaze-dev \
+  --member="serviceAccount:game-api-backend@motamaze-dev.iam.gserviceaccount.com" \
+  --role="roles/firebase.admin" --condition=None
+```
+
+**Validación real tras el fix** (no solo "no hay error" — se probó que el valor efectivamente viene
+de Remote Config, no de una coincidencia con el fallback): se publicó temporalmente
+`regen_interval_secs=777` (valor centinela, imposible que sea el fallback por coincidencia), se llamó
+`GET /lives` contra el Cloud Run real de dev (`gcloud run services proxy` + JWT real firmado con la
+clave de `jwt-private-key` de Secret Manager, usuario de prueba
+`e2e-test-remote-config-DELETE-ME`) y la respuesta devolvió `regen_interval_secs: 777` — confirmando
+el pipeline completo (IAM → fetch → cache → parse → cast → response) funcionando contra
+infraestructura real. Luego se restauró el valor real (`1800`) con el mismo script y se borró el
+documento Firestore de prueba.
+
+**Pendiente antes de publicar en prod:** otorgar el mismo `roles/firebase.admin` a
+`game-api-backend@motamaze.iam.gserviceaccount.com` en el proyecto `motamaze` — sin esto, prod
+seguiría funcionando igual (el fallback ya es el valor correcto), pero de forma silenciosamente
+no-tunable, sin que nada lo señale como un error.
+
+---
+
 ## "Change auditing"
 
 Satisfecho por el historial de versiones nativo de la consola de Firebase Remote Config (quién
@@ -87,6 +129,6 @@ Ver `docs/CONFIG_REFERENCE.md` para la decisión completa.
   con `GET /lives`, que sí tiene cobertura) sí están probadas contra valores resueltos de Remote
   Config — lo no probado es específicamente el wrapping transaccional de Firestore, no la lógica de
   T-244. Gap pre-existente (el endpoint no tenía tests de ningún tipo antes de este ticket tampoco).
-- **Ningún parámetro publicado todavía en la consola de Firebase** (ST-05, aún no completado a la
-  fecha de este documento) — el backend corre 100% con los defaults de fallback hasta entonces.
-- **No hay parámetros en prod** — solo se planea configurar dev primero.
+- **No hay parámetros en prod** — solo dev está configurado (`motamaze-dev`, ST-05 2026-07-27); prod
+  queda para después del soft launch. **Requiere el mismo fix de IAM (`roles/firebase.admin`) antes
+  de que sirva de algo publicar ahí** — ver sección de arriba.
