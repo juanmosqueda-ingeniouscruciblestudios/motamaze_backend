@@ -288,6 +288,7 @@ Ordenadas por workstream y dependencia de ejecución.
 
 **Monday ID:** 12272121946 | **RAG:** Gray | **Timeline:** 8/3–8/4/2026 | **Critical Path:** No
 
+**Storytelling:** → [changelogs/T-124-app-links-universal-links.md](../changelogs/T-124-app-links-universal-links.md)
 **Logic doc:** → [logic/deep-links.md](../logic/deep-links.md)
 
 **Status:** 🔄 In Progress — ST-02 y ST-03 ✅. El resto bloqueado por accesos (repo del sitio web +
@@ -312,7 +313,7 @@ Firebase Hosting + DNS en Wix, solicitados a Juan por correo 2026-07-27) o por T
 | ST-08 | Repuntar registro DNS de `www` de Wix hacia Firebase Hosting + verificar propagación | ⏳ Pending | Acceso DNS (Wix) | Propagación hasta 24–48 h. Operación más delicada: toca el sitio corporativo en producción |
 | ST-09 | Agregar `www` como dominio en Firebase Hosting + redirect `301` al apex en `firebase.json` | ⏳ Pending | ST-08 | Provisiona el cert TLS para `www`, que hoy no está cubierto |
 | ST-10 | Actualizar `share_base_url` y referencias a `motamaze.com` en código, config y Terraform + tests | ✅ Done 2026-07-27 | — | `share_base_url` → `https://ingeniouscruciblestudios.com/motamaze`. +2 tests (literal del dominio y slash final; los existentes se autorreferenciaban al setting y no detectaban un dominio incorrecto). Suite: 202 passed, 8 skipped. Terraform sin cambios: solo contiene `JWT_ISSUER`/`JWKS_URL` (`api.motamaze.com`), fuera de alcance |
-| ST-11 | Documentación (changelog T-124, `logic/deep-links.md`, corregir arquitectura que asume `motamaze.com`) | 🔄 In Progress | — | `logic/deep-links.md` ✅ 2026-07-27. Changelog pendiente hasta que haya entrega real. Corrección del doc de arquitectura bloqueada: sin permiso de push en `motamaze-project` |
+| ST-11 | Documentación (changelog T-124, `logic/deep-links.md`, corregir arquitectura que asume `motamaze.com`) | 🔄 In Progress | — | `logic/deep-links.md` ✅ y changelog T-124 ✅ (2026-07-27). Corrección del doc de arquitectura bloqueada: sin permiso de push en `motamaze-project` (403) |
 
 ---
 
