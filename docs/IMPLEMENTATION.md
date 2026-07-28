@@ -3,7 +3,7 @@
 Seguimiento de todas las tareas asignadas a Saul Zavala Morin.
 Ordenadas por workstream y dependencia de ejecución.
 
-> Última actualización: 2026-06-19
+> Última actualización: 2026-07-27
 > Fuente de verdad: Monday.com board "motamaze mvp - project plan"
 
 ---
@@ -281,6 +281,38 @@ Ordenadas por workstream y dependencia de ejecución.
 | ST-05 | Crear ad unit Banner (`motamaze_banner_menu`) — Adaptive Banner | ✅ Done 2026-06-17 | `ca-app-pub-9121176819960949/3593004496` |
 | ST-06 | Documentar App ID + 3 production ad unit IDs en `logic/admob-config.md` | ✅ Done 2026-06-17 | IDs documentados y en GitHub |
 | ST-07 | Vincular AdMob a Firebase proyecto `motamaze` | ✅ Done 2026-06-17 | Package: `com.ingeniouscruciblestudios.motamaze`, `google-services.json` descargado |
+
+---
+
+## T-124 — HTTPS App Links (Android) / Universal Links (iOS) para share URL deep links (`/motamaze/s/*`)
+
+**Monday ID:** 12272121946 | **RAG:** Gray | **Timeline:** 8/3–8/4/2026 | **Critical Path:** No
+
+**Logic doc:** → [logic/deep-links.md](../logic/deep-links.md)
+
+**Status:** 🔄 In Progress — ST-02 y ST-03 ✅. El resto bloqueado por accesos (repo del sitio web +
+Firebase Hosting + DNS en Wix, solicitados a Juan por correo 2026-07-27) o por T-IOS-3.
+
+> **Cambio de alcance 2026-06-22 + cambio de dominio 2026-07-27.** No habrá dominio `motamaze.com`;
+> el juego vive en `https://ingeniouscruciblestudios.com/motamaze/`. Las 3 subtareas originales de
+> Monday (2026-06-17) quedaron obsoletas y fueron reemplazadas — una de ellas duplicaba T-442 y otra
+> asumía un deep link para el callback de OAuth, que en realidad usa polling RFC 8252 (REST-001).
+
+### Subtareas
+
+| # | Subtarea | Status | Dependencias | Notas |
+|---|---|---|---|---|
+| ST-01 | Confirmar hosting y control de `ingeniouscruciblestudios.com` + capacidad de escribir en `/.well-known/` del root | 🔄 In Progress | — | Hosting confirmado: Firebase Hosting. Ambos archivos ya se sirven con `200` + `application/json`, el de iOS sin extensión. Falta el acceso de publicación |
+| ST-02 | Definir host canónico (apex vs `www`) y ruta final de share links | ✅ Done 2026-07-27 | — | Apex, sin `www`. El cert TLS declara SAN solo para el apex; `www` sigue en Wix y responde `400` en `/.well-known/` |
+| ST-03 | Obtener SHA-256 de la app signing key desde Play Console | ✅ Done 2026-07-27 | EXT-001 ST-02 ✅ | `9A:08:7E:...:D2:38:58` (32 bytes). App signing key, no upload key. Vía URL `/keymanagement` — la ruta por menú cambió (App Integrity → "Protected with Play") |
+| ST-04 | Obtener Team ID de Apple | 🔴 Stuck | **T-IOS-3** | No es problema de acceso: la inscripción al Apple Developer Program está sin iniciar, el Team ID no existe |
+| ST-05 | Generar y publicar `assetlinks.json` en el root + validar con Digital Asset Links API | ⏳ Pending | ST-03 ✅, acceso repo/Firebase | Contenido definitivo ya armado en `logic/deep-links.md`. Reemplaza el scaffold `[]` actual |
+| ST-06 | Generar y publicar `apple-app-site-association` en el root + validar | ⏳ Pending | ST-04 🔴, acceso repo/Firebase | Requiere `appID` = `TeamID.bundleID`. Scaffold vacío ya desplegado y sirviéndose correctamente |
+| ST-07 | `intent-filter` con `autoVerify` + `pathPrefix=/motamaze/` en `AndroidManifest.xml` | ⏳ Pending | ST-05 | **Owner: Juan** (cliente Godot). `assetlinks.json` no acota rutas — sin esto la app interceptaría todo el dominio. Sin `autoVerify` Android ni consulta el archivo |
+| ST-08 | Repuntar registro DNS de `www` de Wix hacia Firebase Hosting + verificar propagación | ⏳ Pending | Acceso DNS (Wix) | Propagación hasta 24–48 h. Operación más delicada: toca el sitio corporativo en producción |
+| ST-09 | Agregar `www` como dominio en Firebase Hosting + redirect `301` al apex en `firebase.json` | ⏳ Pending | ST-08 | Provisiona el cert TLS para `www`, que hoy no está cubierto |
+| ST-10 | Actualizar `share_base_url` y referencias a `motamaze.com` en código, config y Terraform + tests | 🔄 In Progress | — | Único ítem ejecutable sin accesos externos. Afecta `_tenjin_share_url()`, `_og_proxy_url()` y `share_view()` en `app/routers/social.py` |
+| ST-11 | Documentación (changelog T-124, `logic/deep-links.md`, corregir arquitectura que asume `motamaze.com`) | 🔄 In Progress | — | `logic/deep-links.md` ✅ 2026-07-27. Changelog pendiente hasta que haya entrega real. Corrección del doc de arquitectura bloqueada: sin permiso de push en `motamaze-project` |
 
 ---
 

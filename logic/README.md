@@ -10,3 +10,4 @@
 | Age Threshold Recalc | [age-threshold-recalc.md](age-threshold-recalc.md) | 2026-07-23 |
 | Store Catalog & Promotions | [store-catalog.md](store-catalog.md) | 2026-07-24 |
 | Firebase Remote Config | [remote-config.md](remote-config.md) | 2026-07-24 |
+| Deep Links (App Links / Universal Links) | [deep-links.md](deep-links.md) | 2026-07-27 |
