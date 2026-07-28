@@ -194,13 +194,19 @@ Los deep links de T-124 aplican únicamente a los **share links** (`/motamaze/s/
 | Redirect `www` → apex | DNS en cuenta de Wix + Firebase Hosting |
 | Rewrite de `/motamaze/s/{token}` hacia Cloud Run en `firebase.json` | Acceso al repo del sitio web |
 
-### Deuda en este repo
+### Configuración de URLs en este repo
 
-`Settings.share_base_url` en `app/config.py` sigue apuntando a `https://motamaze.com`, dominio que no
-existe. Debe pasar a `https://ingeniouscruciblestudios.com/motamaze`. Afecta a `_tenjin_share_url()`,
-`_og_proxy_url()` y `share_view()` en `app/routers/social.py`.
+`Settings.share_base_url` = `https://ingeniouscruciblestudios.com/motamaze` (actualizado 2026-07-27,
+antes apuntaba al inexistente `motamaze.com`). Consumido por `_tenjin_share_url()`, `_og_proxy_url()`
+y `share_view()` en `app/routers/social.py`, siempre como `f"{share_base_url}/<path>/{token}"`.
 
-`Settings.company_website_url` ya está correcto (`https://ingeniouscruciblestudios.com/motamaze/`).
+> **Debe permanecer sin slash final.** Un slash produciría `//s/{token}`, una ruta distinta que
+> rompería tanto el deep link como la preview de OG. Hay un test que lo fija:
+> `test_share_base_url_is_the_studio_domain` en `tests/test_social_router.py`.
+
+`Settings.company_website_url` ya estaba correcto (`https://ingeniouscruciblestudios.com/motamaze/`).
+
+### Deuda pendiente
 
 `Settings.jwt_issuer` y `Settings.jwks_url` apuntan a `https://api.motamaze.com`. Si ese subdominio
 tampoco existirá, requiere decisión aparte — `jwt_issuer` va firmado dentro de los JWT ya emitidos,

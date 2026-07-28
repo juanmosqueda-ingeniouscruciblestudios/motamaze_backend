@@ -14,7 +14,11 @@ class Settings(BaseSettings):
     active_season_id: str = "season_001"
     cloudinary_cloud_name: str = "lyku9hz2"
     cloudinary_share_image_id: str = "motamaze_1200x630_v2_yivwuj"
-    share_base_url: str = "https://motamaze.com"
+    # T-124 (2026-07-27): motamaze.com was never registered — the game lives
+    # under the studio domain. Must stay without a trailing slash: social.py
+    # builds URLs as f"{share_base_url}/s/{token}". The /motamaze path segment
+    # is part of the base, so App Links/AASA scope to /motamaze/* accordingly.
+    share_base_url: str = "https://ingeniouscruciblestudios.com/motamaze"
     play_package_name: str = "com.ingeniouscruciblestudios.motamaze"
     # aud claim on a native iOS identity_token is the app's bundle ID (not a
     # separate "Services ID" — that's only for web-based Sign in with Apple JS).
