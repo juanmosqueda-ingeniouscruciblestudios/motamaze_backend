@@ -56,6 +56,19 @@ def owned_product_ids(entitlements: dict, products: list[dict]) -> set[str]:
     return owned
 
 
+def catalog_skin_ids(products: list[dict]) -> set[str]:
+    """Skin product_ids present in the catalog (T-243). Same convention as
+    reconcile_service._infer_entitlement: a skin is a non-consumable whose
+    product_id starts with "skin_". Kept here next to owned_product_ids so
+    the "what counts as a skin" rule lives in one place rather than being
+    re-derived at each call site."""
+    return {
+        p["product_id"]
+        for p in products
+        if p.get("type") == "non_consumable" and p["product_id"].startswith("skin_")
+    }
+
+
 def _select_promotion(candidates: list[dict]) -> dict | None:
     """Tie-break when more than one active promotion matches the same
     product for the same user segment (e.g. an "all" promo and a

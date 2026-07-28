@@ -58,6 +58,10 @@ class LivesSpendRequest(BaseModel):
     session_id: str
 
 
+class EquipSkinRequest(BaseModel):
+    skin_id: str
+
+
 class LivesGrantRequest(BaseModel):
     source: str                     # "iap" | "rewarded_ad_ssv" | "promo"
     session_id: str
@@ -681,5 +685,48 @@ async def get_store_catalog(
     }
 
 
-# GET  /profile                 — GAME-004
-# POST /profile/equip-skin      — GAME-004 (T-243)
+# ---------------------------------------------------------------------------
+# POST /profile/equip-skin  (GAME-005 / T-243)
+# ---------------------------------------------------------------------------
+
+# "skin_default" and null are the same thing (decision 2026-07-28): the client
+# may send either name for the free default look, and it persists as null.
+# If a distinct default skin is ever introduced, only this constant's stored
+# value changes — the endpoint contract stays put.
+DEFAULT_SKIN_ID = "skin_default"
+
+
+@router.post("/profile/equip-skin")
+async def equip_skin(
+    body: EquipSkinRequest,
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    user_id = claims.get("uid", "")
+    user_ref = db.collection("users").document(user_id)
+
+    # The default look deliberately skips both checks below. It isn't a catalog
+    # product, and gating it on ownership would strand a player who never bought
+    # a skin: they could never go back to the plain look.
+    if body.skin_id == DEFAULT_SKIN_ID:
+        await user_ref.update({"equipped_skin": None})
+        return {"skin_id": DEFAULT_SKIN_ID, "equipped": True}
+
+    catalog_snap = await db.collection("config").document("catalog").get()
+    products = (catalog_snap.to_dict() or {}).get("products") or []
+
+    if body.skin_id not in store_service.catalog_skin_ids(products):
+        raise HTTPException(400, detail={"error_code": "SKIN_NOT_FOUND", "message": f"{body.skin_id} is not a skin in the catalog"})
+
+    entitlements_snap = await db.collection("entitlements").document(user_id).get()
+    owned = store_service.owned_product_ids(entitlements_snap.to_dict() or {}, products)
+    if body.skin_id not in owned:
+        raise HTTPException(403, detail={"error_code": "SKIN_NOT_OWNED", "message": f"{body.skin_id} has not been purchased"})
+
+    # update(), not set(merge=True): a valid JWT implies the profile exists, so
+    # merge would only ever paper over an anomaly by recreating a document
+    # holding nothing but equipped_skin. That case is reachable — T-123's purge
+    # job deletes users/{uid} while an access token may still be within its
+    # 15-minute TTL — and an orphan profile is worse than the error.
+    await user_ref.update({"equipped_skin": body.skin_id})
+    return {"skin_id": body.skin_id, "equipped": True}
