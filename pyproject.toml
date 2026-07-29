@@ -26,6 +26,15 @@ dev = [
     "httpx>=0.27",
 ]
 
+[tool.setuptools.packages.find]
+# Only app/ is the distributable package. Without this, setuptools' flat-layout
+# auto-discovery refuses to build: it sees bq/, logic/, terraform/ and
+# changelogs/ as candidate top-level packages and will not guess between them.
+# The Docker build never hit this because it copies pyproject.toml alone before
+# `pip install .`, leaving nothing to be ambiguous about — the app code arrives
+# afterwards via COPY, so it is never installed as a package there.
+include = ["app*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
