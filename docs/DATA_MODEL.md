@@ -439,6 +439,88 @@ Rarity data-driven por achievement. Poblado por Cloud Scheduler cada 24h via Big
 
 ---
 
+### `level_stats/{level_id}` *(agregado 2026-07-29 — T-447 ST-03)*
+
+Dificultad medida por nivel. **26 de los 40 achievements** gatean por win rate (`"WR ≤ 80%"`,
+`"WR ≤ 20%"`, etc.), y antes de esta colección ese dato no existía en ninguna parte del sistema.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `level_id` | `string` | = document ID (1–30) |
+| `win_rate` | `number` | % global de intentos resueltos que fueron victoria (0–100) |
+| `source` | `string` | `"simulated"` (semilla de T-203) \| `"measured"` (BigQuery) |
+| `sample_size` | `number` | Intentos resueltos considerados. `null` cuando `source == "simulated"` |
+| `computed_at` | `timestamp` | Último cálculo |
+
+> **Qué significa el WR.** Es la dificultad del nivel medida sobre **todos los jugadores**, no el win
+> rate personal. Los guards lo usan para impedir que un logro se gane repitiendo el nivel más fácil:
+> `#45 The Hard Way` exige 3★ en un nivel con WR ≤ 20%, es decir, de los más difíciles del juego.
+
+#### Fórmula
+
+```sql
+SELECT level_id,
+       COUNTIF(event_name = 'level_complete') AS wins,
+       COUNTIF(event_name IN ('level_complete', 'level_fail')) AS resolved
+FROM `<project>.motamaze_analytics.player_behavior`
+WHERE level_id IS NOT NULL
+  AND event_date BETWEEN <ventana>
+GROUP BY level_id
+```
+
+`win_rate = wins / resolved * 100`. Se usan intentos **resueltos** como denominador, no `level_start`:
+abandonar una partida no es perderla, y contarla como derrota inflaría artificialmente la dificultad.
+
+#### Dos fases de poblado
+
+**Semilla (`source: "simulated"`).** Al lanzar no hay partidas reales. El harness de simulación de
+T-203 produce `win_rate` por nivel (≈100% = fácil, ≈10% = difícil — ver
+`motamaze-project/.claude/skills/tech_simulation`), que es exactamente la misma métrica calculada
+sobre juego simulado. Es un valor predicho, pero defendible frente a la alternativa de no tener nada.
+
+**Medido (`source: "measured"`).** Job periódico que sustituye la semilla cuando hay volumen. Umbral
+propuesto: **≥ 100 intentos resueltos** por nivel. Por debajo de eso el ruido muestral puede mover un
+nivel entre bandas de guard y otorgar o negar logros por azar.
+
+#### Políticas
+
+> **No se reevalúa hacia atrás.** El WR cambia con el tiempo: un nivel con WR 38% puede subir a 45% y
+> dejar de cumplir un guard de `WR ≤ 40%`. Los desbloqueos son permanentes (`unlock_timestamps`), así
+> que se evalúa contra el **WR vigente al momento de la partida** y no se revisan logros ya otorgados.
+> Lo contrario obligaría a revocar logros ganados legítimamente.
+
+> **WR ausente = guard no evaluable.** Si un nivel no tiene documento —o su `source` sigue siendo
+> `"simulated"` y se decidió no confiar en la semilla—, los guards que dependen de WR **no se
+> cumplen**. Nunca se asume que la condición se satisface: eso regalaría los 26 logros gateados.
+
+#### ⚠️ Dependencia bloqueante: el cliente no emite `level_fail`
+
+La consulta necesita eventos `level_fail` en `player_behavior`. Verificado el 2026-07-29:
+`player_behavior` solo recibe `level_complete`, que lo escribe **el propio backend** desde
+`POST /progress/level-complete`. El catálogo de `event_name` de DATA-001 contempla `level_start`,
+`level_fail`, `maze_shift`, `npc_caught` e `item_collected`, pero en el cliente Godot existe el
+wrapper `events_behavior()` **y nada de gameplay lo llama** — solo las implementaciones stub.
+
+Sin `level_fail` hay victorias pero **no hay denominador**, y el win rate es incalculable.
+
+Es una segunda dependencia de cliente, distinta de T-447 ST-02 (que cubre `match_stats`). Ambas son
+de Juan y conviene pedirlas juntas.
+
+**Escritores:**
+
+| Proceso | Operación |
+|---|---|
+| Script de semilla (T-203) | `set` (una vez, por nivel) |
+| Job periódico (BigQuery) | `set` (sobrescribe cuando `sample_size` supera el umbral) |
+
+**Lectores:**
+
+| Consumidor | Operación |
+|---|---|
+| Motor de evaluación de achievements (T-447 ST-06) | `get` (por nivel, en cada partida evaluada) |
+
+---
+
 ### `leaderboard_cache/{cache_key}` *(agregado 2026-06-22)*
 
 Rankings precalculados del leaderboard por temporada y tipo. Poblado cada 5 minutos por Cloud Scheduler. La CDN cachea el response del endpoint por 5 minutos (`Cache-Control: public, max-age=300`).
