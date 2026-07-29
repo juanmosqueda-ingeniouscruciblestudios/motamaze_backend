@@ -9,6 +9,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Virtual environment — local only, recreate with:
+#   py -3.11 -m venv .venv && pip install -e ".[dev]"
+# 3.11 matches the Dockerfile (python:3.11-slim), not the global interpreter.
+.venv/
+
 # Excel exports (use Monday API instead)
 docs/*.xlsx
 
