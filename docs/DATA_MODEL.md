@@ -461,15 +461,33 @@ Dificultad medida por nivel. **26 de los 40 achievements** gatean por win rate (
 ```sql
 SELECT level_id,
        COUNTIF(event_name = 'level_complete') AS wins,
-       COUNTIF(event_name IN ('level_complete', 'level_fail')) AS resolved
+       COUNTIF(event_name = 'life_spent')     AS attempts
 FROM `<project>.motamaze_analytics.player_behavior`
 WHERE level_id IS NOT NULL
   AND event_date BETWEEN <ventana>
 GROUP BY level_id
 ```
 
-`win_rate = wins / resolved * 100`. Se usan intentos **resueltos** como denominador, no `level_start`:
-abandonar una partida no es perderla, y contarla como derrota inflaría artificialmente la dificultad.
+`win_rate = wins / attempts * 100`.
+
+**El denominador son intentos iniciados**, medidos con los eventos `life_spent` que ya emite
+`POST /lives/spend`. Se eligió sobre "intentos resueltos" (`level_complete + level_fail`) por una
+razón práctica: `life_spent` **ya se está registrando**, mientras que `level_fail` exige instrumentar
+en el cliente una tubería de eventos que hoy no se usa. La diferencia de costo es de un campo contra
+un sistema entero.
+
+> **Supuesto a confirmar con Juan:** que se gaste **exactamente una vida por intento**. Si hay
+> excepciones —niveles gratuitos, tutorial sin costo, continuar tras ver un anuncio— el conteo se
+> desalinea y el WR queda sesgado hacia abajo.
+
+> **Limitación conocida: el abandono cuenta como no-victoria.** Un intento que se empezó y nunca se
+> resolvió resta win rate igual que una derrota. Para medir dificultad eso es defendible —si un nivel
+> es tan duro que la gente lo deja a medias, eso *es* dificultad—, pero también se abandona por
+> batería, interrupciones o aburrimiento, y con este denominador **no se puede distinguir la razón**.
+>
+> Se acepta a sabiendas (decisión 2026-07-29). Emitir `level_fail` permitiría separar abandono real de
+> derrota; queda como **deseable, no bloqueante**, y como tema a revisar con Juan cuando haya datos de
+> producción que muestren cuán grande es la brecha.
 
 #### Dos fases de poblado
 
@@ -493,18 +511,26 @@ nivel entre bandas de guard y otorgar o negar logros por azar.
 > `"simulated"` y se decidió no confiar en la semilla—, los guards que dependen de WR **no se
 > cumplen**. Nunca se asume que la condición se satisface: eso regalaría los 26 logros gateados.
 
-#### ⚠️ Dependencia bloqueante: el cliente no emite `level_fail`
+#### ⚠️ Dependencia bloqueante: `life_spent` no lleva `level_id`
 
-La consulta necesita eventos `level_fail` en `player_behavior`. Verificado el 2026-07-29:
-`player_behavior` solo recibe `level_complete`, que lo escribe **el propio backend** desde
-`POST /progress/level-complete`. El catálogo de `event_name` de DATA-001 contempla `level_start`,
-`level_fail`, `maze_shift`, `npc_caught` e `item_collected`, pero en el cliente Godot existe el
-wrapper `events_behavior()` **y nada de gameplay lo llama** — solo las implementaciones stub.
+El evento ya se emite —`POST /lives/spend` lo escribe a `player_behavior` en cada gasto de vida— pero
+sale con **`level_id: None`**, porque `LivesSpendRequest` solo transporta `session_id`.
 
-Sin `level_fail` hay victorias pero **no hay denominador**, y el win rate es incalculable.
+Es decir: hoy sabemos *cuántos* intentos hubo, pero no *en qué nivel*. Como el win rate es por nivel,
+el dato es inservible tal cual.
+
+**El arreglo es de un campo:** agregar `level_id` a `POST /lives/spend`. El cliente ya llama a ese
+endpoint y el backend ya emite el evento; solo falta poblar el campo.
 
 Es una segunda dependencia de cliente, distinta de T-447 ST-02 (que cubre `match_stats`). Ambas son
-de Juan y conviene pedirlas juntas.
+de Juan y conviene pedirlas juntas — pero esta es incomparablemente más barata que instrumentar
+`level_fail`, que era el enfoque anterior.
+
+> **Descartado por costo, no por diseño:** el catálogo de `event_name` de DATA-001 contempla
+> `level_start`, `level_fail`, `maze_shift`, `npc_caught` e `item_collected`, pero **ninguno se emite**:
+> el cliente Godot tiene el wrapper `events_behavior()` en `http_api_service.gd` y nada de gameplay lo
+> llama, solo las implementaciones stub. Levantar esa tubería para obtener el denominador sería mucho
+> trabajo para un dato que `life_spent` ya casi entrega.
 
 **Escritores:**
 
