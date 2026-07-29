@@ -89,3 +89,33 @@ async def test_requires_jwt(client, fake_db):
     _seed(fake_db, "u-skin-6", owned_skins=["skin_gold"])
     resp = await client.post(URL, json={"skin_id": "skin_gold"})
     assert resp.status_code == 401, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Skins that were never on sale — Season Pass tiers, leaderboard prizes (T-243)
+# ---------------------------------------------------------------------------
+
+
+async def test_equip_earned_skin_absent_from_catalog(client, fake_db, test_settings):
+    """A Season Pass / leaderboard skin is never a sellable product, so it
+    appears in no catalog. Ownership alone must be enough to equip it."""
+    _seed(fake_db, "u-skin-7", owned_skins=[])
+    fake_db.seed("entitlements", "u-skin-7", {
+        "skins": {"skin_garden_rush": {"source": "earned", "acquired_at": None}},
+    })
+
+    resp = await client.post(URL, json={"skin_id": "skin_garden_rush"},
+                             headers=_auth_headers(test_settings, "u-skin-7"))
+    assert resp.status_code == 200, resp.text
+    assert _stored(fake_db, "users", "u-skin-7")["equipped_skin"] == "skin_garden_rush"
+
+
+async def test_legacy_list_shape_still_equips(client, fake_db, test_settings):
+    """Documents written before T-243 store skins as a flat list of ids."""
+    _seed(fake_db, "u-skin-8", owned_skins=[])
+    fake_db.seed("entitlements", "u-skin-8", {"skins": ["skin_gold"]})
+
+    resp = await client.post(URL, json={"skin_id": "skin_gold"},
+                             headers=_auth_headers(test_settings, "u-skin-8"))
+    assert resp.status_code == 200, resp.text
+    assert _stored(fake_db, "users", "u-skin-8")["equipped_skin"] == "skin_gold"

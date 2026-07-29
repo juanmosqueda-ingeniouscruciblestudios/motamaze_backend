@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from google.cloud.firestore import ArrayUnion, AsyncClient
 
 from app.config import Settings
-from app.services import play_api
+from app.services import play_api, store_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +40,27 @@ async def revoke_entitlement(
     elif entitlement_type == "skin":
         snap = await db.collection("entitlements").document(uid).get()
         if snap.exists:
-            skins = snap.to_dict().get("skins", [])
-            skins = [s for s in skins if s != product_id]
-            await db.collection("entitlements").document(uid).set(
-                {"skins": skins, "updated_at": now}, merge=True
-            )
+            skins = store_service.normalize_skins(snap.to_dict())
+            entry = skins.get(product_id)
+            # Only revoke what was bought. The same skin can also arrive from
+            # the Season Pass free track or a leaderboard prize (T-243) — a
+            # refund has no claim on those, and stripping one would punish the
+            # player for a purchase made on top of something they had earned.
+            if entry and entry.get("source") == store_service.SKIN_SOURCE_PURCHASE:
+                # update() rather than set(merge=True): merging a map can only
+                # add or overwrite keys, never drop one, and merge=False would
+                # take the rest of the document (no_ads, life_packs_total) with
+                # it. Replacing the whole skins field is what actually removes.
+                await db.collection("entitlements").document(uid).update({
+                    "skins": {sid: e for sid, e in skins.items() if sid != product_id},
+                    "updated_at": now,
+                })
+                # Drop it from the profile too if it was the equipped look —
+                # the client applies equipped_skin at boot, so otherwise the
+                # player keeps wearing a skin they were refunded for.
+                user_snap = await db.collection("users").document(uid).get()
+                if user_snap.exists and (user_snap.to_dict() or {}).get("equipped_skin") == product_id:
+                    await db.collection("users").document(uid).update({"equipped_skin": None})
     elif entitlement_type == "season_pass":
         await db.collection("season_progress").document(uid).set(
             {"has_gold_pass": False, "updated_at": now}, merge=True

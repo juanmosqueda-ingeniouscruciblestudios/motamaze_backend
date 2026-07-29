@@ -712,16 +712,18 @@ async def equip_skin(
         await user_ref.update({"equipped_skin": None})
         return {"skin_id": DEFAULT_SKIN_ID, "equipped": True}
 
-    catalog_snap = await db.collection("config").document("catalog").get()
-    products = (catalog_snap.to_dict() or {}).get("products") or []
-
-    if body.skin_id not in store_service.catalog_skin_ids(products):
-        raise HTTPException(400, detail={"error_code": "SKIN_NOT_FOUND", "message": f"{body.skin_id} is not a skin in the catalog"})
-
+    # Ownership is the authority on existence, not the catalog: skins also
+    # arrive from the Season Pass free track and the leaderboard top-3, and
+    # those never appear as sellable products. Checking the catalog first would
+    # reject a legitimately earned skin with SKIN_NOT_FOUND (T-243).
     entitlements_snap = await db.collection("entitlements").document(user_id).get()
-    owned = store_service.owned_product_ids(entitlements_snap.to_dict() or {}, products)
-    if body.skin_id not in owned:
-        raise HTTPException(403, detail={"error_code": "SKIN_NOT_OWNED", "message": f"{body.skin_id} has not been purchased"})
+    if body.skin_id not in store_service.owned_skin_ids(entitlements_snap.to_dict() or {}):
+        catalog_snap = await db.collection("config").document("catalog").get()
+        products = (catalog_snap.to_dict() or {}).get("products") or []
+        if body.skin_id in store_service.catalog_skin_ids(products):
+            # A real skin, on sale, that this player has not acquired.
+            raise HTTPException(403, detail={"error_code": "SKIN_NOT_OWNED", "message": f"{body.skin_id} has not been acquired"})
+        raise HTTPException(400, detail={"error_code": "SKIN_NOT_FOUND", "message": f"{body.skin_id} is not a known skin"})
 
     # update(), not set(merge=True): a valid JWT implies the profile exists, so
     # merge would only ever paper over an anomaly by recreating a document

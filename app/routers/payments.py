@@ -16,7 +16,7 @@ from appstoreserverlibrary.models.NotificationTypeV2 import NotificationTypeV2
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
-from app.services import app_store_api, play_api, reconcile_service
+from app.services import app_store_api, play_api, reconcile_service, store_service
 from app.services.bq_streaming import stream_event
 
 logger = logging.getLogger(__name__)
@@ -97,8 +97,17 @@ async def _grant_entitlement(
             {"no_ads": True, "updated_at": now}, merge=True
         )
     elif entitlement_type == "skin":
+        # Map keyed by skin_id, not a list (T-243): the entry records how the
+        # skin was acquired, which the refund path needs so it never revokes a
+        # skin that was earned rather than bought. A list of objects would also
+        # break idempotency — ArrayUnion compares whole objects, so re-granting
+        # with a fresh acquired_at would append a duplicate.
         await db.collection("entitlements").document(user_id).set(
-            {"skins": ArrayUnion([product_id]), "updated_at": now}, merge=True
+            {
+                "skins": {product_id: {"source": store_service.SKIN_SOURCE_PURCHASE, "acquired_at": now}},
+                "updated_at": now,
+            },
+            merge=True,
         )
     elif entitlement_type == "season_pass":
         await db.collection("season_progress").document(user_id).set(

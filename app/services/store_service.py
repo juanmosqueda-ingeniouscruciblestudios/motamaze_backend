@@ -38,12 +38,42 @@ def resolve_user_segment(
     return "all"
 
 
+# T-243: how a player came to own a skin. Skins are not only sold — the Season
+# Pass free track and the leaderboard top-3 hand them out too (project_spec.md),
+# and a refund must never strip a skin that was earned rather than bought.
+SKIN_SOURCE_PURCHASE = "purchase"
+SKIN_SOURCE_EARNED = "earned"
+SKIN_SOURCE_FREE = "free"
+
+
+def normalize_skins(entitlements: dict) -> dict[str, dict]:
+    """entitlements.skins as {skin_id: {"source": ..., "acquired_at": ...}}.
+
+    Accepts the legacy list[str] shape written before T-243 and reads those as
+    purchases — back then buying was the only path that granted a skin, so the
+    inference is exact rather than a guess."""
+    skins = entitlements.get("skins") or {}
+    if isinstance(skins, list):
+        return {sid: {"source": SKIN_SOURCE_PURCHASE, "acquired_at": None} for sid in skins}
+    return skins
+
+
+def owned_skin_ids(entitlements: dict) -> set[str]:
+    """Every skin the player owns, whatever its origin — including ones that
+    were never catalog products (Season Pass tiers, leaderboard prizes)."""
+    return set(normalize_skins(entitlements))
+
+
 def owned_product_ids(entitlements: dict, products: list[dict]) -> set[str]:
     """Non-consumables only — a consumable is never "owned", it's bought
     again each time (REST-001's own example always shows owned=false for
     lives_pack_5). Mirrors reconcile_service._infer_entitlement's product_id
-    conventions (no_ads flag, skins list) rather than re-deriving them."""
-    skins = set(entitlements.get("skins") or [])
+    conventions (no_ads flag, skins list) rather than re-deriving them.
+
+    Scoped to catalog products on purpose: this drives the store screen, where
+    a skin that was never for sale has nothing to show. Use owned_skin_ids()
+    when the question is ownership rather than what to render in the store."""
+    skins = owned_skin_ids(entitlements)
     owned: set[str] = set()
     for product in products:
         if product["type"] == "consumable":

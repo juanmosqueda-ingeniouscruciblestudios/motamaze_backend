@@ -48,6 +48,18 @@ def _set_nested(store: dict, dotted_key: str, value) -> None:
     cur[parts[-1]] = value
 
 
+def _deep_merge(target: dict, incoming: dict) -> None:
+    """set(merge=True) on real Firestore merges nested maps key-by-key rather
+    than replacing them wholesale. Shallow .update() here would drop sibling
+    keys — e.g. granting entitlements.skins.skin_gold would wipe every other
+    skin the player owns (T-243)."""
+    for key, value in incoming.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _deep_merge(target[key], value)
+        else:
+            target[key] = value
+
+
 def _resolve_value(value, existing_value):
     """Resolves Firestore field-transform sentinels (currently just ArrayUnion,
     the only one this codebase uses) against the previously-stored value."""
@@ -72,7 +84,7 @@ class FakeDocRef:
         existing = self._collection._docs.get(self.id, {}) if merge else {}
         resolved = {k: _resolve_value(v, existing.get(k)) for k, v in data.items()}
         if merge and self.id in self._collection._docs:
-            self._collection._docs[self.id].update(resolved)
+            _deep_merge(self._collection._docs[self.id], resolved)
         else:
             self._collection._docs[self.id] = resolved
 

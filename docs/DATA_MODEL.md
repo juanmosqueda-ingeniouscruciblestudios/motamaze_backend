@@ -239,11 +239,50 @@ Compras y entitlements del jugador. Se actualiza tras verificar compras en `POST
 |---|---|---|
 | `uid` | `string` | = document ID |
 | `no_ads` | `boolean` | `true` si compró "No Ads" IAP |
-| `skins` | `string[]` | Skins compradas: `["skin_gold", "skin_silver"]` |
+| `skins` | `map` | Skins que posee, indexadas por `skin_id`. Ver abajo |
 | `life_packs_total` | `number` | Total de life packs comprados (para analytics) |
 | `updated_at` | `timestamp` | Última actualización |
 
-**Endpoint `POST /profile/equip-skin`** lee esta colección para verificar que el usuario posee la skin antes de escribir `users/{uid}.equipped_skin`.
+#### `skins` — origen de adquisición (T-243, 2026-07-28)
+
+Las skins **no solo se venden**: el track Free del Season Pass y los premios del top-3 del
+leaderboard también las otorgan (`project_spec.md`). Por eso cada entrada registra **cómo** se
+obtuvo, no solo que se posee:
+
+```json
+"skins": {
+  "skin_gold":        { "source": "purchase", "acquired_at": "2026-07-28T10:00:00Z" },
+  "skin_scarf":       { "source": "free",     "acquired_at": "2026-07-28T11:00:00Z" },
+  "skin_garden_rush": { "source": "earned",   "acquired_at": "2026-07-28T12:00:00Z" }
+}
+```
+
+| `source` | Cuándo |
+|---|---|
+| `purchase` | Comprada en la tienda (IAP verificado) |
+| `earned` | Ganada — reto, tier del Season Pass, premio de leaderboard |
+| `free` | Otorgada sin costo ni reto — promoción, regalo |
+
+**Por qué un mapa y no una lista de objetos:** `ArrayUnion` compara objetos completos, así que
+volver a otorgar la misma skin con distinto `acquired_at` crearía una entrada duplicada. Un mapa
+indexado por `skin_id` es idempotente por construcción.
+
+> **La revocación es consciente del origen.** `reconcile_service.revoke_entitlement()` solo elimina
+> skins con `source == "purchase"`. Un reembolso no tiene derecho sobre una skin ganada o regalada —
+> despojarla castigaría al jugador por una compra hecha encima de algo que ya tenía. Al revocar, si
+> esa skin era la equipada, también se limpia `users/{uid}.equipped_skin`, porque el cliente aplica
+> el skin equipado al arrancar.
+
+> **Compatibilidad hacia atrás:** los documentos escritos antes de T-243 guardan `skins` como lista
+> plana de strings. `store_service.normalize_skins()` los lee como `source: "purchase"` — en ese
+> momento comprar era la única vía que otorgaba una skin, así que la inferencia es exacta, no una
+> suposición. No se requiere migración.
+
+**Endpoint `POST /profile/equip-skin`** lee esta colección para verificar que el usuario posee la
+skin antes de escribir `users/{uid}.equipped_skin`. **La posesión es la autoridad sobre la
+existencia**, no el catálogo: una skin ganada nunca aparece como producto vendible, así que validar
+contra el catálogo la rechazaría con `SKIN_NOT_FOUND`. El catálogo solo se consulta para distinguir
+entre "skin real que no posees" (403) y "skin inexistente" (400).
 
 **Endpoints que usan esta colección:**
 
