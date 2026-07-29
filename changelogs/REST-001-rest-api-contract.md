@@ -74,7 +74,7 @@ Este documento es el **contrato vinculante** entre el cliente Godot (Juan) y el 
 | # | Método | Path | Auth | Descripción | Monday task |
 |---|---|---|---|---|---|
 | 7 | `GET` | `/progress` | 🔒 JWT | Devuelve el progreso del usuario: `highest_unlocked_level`, `total_stars` | Game-001 |
-| 8 | `POST` | `/progress/level-complete` | 🔒 JWT | Registra nivel completado, valida score server-side, desbloquea siguiente nivel | Game-001 |
+| 8 | `POST` | `/progress/level-complete` | 🔒 JWT | Registra nivel completado, valida score server-side, desbloquea siguiente nivel. Transporta `match_stats` opcional para evaluar achievements (T-447, 2026-07-29) | Game-001 |
 | 9 | `GET` | `/lives` | 🔒 JWT | Devuelve vidas actuales + timestamp de próxima regeneración | Game-002 |
 | 10 | `POST` | `/lives/spend` | 🔒 JWT | Decremento server-authoritative de vidas (safe — no puede ir a negativo) | Game-002 |
 | 11 | `POST` | `/lives/grant` | 🔒 JWT | Otorga vidas al usuario — fuente: `iap` \| `rewarded_ad_ssv` \| `promo` | Game-003 |
@@ -616,12 +616,91 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 | `stars_earned` | int | ✅ | Estrellas obtenidas (1, 2, o 3) |
 | `duration_secs` | int | ✅ | Duración de la partida en segundos |
 | `session_id` | string | ✅ | Session ID activo — necesario para el event de `player_behavior` en BQ |
+| `match_stats` | object \| null | ⬜ | Estadísticas de la partida — requeridas para evaluar achievements (T-447). Ver abajo |
 
 **Validaciones server-side:**
 - `level_id` entre 1 y 30
 - `level_id` ≤ `highest_unlocked_level + 1` (no puede saltarse niveles)
 - `stars_earned` entre 1 y 3
 - `score` ≥ 0
+
+---
+
+##### `match_stats` — estadísticas de partida (T-447, agregado 2026-07-29)
+
+Bloque **opcional** que transporta lo que los 40 achievements de `project_spec.md` necesitan evaluar.
+Antes de existir, el backend recibía 5 campos y solo **2 de los 40** logros eran evaluables.
+
+> **Bloque completo o ausente.** Se envía entero o no se envía. Un cliente sin actualizar omite
+> `match_stats` y sigue funcionando: el progreso se registra igual, simplemente no se evalúa ningún
+> achievement. **La ausencia de un campo nunca significa "condición cumplida"** — de lo contrario se
+> otorgarían logros gratis a clientes viejos.
+
+```json
+"match_stats": {
+  "won":                     true,
+  "game_mode":               "food",
+  "target_score":            12,
+  "npcs":                    { "bola": 1, "mancha": 1, "huracan": 0, "zas": 2 },
+  "hits_taken":              0,
+  "badsmell_hits":           0,
+  "stuns_taken":             0,
+  "frozen_secs":             0.0,
+  "food_collected":          27,
+  "max_food_deficit":        6,
+  "final_gap":               2,
+  "lead_changes":            3,
+  "max_food_drought_secs":   14.2,
+  "max_idle_secs":           3.1,
+  "maze_coverage_pct":       91.4,
+  "shift_reroutes":          2,
+  "time_to_target_secs":     38.5,
+  "round_duration_secs":     140.0
+}
+```
+
+| Campo | Tipo | Descripción | Achievements que lo usan |
+|---|---|---|---|
+| `won` | bool | Si la partida se ganó. **Explícito, no inferido de `score`** | Casi todos |
+| `game_mode` | string | Uno de los 8 modos (ver `docs/game_modes.md`) | #6, #10, #13, #16, #20, #22, #25, #27, #28, #31, #43 |
+| `target_score` | int | Objetivo de comida del nivel. Es config de nivel, pero el backend no la tiene | #6 (`TARGET_SCORE ≥ 10`) |
+| `npcs.bola` / `.mancha` / `.huracan` / `.zas` | int | **Conteos, no booleanos** — hay guards que piden `n_huracan + n_zas ≥ 2` y otros los 4 presentes | #7, #9, #13, #17, #19, #24, #27, #30, #39, #41, #42, #47 |
+| `hits_taken` | int | Golpes recibidos | #24, #27, #32, #37, #38, #41, #42, #44, #47 |
+| `badsmell_hits` | int | Golpes de badsmell (Mancha). **Distinto de `hits_taken`** — #41 exige ambos en cero | #9, #39, #41 |
+| `stuns_taken` | int | Aturdimientos (Bola) | #17 |
+| `frozen_secs` | float | Segundos congelado por Mancha | #19 |
+| `food_collected` | int | Comida recolectada | #13 |
+| `max_food_deficit` | int | Mayor desventaja de comida durante la partida | #7, #14 |
+| `final_gap` | int | Diferencia de comida al cierre | #26 |
+| `lead_changes` | int | Cambios de liderazgo | #26, #31 |
+| `max_food_drought_secs` | float | Mayor intervalo sin recolectar comida | #22 |
+| `max_idle_secs` | float | Mayor intervalo sin moverse | #10 |
+| `maze_coverage_pct` | float | % del laberinto recorrido (0–100) | #15 |
+| `shift_reroutes` | int | Rerouteos forzados por shift del laberinto | #16 |
+| `time_to_target_secs` | float | Segundos hasta alcanzar el objetivo | #6, #28, #43 |
+| `round_duration_secs` | float | Duración total asignada a la ronda | #6, #28, #43 |
+
+> **`round_duration_secs` no es `duration_secs`.** El campo de nivel superior mide cuánto jugó el
+> jugador; este es el tiempo total que la ronda otorgaba. Los logros de First Bite se evalúan sobre
+> `round_duration_secs − time_to_target_secs` (segundos restantes), así que hacen falta los dos.
+
+**Validaciones server-side.** Estas métricas las reporta el cliente y otorgan Season Points que
+alimentan el leaderboard, así que no se aceptan a ciegas:
+
+- Contadores (`hits_taken`, `food_collected`, `lead_changes`, `shift_reroutes`, `stuns_taken`,
+  `badsmell_hits`, `max_food_deficit`, `final_gap`) ≥ 0
+- `maze_coverage_pct` entre 0 y 100
+- `game_mode` dentro de los 8 valores conocidos
+- Campos de tiempo (`frozen_secs`, `max_idle_secs`, `max_food_drought_secs`, `time_to_target_secs`)
+  ≥ 0 y **≤ `round_duration_secs`**
+- `round_duration_secs` > 0
+
+Un `match_stats` que falle validación **descarta la evaluación de achievements de esa partida** pero
+**no rechaza el registro de progreso** — el jugador no debe perder su nivel completado por un bug de
+instrumentación del cliente.
+
+> **Fuera de este bloque:** el *win rate* del nivel, que gatea 26 de los 40 logros, **no lo envía el
+> cliente**. Es una estadística global agregada server-side — ver T-447 ST-03.
 
 **Response `200 OK`:**
 ```json
