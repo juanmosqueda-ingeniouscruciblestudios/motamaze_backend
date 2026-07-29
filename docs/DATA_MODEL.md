@@ -377,8 +377,8 @@ Progreso del jugador en cada achievement. Un solo documento por usuario con todo
 | Campo | Tipo | Descripción |
 |---|---|---|
 | `uid` | `string` | = document ID |
-| `unlocked` | `string[]` | IDs de achievements desbloqueados, ej: `["first_level", "maze_master_5"]` |
-| `progress` | `map<string, number>` | Progreso actual por achievement, ej: `{"maze_master_10": 6}` |
+| `unlocked` | `string[]` | `achievement_id`s desbloqueados (ver `config/achievements`), ej: `["first_blood", "maze_master"]` |
+| `progress` | `map<string, number>` | Progreso actual por achievement, ej: `{"three_star_warrior": 6}` |
 | `unlock_timestamps` | `map<string, timestamp>` | Cuándo se desbloqueó cada achievement |
 | `updated_at` | `timestamp` | Última escritura |
 
@@ -386,27 +386,31 @@ Progreso del jugador en cada achievement. Un solo documento por usuario con todo
 ```json
 {
   "uid": "google-sub-123",
-  "unlocked": ["first_level", "maze_master_5"],
+  "unlocked": ["first_blood", "maze_master"],
   "progress": {
-    "maze_master_10": 6,
-    "speed_run": 2
+    "three_star_warrior": 6,
+    "hot_streak": 2
   },
   "unlock_timestamps": {
-    "first_level": "2026-09-15T10:30:00Z",
-    "maze_master_5": "2026-09-17T14:20:00Z"
+    "first_blood": "2026-09-15T10:30:00Z",
+    "maze_master": "2026-09-17T14:20:00Z"
   },
   "updated_at": "2026-09-17T14:20:00Z"
 }
 ```
 
-> **Escritura:** FastAPI evalúa logros en `POST /progress/level-complete` y otros endpoints relevantes. Si se cumple la condición de un achievement, lo agrega a `unlocked` y registra `unlock_timestamps`.
+> **Estado 2026-07-29:** esta escritura todavía no existe en código. La idea es que `POST
+> /progress/level-complete` evalúe los guards (usando `match_stats` + `level_stats.win_rate`) y
+> agregue a `unlocked`/`progress`/`unlock_timestamps` lo que corresponda — ese motor es T-447 ST-07,
+> pendiente. Hoy `achievement_progress` no tiene ningún escritor; el ejemplo de arriba es el diseño
+> objetivo, no una captura de un documento real.
 
 **Endpoints que usan esta colección:**
 
 | Endpoint | Operación |
 |---|---|
-| `POST /progress/level-complete` | `update` (evalúa y otorga achievements relacionados con niveles) |
-| `GET /achievements` | `get` |
+| `POST /progress/level-complete` (T-447 ST-07, pendiente) | `update` (evalúa y otorga achievements relacionados con niveles) |
+| `GET /achievements` (T-447 ST-09, pendiente) | `get` |
 
 ---
 
@@ -694,6 +698,47 @@ config/catalog
 |---|---|
 | `GET /store/catalog` | `get` |
 | `scripts/seed_store_catalog.py` (manual, no un endpoint) | `set` — siembra/actualiza el catálogo |
+
+---
+
+### `config/achievements` *(agregado 2026-07-29 — T-447 ST-05)*
+
+Documento único con el catálogo estático (display) de los 40 achievements de `project_spec.md`
+(§Achievements). Mismo patrón que `config/catalog`: un doc, sembrado por script, versión por fecha.
+
+```
+config/achievements
+  catalog_version   string    ← fecha ISO de la última siembra (scripts/seed_achievements.py)
+  achievements      array     ← ver estructura abajo
+```
+
+**`achievements[i]` (elemento del array):**
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `achievement_id` | `string` | Slug legible, ej. `"the_hard_way"` — es la clave que usan `achievement_progress` y `achievement_rarities`, no el ID numérico de `project_spec.md` |
+| `spec_id` | `number` | ID numérico original de `project_spec.md`, solo para trazabilidad — no contiguo (1–49 con huecos), no usado como clave en ningún lado |
+| `name` | `string` | Nombre para mostrar, ej. `"The Hard Way"` |
+| `description` | `string` | Descripción para mostrar |
+| `rarity_tier` | `string` | `"COMMON"` \| `"UNCOMMON"` \| `"RARE"` \| `"EPIC"` \| `"LEGENDARY"` — estático, la rareza *medida* vive en `achievement_rarities` |
+| `points` | `number` | Aporte a `season_points` vía `achievement_bonus` al desbloquear (25/75/200/400/800 según rareza, T-447 ST-08) |
+| `guard_notes` | `string` | Condición en texto libre (columna "Guards / Conditions" de `project_spec.md`) — **solo referencia**, no se evalúa desde aquí |
+
+> **Por qué los guards no son datos:** las 40 condiciones son heterogéneas ("WR ≤ 80%", "n_zas ≥ 1",
+> "0 hits en 10 niveles distintos esta temporada") y fijas — no cambian sin un deploy de código, y
+> nadie fuera de ingeniería las edita en vivo. Construir un DSL de reglas para 40 casos fijos sería
+> sobre-ingeniería; se implementan como predicados de Python en el motor de evaluación (T-447 ST-07),
+> indexados por el mismo `achievement_id`.
+>
+> **Validado (`tests/test_seed_achievements_data.py`):** 40 achievements, IDs únicos, conteo y puntos
+> por rareza coinciden con la tabla de `project_spec.md` (10/10/8/6/6, 25/75/200/400/800, total 9,800 pts).
+
+**Endpoints que usan esta colección:**
+
+| Endpoint | Operación |
+|---|---|
+| `GET /achievements` (T-447 ST-09) | `get` |
+| `scripts/seed_achievements.py` (manual, no un endpoint) | `set` — siembra/actualiza el catálogo |
 
 ---
 
