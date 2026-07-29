@@ -6,7 +6,10 @@ already-read data."""
 from datetime import datetime, timedelta, timezone
 
 from app.services.store_service import (
+    catalog_skin_ids,
+    normalize_skins,
     owned_product_ids,
+    owned_skin_ids,
     resolve_catalog_products,
     resolve_user_segment,
 )
@@ -118,9 +121,58 @@ def test_owned_skin_from_skins_list():
     assert owned_product_ids({"skins": []}, [SKIN_GOLD]) == set()
 
 
+def test_owned_skin_from_skins_map():
+    """T-243 shape: skins carry their acquisition source, so the value is a
+    map rather than a bare id."""
+    entitlements = {"skins": {"skin_gold": {"source": "purchase", "acquired_at": NOW}}}
+    assert owned_product_ids(entitlements, [SKIN_GOLD]) == {"skin_gold"}
+
+
 def test_owned_empty_entitlements_doc():
     # New user, entitlements/{uid} doesn't exist yet -> caller passes {}.
     assert owned_product_ids({}, [NO_ADS, SKIN_GOLD]) == set()
+
+
+# ---------------------------------------------------------------------------
+# Skin acquisition source — T-243
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_skins_reads_legacy_list_as_purchases():
+    """Before T-243 a skin could only be granted by buying it, so reading the
+    old list shape as purchases is exact rather than a guess."""
+    assert normalize_skins({"skins": ["skin_gold", "skin_silver"]}) == {
+        "skin_gold": {"source": "purchase", "acquired_at": None},
+        "skin_silver": {"source": "purchase", "acquired_at": None},
+    }
+
+
+def test_normalize_skins_passes_map_through():
+    skins = {"skin_garden_rush": {"source": "earned", "acquired_at": NOW}}
+    assert normalize_skins({"skins": skins}) == skins
+
+
+def test_normalize_skins_handles_absent_and_null():
+    assert normalize_skins({}) == {}
+    assert normalize_skins({"skins": None}) == {}
+
+
+def test_owned_skin_ids_ignores_the_catalog():
+    """Season Pass tiers and leaderboard prizes are never sellable products, so
+    ownership must not be scoped to what the store happens to list."""
+    entitlements = {"skins": {"skin_garden_rush": {"source": "earned", "acquired_at": NOW}}}
+    assert owned_skin_ids(entitlements) == {"skin_garden_rush"}
+    # The same skin is invisible to owned_product_ids, which answers a
+    # different question: what to render in the store.
+    assert owned_product_ids(entitlements, [NO_ADS, SKIN_GOLD]) == set()
+
+
+def test_catalog_skin_ids_filters_by_convention():
+    assert catalog_skin_ids([LIVES_PACK, NO_ADS, SKIN_GOLD]) == {"skin_gold"}
+    # A consumable named like a skin is still not a skin.
+    fake = {"product_id": "skin_bundle_5", "type": "consumable"}
+    assert catalog_skin_ids([fake]) == set()
+    assert catalog_skin_ids([]) == set()
 
 
 # ---------------------------------------------------------------------------

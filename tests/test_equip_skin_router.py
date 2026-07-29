@@ -110,6 +110,32 @@ async def test_equip_earned_skin_absent_from_catalog(client, fake_db, test_setti
     assert _stored(fake_db, "users", "u-skin-7")["equipped_skin"] == "skin_garden_rush"
 
 
+async def test_equipping_twice_is_idempotent(client, fake_db, test_settings):
+    _seed(fake_db, "u-skin-9", owned_skins=["skin_gold"])
+    headers = _auth_headers(test_settings, "u-skin-9")
+
+    first = await client.post(URL, json={"skin_id": "skin_gold"}, headers=headers)
+    second = await client.post(URL, json={"skin_id": "skin_gold"}, headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert _stored(fake_db, "users", "u-skin-9")["equipped_skin"] == "skin_gold"
+
+
+async def test_switching_skin_replaces_rather_than_accumulates(client, fake_db, test_settings):
+    _seed(fake_db, "u-skin-10", owned_skins=["skin_gold", "skin_silver"])
+    headers = _auth_headers(test_settings, "u-skin-10")
+
+    await client.post(URL, json={"skin_id": "skin_gold"}, headers=headers)
+    resp = await client.post(URL, json={"skin_id": "skin_silver"}, headers=headers)
+
+    assert resp.status_code == 200
+    assert _stored(fake_db, "users", "u-skin-10")["equipped_skin"] == "skin_silver"
+    # Equipping is a swap, not a grant -- ownership is untouched either way.
+    assert set(_stored(fake_db, "entitlements", "u-skin-10")["skins"]) == {"skin_gold", "skin_silver"}
+
+
 async def test_legacy_list_shape_still_equips(client, fake_db, test_settings):
     """Documents written before T-243 store skins as a flat list of ids."""
     _seed(fake_db, "u-skin-8", owned_skins=[])

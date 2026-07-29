@@ -94,7 +94,12 @@ async def test_ios_verify_grants_skin(client, fake_db, test_settings, monkeypatc
     )
     assert resp.status_code == 200
     entitlements = (await fake_db.collection("entitlements").document("user-ios-1").get()).to_dict()
-    assert "skin_gold" in entitlements["skins"]
+    # T-243: assert the shape, not just membership. "x in y" is true for both a
+    # list and a map, so the previous assertion passed regardless of what was
+    # stored — including nothing useful. The source is what the refund path
+    # reads to decide whether it may revoke.
+    assert entitlements["skins"]["skin_gold"]["source"] == "purchase"
+    assert entitlements["skins"]["skin_gold"]["acquired_at"] is not None
 
 
 async def test_ios_verify_grants_season_pass(client, fake_db, test_settings, monkeypatch):
