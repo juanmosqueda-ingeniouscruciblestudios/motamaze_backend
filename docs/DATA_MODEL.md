@@ -479,6 +479,13 @@ un sistema entero.
 > **Supuesto a confirmar con Juan:** que se gaste **exactamente una vida por intento**. Si hay
 > excepciones —niveles gratuitos, tutorial sin costo, continuar tras ver un anuncio— el conteo se
 > desalinea y el WR queda sesgado hacia abajo.
+>
+> **Momento del gasto: al iniciar el intento, no al perderlo.** El backend no controla cuándo el
+> cliente llama `POST /lives/spend` — es responsabilidad del cliente Godot. Se asume que ocurre al
+> arrancar el nivel porque la alternativa es explotable: si la vida se descontara solo al perder, un
+> jugador que ve que va a perder podría abandonar antes del resultado para no gastarla. Gastar al
+> inicio es lo único que no crea ese incentivo. Confirmación pendiente con Juan (2026-08-03),
+> probabilidad alta de que sea así (razonamiento de Saul, 2026-07-29).
 
 > **Limitación conocida: el abandono cuenta como no-victoria.** Un intento que se empezó y nunca se
 > resolvió resta win rate igual que una derrota. Para medir dificultad eso es defendible —si un nivel
