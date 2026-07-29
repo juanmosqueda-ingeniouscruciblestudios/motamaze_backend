@@ -3,8 +3,13 @@
 Seguimiento de todas las tareas asignadas a Saul Zavala Morin.
 Ordenadas por workstream y dependencia de ejecución.
 
-> Última actualización: 2026-07-27
+> Última actualización: 2026-07-28
 > Fuente de verdad: Monday.com board "motamaze mvp - project plan"
+>
+> **Convención de numeración (2026-07-28):** los subitems de Monday llevan el prefijo `ST-##:` en su
+> nombre, de modo que el número existe en el tablero y no solo aquí. Al agregar una subtarea a mitad
+> de un ticket, se le asigna el número que le corresponde por orden de ejecución y **se renumeran las
+> posteriores en ambos lados** — tablero y este archivo.
 
 ---
 
@@ -314,6 +319,84 @@ Firebase Hosting + DNS en Wix, solicitados a Juan por correo 2026-07-27) o por T
 | ST-09 | Agregar `www` como dominio en Firebase Hosting + redirect `301` al apex en `firebase.json` | ⏳ Pending | ST-08 | Provisiona el cert TLS para `www`, que hoy no está cubierto |
 | ST-10 | Actualizar `share_base_url` y referencias a `motamaze.com` en código, config y Terraform + tests | ✅ Done 2026-07-27 | — | `share_base_url` → `https://ingeniouscruciblestudios.com/motamaze`. +2 tests (literal del dominio y slash final; los existentes se autorreferenciaban al setting y no detectaban un dominio incorrecto). Suite: 202 passed, 8 skipped. Terraform sin cambios: solo contiene `JWT_ISSUER`/`JWKS_URL` (`api.motamaze.com`), fuera de alcance |
 | ST-11 | Documentación (changelog T-124, `logic/deep-links.md`, corregir arquitectura que asume `motamaze.com`) | 🔄 In Progress | — | `logic/deep-links.md` ✅ y changelog T-124 ✅ (2026-07-27). Corrección del doc de arquitectura bloqueada: sin permiso de push en `motamaze-project` (403) |
+
+---
+
+## T-243 — Backend `/profile/equip-skin` (entitlement-checked) + persistencia de `equipped_skin`
+
+**Monday ID:** 12272254774 | **RAG:** Gray | **Timeline:** 8/5/2026 | **Critical Path:** No
+
+**Storytelling:** → changelog pendiente (ST-05)
+
+**Status:** 🔄 In Progress — ST-01–03 ✅ (2026-07-28)
+
+### Subtareas
+
+| # | Subtarea | Status | Dependencias | Notas |
+|---|---|---|---|---|
+| ST-01 | `POST /profile/equip-skin` — validación de catálogo (400) + ownership (403) + persistencia | ✅ Done 2026-07-28 | T-240 ✅ | Commit `0daada0`. Reusa `store_service.owned_product_ids()`; `skin_default` ≡ `null` y salta ambas validaciones |
+| ST-02 | Limpiar `users/{uid}.equipped_skin` en `revoke_entitlement` al reembolsar | ✅ Done 2026-07-28 | ST-03 | **Absorbida en ST-03** — mismo bloque de código, separarlas obligaba a tocar dos veces la misma función. Commit `a2e30b6` |
+| ST-03 | Modelar origen de adquisición de skins (`purchase`/`earned`/`free`) + revocación consciente del origen | ✅ Done 2026-07-28 | — | Commit `a2e30b6`. Surge de detectar que Season Pass y leaderboard otorgan skins que nunca son productos vendibles |
+| ST-04 | Tests completos | ⏳ Pending | ST-03 ✅ | **Alcance reducido**: los casos de reembolso ya se cubrieron en ST-03 (12 tests). Queda idempotencia |
+| ST-05 | Documentación (changelog T-243, alinear REST-001 con `skin_default` = `null`) | ⏳ Pending | — | `DATA_MODEL.md` ya actualizado en ST-03. `game.py` ya limpio desde ST-01 |
+
+> **Bloqueo externo para prueba end-to-end:** `config/catalog` solo siembra `lives_pack_5` y `no_ads` —
+> `skin_gold` y `skin_silver` están excluidos porque su precio sigue en TBD. Hasta que Juan confirme
+> precios, el único `skin_id` aceptado en dev y prod es `skin_default`. No bloquea el backend, sí la
+> prueba del cliente (T-242).
+
+---
+
+## T-311 — Tenjin SDK integration (client) + backend fraud filtering
+
+**Monday ID:** 12272094807 | **RAG:** Gray | **Timeline:** 8/3–8/14/2026 (reprogramado 2026-07-28) | **Critical Path:** No
+
+**Storytelling:** → [changelogs/T-311-tenjin-share-tracking-link.md](../changelogs/T-311-tenjin-share-tracking-link.md)
+
+**Status:** 🔄 In Progress — ST-01–02 ✅. Ruta crítica en ST-03 (Juan)
+
+### Subtareas
+
+| # | Subtarea | Status | Owner | Notas |
+|---|---|---|---|---|
+| ST-01 | Backend: envolver `share_url` en tracking link de Tenjin con fallback a URL directa | ✅ Done 2026-07-21 | Saul | Decision L Opción A |
+| ST-02 | Crear cuenta + app en dashboard de Tenjin | ✅ Done 2026-07-21 | Saul | |
+| ST-03 | Godot: integrar SDK de Tenjin — install + revenue events | ⏳ Pending | **Juan** | **Bloqueante de toda la cadena** |
+| ST-04 | Crear campaign + tracking link orgánico/referral | 🔴 Stuck | Saul | Soporte de Tenjin confirmó que el SDK debe ir primero — invierte la dependencia asumida |
+| ST-05 | Godot: manejar `deeplink_url` al abrir la app | ⏳ Pending | **Juan** | Depende de ST-03 |
+| ST-06 | Configurar fraud filtering en Tenjin | ⏳ Pending | Saul | Requiere campaign activa (ST-04) |
+| ST-07 | Revisar Data Safety (Play Store) para el flujo de Tenjin | ⏳ Pending | Saul | Requiere el flujo de datos activo |
+
+---
+
+## T-IOS-3 — App Store Connect: Developer Program enrollment + API key ★ CRITICAL
+
+**Monday ID:** 12566196505 | **RAG:** Gray | **Timeline:** sin fecha | **Critical Path:** ★ CRITICAL
+
+**Status:** ⬜ Not Started — bloqueado en ST-01
+
+> **Ticket de habilitación, no de construcción.** Bloquea 9 de los 13 tickets T-IOS más T-124 ST-04/ST-06.
+> T-IOS-1 y T-IOS-9 están Done pero no pueden pasar a producción: `apple_app_apple_id` sigue en `None`
+> y `apple_environment` en `Sandbox`.
+
+### Subtareas
+
+| # | Subtarea | Status | Owner | Notas |
+|---|---|---|---|---|
+| ST-01 | Confirmar si ICS tiene D-U-N-S; si no, solicitarlo a Dun & Bradstreet | ⏳ Pending | **Juan** | **GATE de todo el ticket.** Trámite de días a semanas, independiente de Apple. No mencionado en ningún repo antes del 2026-07-28 |
+| ST-02 | Inscripción al Apple Developer Program como organización ($99/año) | ⏳ Pending | **Juan** | Requiere ST-01 |
+| ST-03 | Invitar a Saul al equipo con acceso a Keys y App Store Connect | ⏳ Pending | **Juan** | Requiere ST-02 |
+| ST-04 | Registrar App ID + capabilities (Associated Domains, Sign in with Apple, IAP) | ⏳ Pending | Saul | Alimenta T-IOS-11 y T-IOS-12 |
+| ST-05 | Crear el registro del app en App Store Connect → `apple_app_apple_id` | ⏳ Pending | Saul | Desbloquea T-IOS-4, T-IOS-6, T-IOS-13 |
+| ST-06 | Generar App Store Connect API key (Issuer ID + Key ID + `.p8`) + Secret Manager | ⏳ Pending | Saul | **El `.p8` se descarga una sola vez** (GOTCHA 15 / OA-10) |
+| ST-07 | Documentar Team ID, Issuer ID y Key IDs en `logic/` + `.env.example` | ⏳ Pending | Saul | |
+| ST-08 | Poblar `apple_app_apple_id` y evaluar `apple_environment` → Production | ⏳ Pending | Saul | Sandbox es correcto durante TestFlight |
+| ST-09 | Registrar URL del webhook ASSN v2 en App Store Connect | ⏳ Pending | Saul | Follow-up de PAY-004. Registrar prod **y** sandbox |
+| ST-10 | Implementar `AppStoreServerAPIClient` + polling de refund history | ⏳ Pending | Saul | Único ítem con código de aplicación. Diferido en PAY-004 |
+
+> **La llave `.p8` de Sign in with Apple no se necesita** (decisión 2026-07-28): se eligió el Camino B
+> para el borrado de cuenta — no guardar tokens de Apple e indicar al usuario que revoque en Ajustes.
+> Ese pendiente de UI vive en T-IOS-14.
 
 ---
 
