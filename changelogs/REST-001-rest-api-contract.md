@@ -890,6 +890,19 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 
 > El backend verifica que el usuario tenga el entitlement de ese skin en Firestore `entitlements/{user_id}` antes de actualizar `users/{user_id}.equipped_skin`.
 
+> **Aclaraciones T-243 (2026-07-28) — implementación:**
+>
+> **`"skin_default"` es un alias de `null`.** El endpoint lo acepta como `skin_id` y persiste
+> `users/{uid}.equipped_skin = null`. Son dos formas de nombrar lo mismo: el aspecto por defecto.
+> **No pasa por ninguna validación** — no es un producto del catálogo, y condicionarlo a la posesión
+> dejaría atrapado a un jugador que nunca adquirió una skin, sin poder volver al aspecto original.
+>
+> **La posesión es la autoridad sobre la existencia, no el catálogo.** Las skins no solo se venden:
+> el track Free del Season Pass y los premios del top-3 del leaderboard también las otorgan
+> (`project_spec.md`), y esas nunca son productos vendibles. Si el `skin_id` está en
+> `entitlements/{uid}.skins`, se equipa sin consultar el catálogo. El catálogo solo se consulta para
+> distinguir entre los dos errores de abajo.
+
 **Response `200 OK`:**
 ```json
 {
@@ -902,9 +915,9 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 
 | HTTP | `error_code` | Cuándo |
 |---|---|---|
-| `400` | `SKIN_NOT_FOUND` | El `skin_id` no existe en el catálogo de skins |
+| `400` | `SKIN_NOT_FOUND` | El `skin_id` no está en `entitlements` **ni** en el catálogo — no es una skin conocida |
 | `401` | `AUTH_JWT_*` | Token inválido |
-| `403` | `SKIN_NOT_OWNED` | El usuario no tiene el entitlement de ese skin — no lo ha comprado |
+| `403` | `SKIN_NOT_OWNED` | Es una skin real del catálogo, pero el usuario no la ha adquirido |
 
 ---
 
@@ -1876,8 +1889,8 @@ Aplican a cualquier endpoint protegido (🔒):
 | `LIVES_SSV_INVALID` | 402 | `POST /lives/grant` | El `reward_token` de AdMob no pasa la verificación criptográfica |
 | `LIVES_GRANT_DUPLICATE` | 409 | `POST /lives/grant` | El `reward_token` ya fue canjeado (replay attack) |
 | `LIVES_PROMO_INVALID` | 422 | `POST /lives/grant` | El `promo_code` no existe o ya fue canjeado por este usuario |
-| `SKIN_NOT_FOUND` | 400 | `POST /profile/equip-skin` | El `skin_id` no existe en el catálogo de skins |
-| `SKIN_NOT_OWNED` | 403 | `POST /profile/equip-skin` | El usuario no tiene el entitlement del skin (no lo ha comprado) |
+| `SKIN_NOT_FOUND` | 400 | `POST /profile/equip-skin` | El `skin_id` no está en `entitlements` ni en el catálogo — no es una skin conocida (T-243) |
+| `SKIN_NOT_OWNED` | 403 | `POST /profile/equip-skin` | Skin real del catálogo que el usuario no ha adquirido — comprándola o ganándola (T-243) |
 
 ---
 

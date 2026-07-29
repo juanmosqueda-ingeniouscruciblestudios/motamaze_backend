@@ -326,9 +326,9 @@ Firebase Hosting + DNS en Wix, solicitados a Juan por correo 2026-07-27) o por T
 
 **Monday ID:** 12272254774 | **RAG:** Gray | **Timeline:** 8/5/2026 | **Critical Path:** No
 
-**Storytelling:** → changelog pendiente (ST-05)
+**Storytelling:** → [changelogs/T-243-equip-skin.md](../changelogs/T-243-equip-skin.md)
 
-**Status:** 🔄 In Progress — ST-01–03 ✅ (2026-07-28)
+**Status:** ✅ Done — ST-01–05 ✅ (2026-07-28)
 
 ### Subtareas
 
@@ -337,8 +337,8 @@ Firebase Hosting + DNS en Wix, solicitados a Juan por correo 2026-07-27) o por T
 | ST-01 | `POST /profile/equip-skin` — validación de catálogo (400) + ownership (403) + persistencia | ✅ Done 2026-07-28 | T-240 ✅ | Commit `0daada0`. Reusa `store_service.owned_product_ids()`; `skin_default` ≡ `null` y salta ambas validaciones |
 | ST-02 | Limpiar `users/{uid}.equipped_skin` en `revoke_entitlement` al reembolsar | ✅ Done 2026-07-28 | ST-03 | **Absorbida en ST-03** — mismo bloque de código, separarlas obligaba a tocar dos veces la misma función. Commit `a2e30b6` |
 | ST-03 | Modelar origen de adquisición de skins (`purchase`/`earned`/`free`) + revocación consciente del origen | ✅ Done 2026-07-28 | — | Commit `a2e30b6`. Surge de detectar que Season Pass y leaderboard otorgan skins que nunca son productos vendibles |
-| ST-04 | Tests completos | ⏳ Pending | ST-03 ✅ | **Alcance reducido**: los casos de reembolso ya se cubrieron en ST-03 (12 tests). Queda idempotencia |
-| ST-05 | Documentación (changelog T-243, alinear REST-001 con `skin_default` = `null`) | ⏳ Pending | — | `DATA_MODEL.md` ya actualizado en ST-03. `game.py` ya limpio desde ST-01 |
+| ST-04 | Tests completos | ✅ Done 2026-07-28 | ST-03 ✅ | Commit `6bdd508`. Descubrió que la aserción de pagos era agnóstica a la forma por accidente (`in` verifica claves en lista y mapa) y que `store_service` solo probaba la forma legacy |
+| ST-05 | Documentación (changelog T-243, alinear REST-001 con `skin_default` = `null`) | ✅ Done 2026-07-28 | — | `DATA_MODEL.md` se actualizó en ST-03 y `game.py` se limpió en ST-01 |
 
 > **Bloqueo externo para prueba end-to-end:** `config/catalog` solo siembra `lives_pack_5` y `no_ads` —
 > `skin_gold` y `skin_silver` están excluidos porque su precio sigue en TBD. Hasta que Juan confirme
