@@ -12,6 +12,7 @@ from app.services import (
     admob_api,
     ad_revenue_reconciliation_service,
     age_threshold_recalc_service,
+    level_stats_service,
     reconcile_service,
 )
 from app.services.bq_streaming import stream_event, stream_events
@@ -207,3 +208,25 @@ async def run_recalc_age_thresholds(
 
     logger.info("T-404 recalc: %d users aged out: %s", len(aged_out), aged_out)
     return {"aged_out_count": len(aged_out), "aged_out_uids": aged_out}
+
+
+@router.post("/recalc-level-stats")
+async def run_recalc_level_stats(
+    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
+    settings: Settings = Depends(get_settings),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    """T-447 ST-04: recomputes level_stats/{level_id}.win_rate from
+    player_behavior (life_spent = attempts, level_complete = wins) over a
+    trailing window. Levels under level_stats_service.MIN_SAMPLE_SIZE
+    attempts are left untouched — see docs/DATA_MODEL.md#level_stats for why
+    an absent/stale WR fails the 26 dependent achievement guards closed
+    instead of granting them for free."""
+    if x_cloudscheduler_jobname is None:
+        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
+
+    result = await level_stats_service.recalc_level_stats(
+        db, settings.gcp_project_id, settings.bq_dataset
+    )
+    logger.info("T-447 ST-04 level_stats recalc: %s", result)
+    return result

@@ -102,6 +102,24 @@ async def test_lives_grant_caps_at_remote_config_max_not_hardcoded_default(
 # Firestore's transaction wrapping itself, not the T-244 change.
 
 
+# ---------------------------------------------------------------------------
+# T-447 ST-03/ST-04: level_id added to LivesSpendRequest
+# ---------------------------------------------------------------------------
+
+
+async def test_lives_spend_rejects_out_of_range_level_id(client, test_settings):
+    """The only /lives/spend slice testable without transaction() support
+    (see NOTE above): validation runs and 400s before _spend_txn is ever
+    called, so it never touches the untested transaction path."""
+    resp = await client.post(
+        SPEND_URL,
+        json={"session_id": "session-lives-1", "level_id": 31},
+        headers=_auth_headers(test_settings, "user-lives-spend-1"),
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "LIVES_INVALID_LEVEL"
+
+
 async def test_lives_grant_partial_remote_config_only_one_key_published(
     client, test_settings, monkeypatch
 ):

@@ -543,14 +543,21 @@ de Juan y conviene pedirlas juntas — pero esta es incomparablemente más barat
 
 | Proceso | Operación |
 |---|---|
-| Script de semilla (T-203) | `set` (una vez, por nivel) |
-| Job periódico (BigQuery) | `set` (sobrescribe cuando `sample_size` supera el umbral) |
+| Script de semilla (T-203) | `set` (una vez, por nivel) — **pendiente**: nadie ha corrido el harness todavía |
+| `POST /jobs/recalc-level-stats` (`level_stats_service.recalc_level_stats`, T-447 ST-04) | `set` por nivel, solo si `attempts ≥ MIN_SAMPLE_SIZE (100)` en la ventana de `WINDOW_DAYS` (30) — nunca degrada `measured` de vuelta a `simulated` |
 
 **Lectores:**
 
 | Consumidor | Operación |
 |---|---|
-| Motor de evaluación de achievements (T-447 ST-06) | `get` (por nivel, en cada partida evaluada) |
+| Motor de evaluación de achievements (T-447 ST-07) | `get` (por nivel, en cada partida evaluada) |
+
+> **Estado 2026-07-29:** el job de `measured` ya está implementado y probado (`tests/test_level_stats_service.py`,
+> `tests/test_recalc_level_stats_router.py`) — pero correrlo hoy no escribe nada, porque `life_spent`
+> todavía no lleva `level_id` en producción (ST-03, pendiente de Juan) y nadie ha corrido el harness de
+> T-203 para la semilla. Los 26 achievements gateados por WR simplemente no se otorgan hasta que exista
+> alguna de las dos fuentes — comportamiento esperado, no un bug. Los números usados para probar el job
+> son fixtures de test, no datos de producción.
 
 ---
 

@@ -783,15 +783,19 @@ instrumentación del cliente.
 **Request body:**
 ```json
 {
-  "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+  "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "level_id":   11
 }
 ```
 
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
 | `session_id` | string | ✅ | Session activo — para trazar la pérdida de vida en `player_behavior` BQ |
+| `level_id` | int (1–30) | ⬜ | Nivel en el que se gasta la vida (T-447 ST-03). Opcional para no romper clientes viejos, pero sin él el evento `life_spent` no es utilizable como denominador de `level_stats` — ver `docs/DATA_MODEL.md#level_stats` |
 
 > El servidor decrementa atómicamente. Si `current_lives == 0`, retorna error — el cliente **no debe** llamar a este endpoint si sabe que no hay vidas.
+>
+> **Cuándo llamarlo:** al iniciar el intento, no al perderlo — ver el supuesto documentado en `docs/DATA_MODEL.md#level_stats` sobre por qué gastar al perder es explotable (abandonar antes del resultado para no perder la vida).
 
 **Response `200 OK`:**
 ```json
@@ -806,6 +810,7 @@ instrumentación del cliente.
 | HTTP | `error_code` | Cuándo |
 |---|---|---|
 | `400` | `LIVES_INSUFFICIENT` | `current_lives == 0` — no hay vidas para gastar |
+| `400` | `LIVES_INVALID_LEVEL` | `level_id` fuera de rango 1–30 |
 | `401` | `AUTH_JWT_*` | Token inválido |
 
 ---

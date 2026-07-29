@@ -56,6 +56,10 @@ class BehaviorBatchRequest(BaseModel):
 
 class LivesSpendRequest(BaseModel):
     session_id: str
+    # T-447 ST-03: optional so older clients keep working — level_stats'
+    # win-rate denominator (life_spent) is unusable per-level without it.
+    # See docs/DATA_MODEL.md#level_stats.
+    level_id: int | None = None
 
 
 class EquipSkinRequest(BaseModel):
@@ -262,6 +266,9 @@ async def lives_spend(
     db: AsyncClient = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
 ):
+    if body.level_id is not None and not (1 <= body.level_id <= 30):
+        raise HTTPException(400, detail={"error_code": "LIVES_INVALID_LEVEL", "message": "level_id must be between 1 and 30"})
+
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
     regen_interval_secs, default_max_lives = await _resolve_lives_config(settings)
@@ -280,7 +287,7 @@ async def lives_spend(
             "session_id": body.session_id,
             "event_name": "life_spent",
             "platform": None, "app_version": None, "country": None,
-            "level_id": None, "score": None, "stars_earned": None,
+            "level_id": body.level_id, "score": None, "stars_earned": None,
             "duration_secs": None, "npc_type": None, "extra_json": None,
         },
         settings.gcp_project_id, settings.bq_dataset,
