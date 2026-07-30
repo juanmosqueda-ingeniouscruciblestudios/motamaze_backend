@@ -714,7 +714,9 @@ instrumentación del cliente.
   "total_stars":             15,
   "season_stars_earned":     3,
   "total_season_stars":      42,
-  "achievements_unlocked":   ["star_born"]
+  "achievements_unlocked":   ["star_born"],
+  "achievement_bonus_points": 25,
+  "season_points":           181
 }
 ```
 
@@ -727,6 +729,8 @@ instrumentación del cliente.
 | `season_stars_earned` | int | Season Stars ⭐ ganadas en esta partida (sumadas al total de temporada) |
 | `total_season_stars` | int | Total acumulado de Season Stars del jugador en la temporada activa |
 | `achievements_unlocked` | string[] | `achievement_id`s recién desbloqueados por esta partida (T-447 ST-07) — `[]` si ninguno o si `match_stats` estaba ausente/inválido. Nunca incluye achievements ya desbloqueados antes |
+| `achievement_bonus_points` | int | *(T-447 ST-08)* Total de puntos de achievements desbloqueados **esta temporada** — no de por vida. Ver `docs/DATA_MODEL.md#season_progress` |
+| `season_points` | int | *(T-447 ST-08)* `season_stars × 3 + levels_cleared × 5 + achievement_bonus_points`. **No alimenta el ranking del leaderboard todavía** — `GET /leaderboard` sigue ordenando por `season_stars` crudo, gap conocido documentado en DATA_MODEL |
 
 **Errores:**
 

@@ -351,6 +351,8 @@ Progreso del jugador en la temporada activa. Se actualiza en cada `POST /progres
 | `uid` | `string` | = document ID |
 | `season_id` | `string` | Temporada activa, ej: `"season_001"` |
 | `season_stars` | `number` | Season Stars ⭐ acumuladas en esta temporada |
+| `levels_cleared_ids` | `string[]` | *(T-447 ST-08)* `level_id`s distintos completados esta temporada — cualquier completion cuenta, no solo mejoras de estrellas |
+| `achievement_bonus_points` | `number` | *(T-447 ST-08)* Suma de `points` de los achievements desbloqueados **durante esta temporada** — ver nota de scoping abajo |
 | `current_tier` | `number` | Tier actual (1–10) — calculado server-side al leer, no almacenado |
 | `has_gold_pass` | `boolean` | `true` si compró el Season Pass Gold track |
 | `free_rewards_claimed` | `number[]` | Tiers del track Free ya reclamados, ej: `[1, 2, 3]` |
@@ -358,12 +360,56 @@ Progreso del jugador en la temporada activa. Se actualiza en cada `POST /progres
 | `updated_at` | `timestamp` | Última actualización |
 
 > **Threshold de tiers (config-driven, Remote Config):** Tier 1 = 100 stars, Tier 2 = 250, ..., Tier 10 = 2000. El `current_tier` se calcula en cada request leyendo `season_stars` vs. la tabla de umbrales — no se persiste para evitar drift.
+>
+> **Este sistema de 10 tiers es un stand-in, no el diseño real.** `project_spec.md` define 40 milestones
+> en 4 fases con umbrales en **puntos** (ej. M40 = 1,900 pts), no 10 tiers en estrellas. Hallazgo de
+> T-447 ST-08 (2026-07-30), fuera de su alcance — pertenece al ticket del Season Pass (Social-001), no
+> a achievements.
+
+#### `season_points` — fórmula (T-447 ST-08, `app/services/season_points_service.py`)
+
+```
+season_points = (season_stars × 3) + (levels_cleared × 5) + achievement_bonus_points
+```
+
+Fuente: `project_spec.md` §Season Points Formula. **No se persiste** — se calcula en cada respuesta a
+partir de los tres campos de arriba, mismo criterio que `current_tier` (evitar drift entre el valor
+guardado y el recalculado). Expuesto en la respuesta de `POST /progress/level-complete`.
+
+> **`achievement_bonus_points` es por temporada, no acumulado de por vida.** Los achievements en sí
+> (`achievement_progress.unlocked`) nunca se resetean — pero `achievement_bonus_points` sí, junto con
+> `season_stars` y `levels_cleared_ids`, porque solo se incrementa **en el momento del desbloqueo**
+> (`achievements_engine.evaluate_achievements` solo devuelve un `achievement_id` la primera vez que se
+> cumple, para siempre). Un achievement ganado en la temporada 1 no vuelve a sumar puntos en la
+> temporada 2. Coincide con la lectura de `project_spec.md`: *"no player earns all of these **in a
+> season**"* — el bono es parte de la competencia de esa temporada, no del perfil permanente.
+>
+> **`seasonal_legend` (WR: season_points ≥ 4,000) sigue en fail-closed.** El motor de logros evalúa
+> guards **antes** de que este bloque calcule `season_points` en la misma request — ver
+> `achievements_engine.evaluate_achievements(..., season_points=None)`. Resolverlo requeriría o (a)
+> pasarle a la evaluación el `season_points` de la request *anterior* (con un frame de retraso de una
+> partida), o (b) reordenar para evaluar el guard dos veces. Ninguna se implementó — queda como
+> limitación conocida, no bloqueante para el resto de T-447.
+>
+> **⚠️ Gap conocido, fuera de alcance de ST-08 (decisión 2026-07-30): el leaderboard NO usa esta
+> fórmula.** `POST /leaderboard/score`, `GET /leaderboard` y la colección `leaderboards/{season_id}/scores`
+> siguen rankeando por `season_stars` crudo — el campo `"season_points"` que devuelve `GET /leaderboard`
+> hoy es un alias directo de `season_stars`, no el valor calculado aquí. Migrar el ranking real es un
+> cambio más grande (toca un sistema que ya funciona) y se dejó fuera deliberadamente de este ST. Ver
+> `app/services/season_points_service.py` para el detalle.
+
+> **Bug preexistente corregido en ST-08:** antes, cuando `season_id` del documento no coincidía con la
+> temporada activa, el código recalculaba `season_stars` desde una base de 0 mentalmente pero **nunca
+> persistía el nuevo `season_id`** — solo escribía `season_stars`. Eso significaba que la *siguiente*
+> llamada volvía a detectar "temporada obsoleta" y volvía a resetear desde 0, descartando todo lo
+> acumulado desde el reset real, indefinidamente. Ahora `season_id` se escribe en cada write, no solo
+> al crear el documento.
 
 **Endpoints que usan esta colección:**
 
 | Endpoint | Operación |
 |---|---|
-| `POST /progress/level-complete` | `update` (incrementa `season_stars`) |
+| `POST /progress/level-complete` | `set`/`update` — `season_stars`, `levels_cleared_ids`, `achievement_bonus_points`, `season_id` (T-447 ST-08: ahora siempre, no solo al crear) |
 | `GET /season` | `get` |
 | `POST /season/claim-reward` | `update` (agrega tier a `free_rewards_claimed` o `gold_rewards_claimed`) |
 | `POST /payments/*/verify` | `update` (set `has_gold_pass = true` si product_id == `"season_pass_gold"`) |

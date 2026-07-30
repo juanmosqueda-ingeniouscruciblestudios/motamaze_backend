@@ -9,7 +9,13 @@ from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
-from app.services import achievements_engine, remote_config_service, season_match_stats_service, store_service
+from app.services import (
+    achievements_engine,
+    remote_config_service,
+    season_match_stats_service,
+    season_points_service,
+    store_service,
+)
 from app.services.bq_streaming import stream_event, stream_events
 
 router = APIRouter(tags=["game"])
@@ -641,27 +647,33 @@ async def level_complete(
             "updated_at": now,
         })
 
-    # --- Update season_progress/{uid} ---
+    # --- Read season_progress/{uid} (write deferred to after achievement
+    # evaluation -- T-447 ST-08 needs achievement_bonus_points from
+    # newly_unlocked_achievements before it can write the final totals) ---
     season_ref = db.collection("season_progress").document(user_id)
     season_snap = await season_ref.get()
+    season_snap_data = season_snap.to_dict() if season_snap.exists else None
+    level_key_str = str(body.level_id)
 
-    if not season_snap.exists:
-        total_season_stars = stars_delta
-        await season_ref.set({
-            "uid": user_id,
-            "season_id": settings.active_season_id,
-            "season_stars": total_season_stars,
-            "has_gold_pass": False,
-            "free_rewards_claimed": [],
-            "gold_rewards_claimed": [],
-            "updated_at": now,
-        })
+    if season_snap_data is not None and season_snap_data.get("season_id") == settings.active_season_id:
+        existing_season_stars = season_snap_data.get("season_stars", 0)
+        existing_levels_cleared_ids: list[str] = list(season_snap_data.get("levels_cleared_ids", []))
+        existing_achievement_bonus_points = season_snap_data.get("achievement_bonus_points", 0)
     else:
-        sd = season_snap.to_dict()
-        current = sd.get("season_stars", 0) if sd.get("season_id") == settings.active_season_id else 0
-        total_season_stars = current + stars_delta
-        if stars_delta > 0:
-            await season_ref.update({"season_stars": total_season_stars, "updated_at": now})
+        # No doc yet, or a stale season_id -- T-447 ST-08 fix: the stale
+        # case used to leave season_id un-persisted forever (the old
+        # .update() never wrote it), so every subsequent call re-detected
+        # "stale" and re-baselined from 0, silently discarding everything
+        # accumulated since the real reset. Writing season_id below on every
+        # branch (not just doc creation) closes that.
+        existing_season_stars = 0
+        existing_levels_cleared_ids = []
+        existing_achievement_bonus_points = 0
+
+    total_season_stars = existing_season_stars + stars_delta
+    levels_cleared_ids = list(existing_levels_cleared_ids)
+    if level_key_str not in levels_cleared_ids:
+        levels_cleared_ids.append(level_key_str)
 
     # --- T-447 ST-06/ST-07: season_match_stats/{uid} + achievement guards ---
     # A missing/invalid match_stats block means no achievement evaluation
@@ -680,6 +692,43 @@ async def level_complete(
             db, user_id, body.level_id, body.stars_earned, match_stats_dict,
             win_rate_snapshot, total_season_stars, season_match_stats, now,
         )
+
+    # --- T-447 ST-08: achievement_bonus + season_points, then write season_progress ---
+    achievement_bonus_points = existing_achievement_bonus_points
+    if newly_unlocked_achievements:
+        catalog_snap = await db.collection("config").document("achievements").get()
+        catalog = (catalog_snap.to_dict() or {}).get("achievements") or []
+        points_by_id = {a["achievement_id"]: a["points"] for a in catalog}
+        achievement_bonus_points += sum(points_by_id.get(aid, 0) for aid in newly_unlocked_achievements)
+
+    season_reset = season_snap_data is None or season_snap_data.get("season_id") != settings.active_season_id
+    season_changed = (
+        season_reset or stars_delta > 0
+        or level_key_str not in existing_levels_cleared_ids
+        or achievement_bonus_points != existing_achievement_bonus_points
+    )
+    if season_changed:
+        season_payload = {
+            "season_id": settings.active_season_id,
+            "season_stars": total_season_stars,
+            "levels_cleared_ids": levels_cleared_ids,
+            "achievement_bonus_points": achievement_bonus_points,
+            "updated_at": now,
+        }
+        if season_snap_data is None:
+            await season_ref.set({
+                "uid": user_id,
+                "has_gold_pass": False,
+                "free_rewards_claimed": [],
+                "gold_rewards_claimed": [],
+                **season_payload,
+            })
+        else:
+            await season_ref.update(season_payload)
+
+    season_points = season_points_service.compute_season_points(
+        total_season_stars, len(levels_cleared_ids), achievement_bonus_points,
+    )
 
     # --- BQ streaming (background, unchanged from DATA-002 ST-11) ---
     background_tasks.add_task(
@@ -712,6 +761,8 @@ async def level_complete(
         "season_stars_earned":  stars_delta,
         "total_season_stars":   total_season_stars,
         "achievements_unlocked": newly_unlocked_achievements,
+        "achievement_bonus_points": achievement_bonus_points,
+        "season_points":        season_points,
     }
 
 
