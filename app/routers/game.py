@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
-from app.services import remote_config_service, season_match_stats_service, store_service
+from app.services import achievements_engine, remote_config_service, season_match_stats_service, store_service
 from app.services.bq_streaming import stream_event, stream_events
 
 router = APIRouter(tags=["game"])
@@ -663,16 +663,22 @@ async def level_complete(
         if stars_delta > 0:
             await season_ref.update({"season_stars": total_season_stars, "updated_at": now})
 
-    # --- T-447 ST-06: season_match_stats/{uid} (only with valid match_stats) ---
-    # A missing/invalid block means no achievement evaluation for this match
-    # at all (REST-001) -- that includes streak/qualifying-level tracking,
-    # not just guard evaluation itself (ST-07, not yet built).
+    # --- T-447 ST-06/ST-07: season_match_stats/{uid} + achievement guards ---
+    # A missing/invalid match_stats block means no achievement evaluation
+    # for this match at all (REST-001) -- that includes streak/qualifying-
+    # level tracking, not just guard evaluation itself.
+    newly_unlocked_achievements: list[str] = []
     if body.match_stats is not None and _is_match_stats_valid(body.match_stats):
         level_stats_snap = await db.collection("level_stats").document(str(body.level_id)).get()
         win_rate_snapshot = level_stats_snap.to_dict().get("win_rate") if level_stats_snap.exists else None
-        await season_match_stats_service.apply_match(
-            db, user_id, settings.active_season_id, body.level_id,
-            body.match_stats.model_dump(), win_rate_snapshot, now,
+        match_stats_dict = body.match_stats.model_dump()
+        season_match_stats = await season_match_stats_service.apply_match(
+            db, user_id, settings.active_season_id, body.level_id, body.stars_earned,
+            match_stats_dict, win_rate_snapshot, now,
+        )
+        newly_unlocked_achievements = await achievements_engine.evaluate_achievements(
+            db, user_id, body.level_id, body.stars_earned, match_stats_dict,
+            win_rate_snapshot, total_season_stars, season_match_stats, now,
         )
 
     # --- BQ streaming (background, unchanged from DATA-002 ST-11) ---
@@ -705,6 +711,7 @@ async def level_complete(
         "total_stars":          total_stars,
         "season_stars_earned":  stars_delta,
         "total_season_stars":   total_season_stars,
+        "achievements_unlocked": newly_unlocked_achievements,
     }
 
 

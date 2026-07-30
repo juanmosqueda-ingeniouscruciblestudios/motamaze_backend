@@ -421,7 +421,7 @@ modos). Mismo ciclo de vida que `season_progress`: un doc por jugador, reseteado
 | Endpoint | Operación |
 |---|---|
 | `POST /progress/level-complete` (T-447 ST-06) | `set` — solo si `match_stats` está presente y es válido |
-| Motor de evaluación de achievements (T-447 ST-07, pendiente) | `get` |
+| Motor de evaluación de achievements (T-447 ST-07) | `get` (implícito — recibe `season_match_stats` ya actualizado por la misma request, sin segunda lectura) |
 
 ---
 
@@ -433,7 +433,7 @@ Progreso del jugador en cada achievement. Un solo documento por usuario con todo
 |---|---|---|
 | `uid` | `string` | = document ID |
 | `unlocked` | `string[]` | `achievement_id`s desbloqueados (ver `config/achievements`), ej: `["first_blood", "maze_master"]` |
-| `progress` | `map<string, number>` | Progreso actual por achievement, ej: `{"three_star_warrior": 6}` |
+| `progress` | `map<string, number>` | **No poblado** (ver nota abajo) — reservado para progreso numérico hacia achievements no desbloqueados |
 | `unlock_timestamps` | `map<string, timestamp>` | Cuándo se desbloqueó cada achievement |
 | `updated_at` | `timestamp` | Última escritura |
 
@@ -442,10 +442,6 @@ Progreso del jugador en cada achievement. Un solo documento por usuario con todo
 {
   "uid": "google-sub-123",
   "unlocked": ["first_blood", "maze_master"],
-  "progress": {
-    "three_star_warrior": 6,
-    "hot_streak": 2
-  },
   "unlock_timestamps": {
     "first_blood": "2026-09-15T10:30:00Z",
     "maze_master": "2026-09-17T14:20:00Z"
@@ -454,17 +450,31 @@ Progreso del jugador en cada achievement. Un solo documento por usuario con todo
 }
 ```
 
-> **Estado 2026-07-29:** esta escritura todavía no existe en código. La idea es que `POST
-> /progress/level-complete` evalúe los guards (usando `match_stats` + `level_stats.win_rate`) y
-> agregue a `unlocked`/`progress`/`unlock_timestamps` lo que corresponda — ese motor es T-447 ST-07,
-> pendiente. Hoy `achievement_progress` no tiene ningún escritor; el ejemplo de arriba es el diseño
-> objetivo, no una captura de un documento real.
+> **`progress` deliberadamente no poblado (2026-07-30, T-447 ST-07):** la mayoría de los 40 guards son
+> compuestos booleanos (varias condiciones AND/OR), no un simple contador "N de M" — no hay una
+> fracción de progreso bien definida para casi ninguno. Los pocos que sí lo son (`three_star_warrior`,
+> `perfectionist`: conteo de niveles 3★) podrían poblarlo, pero se dejó fuera de esta pasada — no
+> afecta la corrección del desbloqueo, solo sería un nice-to-have para una barra de progreso en UI.
+> Queda como follow-up, no como hueco bloqueante.
+
+**Motor de evaluación (T-447 ST-07, `app/services/achievements_engine.py`):** 40 predicados de Python,
+uno por `achievement_id`, indexados en `GUARDS`. Se ejecuta en `POST /progress/level-complete` **solo
+cuando `match_stats` está presente y es válido** (misma regla que `season_match_stats`, ST-06) —
+lee `match_stats` de la partida actual + `season_match_stats` (ya actualizado por esa misma request) +
+`level_stats.win_rate` + `season_progress.season_stars`, y agrega a `unlocked`/`unlock_timestamps` lo
+que corresponda. Los achievements ya desbloqueados no se re-evalúan (`GUARDS` se filtra contra
+`unlocked` antes de correr los predicados).
+
+> **`seasonal_legend` (WR season_points ≥ 4,000) falla cerrado hasta T-447 ST-08.** Ese guard necesita
+> `season_points`, que no existe todavía — solo existe `season_stars` (ver `season_progress`). El motor
+> acepta un parámetro `season_points: float | None` que hoy siempre es `None`; el guard trata `None`
+> igual que un WR ausente (nunca se cumple). Se resuelve solo cuando ST-08 empiece a pasar el valor real.
 
 **Endpoints que usan esta colección:**
 
 | Endpoint | Operación |
 |---|---|
-| `POST /progress/level-complete` (T-447 ST-07, pendiente) | `update` (evalúa y otorga achievements relacionados con niveles) |
+| `POST /progress/level-complete` (T-447 ST-07) | `set` con `merge=True` (evalúa guards, agrega a `unlocked`/`unlock_timestamps`) |
 | `GET /achievements` (T-447 ST-09, pendiente) | `get` |
 
 ---

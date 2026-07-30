@@ -711,7 +711,10 @@ instrumentación del cliente.
   "new_best":                true,
   "next_level_unlocked":     6,
   "highest_unlocked_level":  6,
-  "total_stars":             15
+  "total_stars":             15,
+  "season_stars_earned":     3,
+  "total_season_stars":      42,
+  "achievements_unlocked":   ["star_born"]
 }
 ```
 
@@ -723,6 +726,7 @@ instrumentación del cliente.
 | `total_stars` | int | Total actualizado |
 | `season_stars_earned` | int | Season Stars ⭐ ganadas en esta partida (sumadas al total de temporada) |
 | `total_season_stars` | int | Total acumulado de Season Stars del jugador en la temporada activa |
+| `achievements_unlocked` | string[] | `achievement_id`s recién desbloqueados por esta partida (T-447 ST-07) — `[]` si ninguno o si `match_stats` estaba ausente/inválido. Nunca incluye achievements ya desbloqueados antes |
 
 **Errores:**
 
