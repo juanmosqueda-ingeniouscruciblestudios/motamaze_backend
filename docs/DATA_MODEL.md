@@ -370,6 +370,61 @@ Progreso del jugador en la temporada activa. Se actualiza en cada `POST /progres
 
 ---
 
+### `season_match_stats/{uid}` *(agregado 2026-07-30 — T-447 ST-06)*
+
+Hechos crudos por partida ganada esta temporada — el insumo que el motor de evaluación (T-447 ST-07)
+necesita para los guards que no son un simple contador (rachas, hit-free, comebacks, cobertura de
+modos). Mismo ciclo de vida que `season_progress`: un doc por jugador, reseteado al cambiar de
+`season_id`.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `uid` | `string` | = document ID |
+| `season_id` | `string` | Temporada activa |
+| `win_streak` | `map` | `{count: number, level_ids: string[]}` — racha de niveles **distintos** ganados consecutivamente |
+| `qualifying_levels` | `map<string, map>` | Un registro por `level_id` ganado, solo en el **primer** triunfo de ese nivel esta temporada |
+| `updated_at` | `timestamp` | Última escritura |
+
+**`qualifying_levels[level_id]`:**
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `mode` | `string` | `game_mode` de esa partida |
+| `win_rate_snapshot` | `number \| null` | `level_stats/{level_id}.win_rate` **al momento de esa partida** — `null` si el nivel no tenía `level_stats` todavía |
+| `npcs` | `map` | Conteos `bola`/`mancha`/`huracan`/`zas` de esa partida |
+| `hits_taken`, `badsmell_hits`, `max_food_deficit`, `final_gap`, `lead_changes`, `maze_coverage_pct` | — | Copiados tal cual de `match_stats` de esa partida |
+| `recorded_at` | `timestamp` | Cuándo se registró |
+
+> **Por qué no se guardan flags por achievement** (`is_hit_free`, `is_comeback`, etc.): mismo principio
+> que `config/achievements.guard_notes` (ST-05) — los 40 guards son heterogéneos y fijos, decidir qué
+> cuenta como "hit-free" o "comeback" es lógica de ST-07, no forma de este documento. Esta colección
+> solo responde "qué pasó, en qué nivel, esta temporada" — nunca "esto cumple el logro X".
+>
+> **Por qué solo el primer triunfo, no el mejor:** sobrescribir en cada triunfo posterior perdería el
+> `win_rate_snapshot` del momento en que el nivel realmente calificó, violando la misma política de
+> "WR vigente al momento de la partida" que ya rige `level_stats`. Si ST-07 termina necesitando "mejor
+> intento" en vez de "primero" para algún guard específico, es un cambio a este documento cuando se
+> construya ST-07 — no algo que anticipar ahora sin un guard concreto que lo exija.
+>
+> **Racha (`win_streak`):** ganar un nivel ya presente en la racha actual es **no-op** (ni suma ni
+> rompe) — repetir un nivel ya contado no debería costarte la racha. Perder **siempre** la resetea a
+> cero, incluso si el nivel perdido es uno que ya estaba en la racha (decisión 2026-07-29). `qualifying_levels`
+> nunca se poda por una derrota — un hecho ya ganado esta temporada se queda.
+>
+> **Gateado por `match_stats` válido, igual que todo lo demás de T-447:** si el bloque está ausente o
+> falla las validaciones de REST-001, esta colección **no se toca** — ni para acumular, ni para
+> resetear la racha en una derrota. Es la misma regla ya documentada para achievement evaluation en
+> general, no una excepción nueva.
+
+**Endpoints que usan esta colección:**
+
+| Endpoint | Operación |
+|---|---|
+| `POST /progress/level-complete` (T-447 ST-06) | `set` — solo si `match_stats` está presente y es válido |
+| Motor de evaluación de achievements (T-447 ST-07, pendiente) | `get` |
+
+---
+
 ### `achievement_progress/{uid}` *(agregado 2026-06-22)*
 
 Progreso del jugador en cada achievement. Un solo documento por usuario con todos sus achievements.

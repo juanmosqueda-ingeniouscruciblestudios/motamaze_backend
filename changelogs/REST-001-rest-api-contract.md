@@ -639,7 +639,7 @@ Antes de existir, el backend recibía 5 campos y solo **2 de los 40** logros era
 ```json
 "match_stats": {
   "won":                     true,
-  "game_mode":               "food",
+  "game_mode":               "big_dig",
   "target_score":            12,
   "npcs":                    { "bola": 1, "mancha": 1, "huracan": 0, "zas": 2 },
   "hits_taken":              0,
@@ -662,7 +662,7 @@ Antes de existir, el backend recibía 5 campos y solo **2 de los 40** logros era
 | Campo | Tipo | Descripción | Achievements que lo usan |
 |---|---|---|---|
 | `won` | bool | Si la partida se ganó. **Explícito, no inferido de `score`** | Casi todos |
-| `game_mode` | string | Uno de los 8 modos (ver `docs/game_modes.md`) | #6, #10, #13, #16, #20, #22, #25, #27, #28, #31, #43 |
+| `game_mode` | string | Uno de los 8 modos: `big_dig`, `first_bite`, `huracans_friends`, `whole_gangs_here`, `deep_run`, `watch_the_walls`, `hot_floor`, `the_chase` (ver `docs/game_modes.md`; slugs por mode, no el `WIN_CONDITION` agrupado de ese doc) | #6, #10, #13, #16, #20, #22, #25, #27, #28, #31, #43 |
 | `target_score` | int | Objetivo de comida del nivel. Es config de nivel, pero el backend no la tiene | #6 (`TARGET_SCORE ≥ 10`) |
 | `npcs.bola` / `.mancha` / `.huracan` / `.zas` | int | **Conteos, no booleanos** — hay guards que piden `n_huracan + n_zas ≥ 2` y otros los 4 presentes | #7, #9, #13, #17, #19, #24, #27, #30, #39, #41, #42, #47 |
 | `hits_taken` | int | Golpes recibidos | #24, #27, #32, #37, #38, #41, #42, #44, #47 |

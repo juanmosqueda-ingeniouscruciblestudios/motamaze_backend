@@ -9,10 +9,18 @@ from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
-from app.services import remote_config_service, store_service
+from app.services import remote_config_service, season_match_stats_service, store_service
 from app.services.bq_streaming import stream_event, stream_events
 
 router = APIRouter(tags=["game"])
+
+# T-447 ST-06: the 8 shipping modes (docs/game_modes.md in motamaze-project,
+# WIN_CONDITION grouping there is coarser than this — this is the per-mode
+# slug match_stats.game_mode actually carries).
+GAME_MODES = frozenset({
+    "big_dig", "first_bite", "huracans_friends", "whole_gangs_here",
+    "deep_run", "watch_the_walls", "hot_floor", "the_chase",
+})
 
 # T-244: fallback defaults, used when Remote Config is unreachable or the
 # parameter isn't published yet — see _resolve_lives_config(). No longer
@@ -75,12 +83,67 @@ class LivesGrantRequest(BaseModel):
     promo_code: str | None = None   # required for source == "promo"
 
 
+class MatchStatsNpcs(BaseModel):
+    bola: int = 0
+    mancha: int = 0
+    huracan: int = 0
+    zas: int = 0
+
+
+class MatchStats(BaseModel):
+    """T-447 ST-01/ST-06. Deliberately no Field(ge=0)/range constraints here:
+    REST-001 says a match_stats that fails validation drops achievement
+    evaluation for that match WITHOUT rejecting the level-complete request —
+    a 422 from pydantic would do exactly the rejection this is meant to
+    avoid. See _is_match_stats_valid for the actual range/consistency rules,
+    checked after parsing succeeds."""
+    won: bool
+    game_mode: str
+    target_score: int
+    npcs: MatchStatsNpcs
+    hits_taken: int
+    badsmell_hits: int
+    stuns_taken: int
+    frozen_secs: float
+    food_collected: int
+    max_food_deficit: int
+    final_gap: int
+    lead_changes: int
+    max_food_drought_secs: float
+    max_idle_secs: float
+    maze_coverage_pct: float
+    shift_reroutes: int
+    time_to_target_secs: float
+    round_duration_secs: float
+
+
+def _is_match_stats_valid(ms: MatchStats) -> bool:
+    """REST-001 §match_stats "Validaciones server-side"."""
+    counters = (
+        ms.hits_taken, ms.food_collected, ms.lead_changes, ms.shift_reroutes,
+        ms.stuns_taken, ms.badsmell_hits, ms.max_food_deficit, ms.final_gap,
+    )
+    if any(c < 0 for c in counters):
+        return False
+    if not (0 <= ms.maze_coverage_pct <= 100):
+        return False
+    if ms.game_mode not in GAME_MODES:
+        return False
+    if ms.round_duration_secs <= 0:
+        return False
+    time_fields = (ms.frozen_secs, ms.max_idle_secs, ms.max_food_drought_secs, ms.time_to_target_secs)
+    if any(t < 0 or t > ms.round_duration_secs for t in time_fields):
+        return False
+    return True
+
+
 class LevelCompleteRequest(BaseModel):
     level_id: int
     score: int
     stars_earned: int
     duration_secs: int
     session_id: str
+    match_stats: MatchStats | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -599,6 +662,18 @@ async def level_complete(
         total_season_stars = current + stars_delta
         if stars_delta > 0:
             await season_ref.update({"season_stars": total_season_stars, "updated_at": now})
+
+    # --- T-447 ST-06: season_match_stats/{uid} (only with valid match_stats) ---
+    # A missing/invalid block means no achievement evaluation for this match
+    # at all (REST-001) -- that includes streak/qualifying-level tracking,
+    # not just guard evaluation itself (ST-07, not yet built).
+    if body.match_stats is not None and _is_match_stats_valid(body.match_stats):
+        level_stats_snap = await db.collection("level_stats").document(str(body.level_id)).get()
+        win_rate_snapshot = level_stats_snap.to_dict().get("win_rate") if level_stats_snap.exists else None
+        await season_match_stats_service.apply_match(
+            db, user_id, settings.active_season_id, body.level_id,
+            body.match_stats.model_dump(), win_rate_snapshot, now,
+        )
 
     # --- BQ streaming (background, unchanged from DATA-002 ST-11) ---
     background_tasks.add_task(
