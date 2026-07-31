@@ -3,7 +3,7 @@
 Seguimiento de todas las tareas asignadas a Saul Zavala Morin.
 Ordenadas por workstream y dependencia de ejecución.
 
-> Última actualización: 2026-07-28
+> Última actualización: 2026-07-31
 > Fuente de verdad: Monday.com board "motamaze mvp - project plan"
 >
 > **Convención de numeración (2026-07-28):** los subitems de Monday llevan el prefijo `ST-##:` en su
@@ -397,6 +397,38 @@ Firebase Hosting + DNS en Wix, solicitados a Juan por correo 2026-07-27) o por T
 > **La llave `.p8` de Sign in with Apple no se necesita** (decisión 2026-07-28): se eligió el Camino B
 > para el borrado de cuenta — no guardar tokens de Apple e indicar al usuario que revoque en Ajustes.
 > Ese pendiente de UI vive en T-IOS-14.
+
+---
+
+## T-447 — Achievement unlock tracking + season-points bonus
+
+**Monday ID:** 12534452191 | **RAG:** Gray | **Critical Path:** No | **Started:** 2026-07-29
+
+**Storytelling:** → [changelogs/T-447-achievements-season-points.md](../changelogs/T-447-achievements-season-points.md)
+**Logic doc:** → [logic/achievements.md](../logic/achievements.md)
+
+**Status:** ✅ Done (scope backend, Saul) — ST-01, ST-04–ST-12 ✅. ST-02/ST-03 (Godot, Juan) ⏳ Pending
+
+### Subtareas
+
+| # | Subtarea | Status | Owner | Notas |
+|---|---|---|---|---|
+| ST-01 | Definir contrato de datos por partida que exigen los guards + documentar en REST-001 | ✅ Done 2026-07-29 | Saul | `match_stats` opcional, 18 campos |
+| ST-02 | Godot: enviar los campos nuevos de partida en `POST /progress/level-complete` | ⏳ Pending | **Juan** | Backend ya acepta el campo (opcional, no rompe clientes viejos) |
+| ST-03 | Godot: agregar `level_id` al payload de `POST /lives/spend` | ⏳ Pending | **Juan** | Bloquea que `level_stats` tenga datos reales — backend ya acepta el campo |
+| ST-04 | Definir y poblar la fuente del win rate por nivel (26/40 guards dependen de WR) | ✅ Done 2026-07-29 | Saul | `level_stats_service` + job `recalc-level-stats` |
+| ST-05 | Seed de las 40 definiciones de achievements (`config/achievements`) + estado de unlock por jugador | ✅ Done 2026-07-29 | Saul | `scripts/seed_achievements.py` |
+| ST-06 | Persistir stats por partida + agregados de temporada (rachas, hits, cobertura, comebacks, modos) | ✅ Done 2026-07-30 | Saul | `season_match_stats_service` |
+| ST-07 | Motor de evaluación de guards + desbloqueo en `achievement_progress` | ✅ Done 2026-07-30 | Saul | `achievements_engine.py`, 40 predicados |
+| ST-08 | Implementar fórmula `season_points` + integrar el término `achievement_bonus` | ✅ Done 2026-07-30 | Saul | No wired al leaderboard todavía — gap conocido |
+| ST-09 | `GET /achievements` (desbloqueados + progreso + rarity) | ✅ Done 2026-07-30 | Saul | `achievements_catalog_service.py` |
+| ST-10 | Job de rarity cada 24h (Cloud Scheduler + BigQuery) → `achievement_rarities` | ✅ Done 2026-07-30 | Saul | Cloud Scheduler real pendiente de crear en GCP (ticket aparte) |
+| ST-11 | Tests completos (evaluación de guards, agregados de temporada, season_points, endpoint) | ✅ Done 2026-07-31 | Saul | 40/40 guards con cobertura directa (antes 12/40) |
+| ST-12 | Documentación (changelog T-447, `logic/achievements.md`, DATA_MODEL, REST-001) | ✅ Done 2026-07-31 | Saul | Este changelog + logic doc; DATA_MODEL/REST-001 mantenidos al día incrementalmente por ST |
+
+> **Cloud Scheduler de `recalc-level-stats` (ST-04) y `recalc-achievement-rarities` (ST-10) no
+> creados en GCP todavía** — trackeado en un ticket de Infra/DevOps aparte con 2 subtareas
+> (creado 2026-07-31), mismo patrón ya usado con `recalc-age-thresholds`.
 
 ---
 

@@ -700,7 +700,7 @@ Un `match_stats` que falle validación **descarta la evaluación de achievements
 instrumentación del cliente.
 
 > **Fuera de este bloque:** el *win rate* del nivel, que gatea 26 de los 40 logros, **no lo envía el
-> cliente**. Es una estadística global agregada server-side — ver T-447 ST-03.
+> cliente**. Es una estadística global agregada server-side — ver T-447 ST-04.
 
 **Response `200 OK`:**
 ```json

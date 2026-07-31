@@ -575,7 +575,7 @@ Rarity data-driven por achievement. Poblado por Cloud Scheduler cada 24h via Big
 
 ---
 
-### `level_stats/{level_id}` *(agregado 2026-07-29 — T-447 ST-03)*
+### `level_stats/{level_id}` *(agregado 2026-07-29 — T-447 ST-04)*
 
 Dificultad medida por nivel. **26 de los 40 achievements** gatean por win rate (`"WR ≤ 80%"`,
 `"WR ≤ 20%"`, etc.), y antes de esta colección ese dato no existía en ninguna parte del sistema.
