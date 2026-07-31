@@ -521,7 +521,7 @@ que corresponda. Los achievements ya desbloqueados no se re-evalúan (`GUARDS` s
 | Endpoint | Operación |
 |---|---|
 | `POST /progress/level-complete` (T-447 ST-07) | `set` con `merge=True` (evalúa guards, agrega a `unlocked`/`unlock_timestamps`) |
-| `GET /achievements` (T-447 ST-09, pendiente) | `get` |
+| `GET /achievements` (T-447 ST-09) | `get` |
 
 ---
 
@@ -539,18 +539,25 @@ Rarity data-driven por achievement. Poblado por Cloud Scheduler cada 24h via Big
 | `computed_at` | `timestamp` | Timestamp del último cálculo vía BigQuery |
 
 > **Fuente:** Cloud Scheduler job cada 24h consulta BigQuery (`achievement_progress` stream) y escribe estos documentos. `GET /achievements` lee de aquí — sin queries BQ en tiempo real.
+>
+> **Rarity aún no poblada (2026-07-30, T-447 ST-09):** el job de Cloud Scheduler es T-447 ST-10,
+> todavía pendiente — hoy esta colección está vacía. `GET /achievements` lee la colección completa
+> con un solo `get()` (igual que `GET /store/catalog` lee `promotions`, en vez de un `get()` por
+> producto) y, para cualquier `achievement_id` sin documento de rarity todavía, cae al `rarity_tier`
+> estático de `config/achievements` con `rarity_percent: null`. Se resuelve solo cuando ST-10 empiece
+> a escribir aquí — sin cambio de código en el endpoint.
 
 **Escritores:**
 
 | Proceso | Operación |
 |---|---|
-| Cloud Scheduler (cada 24h) | `set` (sobreescribe todos los documentos de rarity) |
+| Cloud Scheduler (cada 24h, T-447 ST-10, pendiente) | `set` (sobreescribe todos los documentos de rarity) |
 
 **Lectores:**
 
 | Endpoint | Operación |
 |---|---|
-| `GET /achievements` | `get` (por cada achievement del catálogo) |
+| `GET /achievements` (T-447 ST-09) | `get` — colección completa, una sola lectura |
 
 ---
 

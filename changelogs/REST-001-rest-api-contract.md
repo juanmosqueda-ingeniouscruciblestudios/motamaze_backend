@@ -1705,6 +1705,22 @@ readinessProbe:
 
 > **Rarity computation:** El backend corre un job de Cloud Scheduler cada 24h que calcula el porcentaje de jugadores por achievement vía BigQuery y guarda el resultado en Firestore `achievement_rarities/{achievement_id}`. El endpoint lee de Firestore — no hay query a BQ en tiempo real.
 
+> **Aclaraciones T-447 ST-09 (2026-07-30) — implementación:**
+>
+> **`rarity`/`rarity_percent` sin datos medidos todavía.** El job de rarity (T-447 ST-10) aún no está
+> implementado, así que `achievement_rarities` está vacía hoy. Mientras tanto, `rarity` cae al
+> `rarity_tier` estático de `config/achievements` (la clasificación de diseño, no la medida) y
+> `rarity_percent` es `null`. En cuanto ST-10 empiece a escribir `achievement_rarities/{achievement_id}`,
+> ese achievement pasa a usar el dato medido automáticamente — sin cambio de contrato ni de cliente.
+>
+> **`icon_id` es `badge_{achievement_id}`.** No hay pipeline de assets de badges confirmado todavía;
+> se adoptó esta convención determinística (el mismo patrón que ya sugerían los ejemplos de este
+> contrato) hasta que exista un catálogo de iconos real.
+>
+> **`progress` siempre `null` en esta versión.** `achievement_progress.progress` no se puebla desde
+> T-447 ST-07 (la mayoría de los 40 guards son compuestos booleanos sin una fracción "N de M" bien
+> definida) — ver `docs/DATA_MODEL.md`. Sigue como follow-up, no bloqueante para ST-09.
+
 **Errores:**
 
 | HTTP | `error_code` | Cuándo |

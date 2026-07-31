@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
 from app.services import (
+    achievements_catalog_service,
     achievements_engine,
     remote_config_service,
     season_match_stats_service,
@@ -822,6 +823,35 @@ async def get_store_catalog(
     return {
         "catalog_version": catalog.get("catalog_version"),
         "products": products,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /achievements  (Social-002 / T-447 ST-09)
+# ---------------------------------------------------------------------------
+
+@router.get("/achievements")
+async def get_achievements(
+    claims: dict = Depends(verify_jwt),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    user_id = claims.get("uid", "")
+
+    config_snap = await db.collection("config").document("achievements").get()
+    catalog = (config_snap.to_dict() or {}).get("achievements", [])
+
+    progress_snap = await db.collection("achievement_progress").document(user_id).get()
+    progress = progress_snap.to_dict() or {}
+
+    # Full-collection read, same call shape as /store/catalog's promotions
+    # fetch -- only 40 possible docs, cheaper than one get() per achievement.
+    rarity_docs = await db.collection("achievement_rarities").get()
+    rarities = {d.id: d.to_dict() for d in rarity_docs}
+
+    return {
+        "achievements": achievements_catalog_service.build_achievements_response(
+            catalog, progress, rarities
+        ),
     }
 
 
