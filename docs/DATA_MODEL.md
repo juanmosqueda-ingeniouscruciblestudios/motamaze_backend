@@ -538,20 +538,34 @@ Rarity data-driven por achievement. Poblado por Cloud Scheduler cada 24h via Big
 | `rarity_tier` | `string` | `"COMMON"` (≥50%) \| `"UNCOMMON"` (20–49%) \| `"RARE"` (8–19%) \| `"EPIC"` (4–7%) \| `"LEGENDARY"` (<4%) |
 | `computed_at` | `timestamp` | Timestamp del último cálculo vía BigQuery |
 
-> **Fuente:** Cloud Scheduler job cada 24h consulta BigQuery (`achievement_progress` stream) y escribe estos documentos. `GET /achievements` lee de aquí — sin queries BQ en tiempo real.
+> **Fuente:** Cloud Scheduler (cada 24h) llama `POST /jobs/recalc-achievement-rarities`, que corre
+> `achievement_rarities_service.recalc_achievement_rarities` (T-447 ST-10). `GET /achievements` lee de
+> aquí — sin queries BQ en tiempo real.
 >
-> **Rarity aún no poblada (2026-07-30, T-447 ST-09):** el job de Cloud Scheduler es T-447 ST-10,
-> todavía pendiente — hoy esta colección está vacía. `GET /achievements` lee la colección completa
-> con un solo `get()` (igual que `GET /store/catalog` lee `promotions`, en vez de un `get()` por
-> producto) y, para cualquier `achievement_id` sin documento de rarity todavía, cae al `rarity_tier`
-> estático de `config/achievements` con `rarity_percent: null`. Se resuelve solo cuando ST-10 empiece
-> a escribir aquí — sin cambio de código en el endpoint.
+> **`total_players` y `unlocked_by` están acotados a la MISMA población (2026-07-31, T-447 ST-10) —
+> no es "todo `achievement_progress` contra jugadores recientes".** `achievement_progress` es
+> acumulativo y nunca se resetea (ver tabla de TTL abajo): tiene desbloqueos de jugadores que dejaron
+> de jugar hace meses. Si `unlocked_by` contara *todo* el histórico contra un `total_players` limitado
+> a la ventana activa, `rarity_percent` podría superar 100% en cualquier achievement fácil. En cambio,
+> el job primero obtiene de BigQuery (`player_behavior`) los `user_id` distintos con actividad en los
+> últimos 30 días (`ACTIVE_WINDOW_DAYS`) — eso es `total_players` — y luego cuenta `unlocked_by` **solo
+> entre esos mismos uids** (un `get()` a `achievement_progress/{uid}` por cada uno, mismo patrón que el
+> loop de `jobs.py`'s `run_purge_deleted_accounts`). `rarity_percent` queda garantizado en `[0, 100]`.
+>
+> **Si no hay jugadores activos en la ventana, el job se salta por completo** (no escribe con
+> denominador cero) — misma filosofía que el `MIN_SAMPLE_SIZE` de `level_stats_service` (T-447 ST-04):
+> señal insuficiente no es lo mismo que "nadie lo desbloqueó".
+>
+> **Rarity ya poblada desde 2026-07-31 (T-447 ST-10).** Antes de esta fecha la colección estaba vacía
+> y `GET /achievements` caía al `rarity_tier` estático de `config/achievements` con
+> `rarity_percent: null` para todo — ese fallback se mantiene en el endpoint para cualquier
+> `achievement_id` que el job aún no haya escrito (p. ej. la primera corrida en un ambiente nuevo).
 
 **Escritores:**
 
 | Proceso | Operación |
 |---|---|
-| Cloud Scheduler (cada 24h, T-447 ST-10, pendiente) | `set` (sobreescribe todos los documentos de rarity) |
+| Cloud Scheduler (cada 24h) → `POST /jobs/recalc-achievement-rarities` (T-447 ST-10) | `set` (sobreescribe todos los documentos de rarity) |
 
 **Lectores:**
 

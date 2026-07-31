@@ -1707,11 +1707,13 @@ readinessProbe:
 
 > **Aclaraciones T-447 ST-09 (2026-07-30) — implementación:**
 >
-> **`rarity`/`rarity_percent` sin datos medidos todavía.** El job de rarity (T-447 ST-10) aún no está
-> implementado, así que `achievement_rarities` está vacía hoy. Mientras tanto, `rarity` cae al
-> `rarity_tier` estático de `config/achievements` (la clasificación de diseño, no la medida) y
-> `rarity_percent` es `null`. En cuanto ST-10 empiece a escribir `achievement_rarities/{achievement_id}`,
-> ese achievement pasa a usar el dato medido automáticamente — sin cambio de contrato ni de cliente.
+> **`rarity`/`rarity_percent` sin datos medidos hasta que el job corra al menos una vez.** El job de
+> rarity (T-447 ST-10, `POST /jobs/recalc-achievement-rarities` cada 24h) ya está implementado — ver
+> `docs/DATA_MODEL.md#achievement_rarities` para cómo acota `total_players`/`unlocked_by` a la misma
+> población activa para que `rarity_percent` nunca pase de 100%. Hasta su primera corrida en cada
+> ambiente (o para un `achievement_id` que todavía no procesó), `rarity` cae al `rarity_tier` estático
+> de `config/achievements` (la clasificación de diseño, no la medida) y `rarity_percent` es `null` —
+> sin cambio de contrato ni de cliente cuando el dato medido aparece.
 >
 > **`icon_id` es `badge_{achievement_id}`.** No hay pipeline de assets de badges confirmado todavía;
 > se adoptó esta convención determinística (el mismo patrón que ya sugerían los ejemplos de este

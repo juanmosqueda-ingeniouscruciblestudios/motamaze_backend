@@ -9,6 +9,7 @@ from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings
 from app.services import (
     account_deletion_service,
+    achievement_rarities_service,
     admob_api,
     ad_revenue_reconciliation_service,
     age_threshold_recalc_service,
@@ -229,4 +230,25 @@ async def run_recalc_level_stats(
         db, settings.gcp_project_id, settings.bq_dataset
     )
     logger.info("T-447 ST-04 level_stats recalc: %s", result)
+    return result
+
+
+@router.post("/recalc-achievement-rarities")
+async def run_recalc_achievement_rarities(
+    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
+    settings: Settings = Depends(get_settings),
+    db: AsyncClient = Depends(get_firestore_client),
+):
+    """T-447 ST-10: recomputes achievement_rarities/{achievement_id} from
+    the players active in the trailing window (achievement_rarities_service
+    -- see its module docstring for why total_players and unlocked_by are
+    both scoped to that same active-uid set). GET /achievements (ST-09)
+    only reads these documents; no BQ query in the request path."""
+    if x_cloudscheduler_jobname is None:
+        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
+
+    result = await achievement_rarities_service.recalc_achievement_rarities(
+        db, settings.gcp_project_id, settings.bq_dataset
+    )
+    logger.info("T-447 ST-10 achievement rarities recalc: %s", result)
     return result
