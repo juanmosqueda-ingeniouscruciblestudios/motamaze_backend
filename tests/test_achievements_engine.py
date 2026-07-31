@@ -1,10 +1,18 @@
-"""Tests for achievements_engine — T-447 ST-07. Not exhaustive over all 40
-guards (that would just re-transcribe project_spec.md into assertions) --
-covers the registry itself, the shared helpers (_streak_length is the one
-with real logic worth testing directly), and one representative guard per
-structural category (single-match, streak, qualifying-count, three-star,
-season_points-not-yet-available), plus the evaluate_achievements
-orchestrator's own behavior (skip-if-unlocked, multi-unlock, persistence)."""
+"""Tests for achievements_engine — T-447 ST-07, extended to full 40-guard
+coverage in ST-11. Covers the registry itself, the shared helpers
+(_streak_length is the one with real logic worth testing directly), all 40
+guards (one true + one false case each, varying a single condition), and
+the evaluate_achievements orchestrator's own behavior (skip-if-unlocked,
+multi-unlock, persistence).
+
+ST-07 originally shipped a representative subset per structural category,
+reasoning that testing all 40 "would just re-transcribe project_spec.md
+into assertions". ST-11 revisits that: each guard is independent boolean
+logic hand-transcribed from guard_notes, and a mistake in any one of them
+(wrong operator, wrong threshold, AND where it should be OR) is exactly the
+kind of bug a representative-sample strategy misses for the other 28 --
+it's not spec-restating, it's the only thing that would actually catch a
+transcription error in an untested guard."""
 
 from datetime import datetime, timezone
 
@@ -171,6 +179,220 @@ def test_perfect_champion_needs_wr_and_npc_together():
 
     no_npc = {str(i): {"win_rate_snapshot": 15.0, "npcs": {"bola": 0, "mancha": 0, "huracan": 1, "zas": 0}} for i in range(10)}
     assert eng.GUARDS["perfect_champion"](_ctx(three_star_levels=no_npc)) is False
+
+
+# --- remaining COMMON guards (T-447 ST-11) --------------------------------
+
+
+def test_never_give_up_needs_comeback_and_wr_and_npc():
+    ok = _ctx(match_stats=_ms(won=True, max_food_deficit=5, npcs={"bola": 0, "mancha": 0, "huracan": 1, "zas": 0}), win_rate_snapshot=60.0)
+    assert eng.GUARDS["never_give_up"](ok) is True
+
+    too_small_deficit = _ctx(match_stats=_ms(won=True, max_food_deficit=4, npcs={"bola": 0, "mancha": 0, "huracan": 1, "zas": 0}), win_rate_snapshot=60.0)
+    assert eng.GUARDS["never_give_up"](too_small_deficit) is False
+
+
+def test_always_moving_needs_level_11_plus_and_food_mode():
+    ok = _ctx(level_id=11, match_stats=_ms(won=True, max_idle_secs=5, mode="big_dig"), win_rate_snapshot=70.0)
+    assert eng.GUARDS["always_moving"](ok) is True
+
+    too_low_level = _ctx(level_id=10, match_stats=_ms(won=True, max_idle_secs=5, mode="big_dig"), win_rate_snapshot=70.0)
+    assert eng.GUARDS["always_moving"](too_low_level) is False
+
+
+def test_hot_streak_needs_three_qualifying_consecutive_wins():
+    levels = [{"level_id": str(i), "win_rate_snapshot": 70.0} for i in range(3)]
+    assert eng.GUARDS["hot_streak"](_ctx(streak_levels=levels)) is True
+    assert eng.GUARDS["hot_streak"](_ctx(streak_levels=levels[:2])) is False
+
+
+def test_big_eater_needs_food_and_food_mode_and_two_npcs():
+    ok = _ctx(match_stats=_ms(food_collected=25, mode="big_dig", npcs={"huracan": 1, "zas": 1, "bola": 0, "mancha": 0}))
+    assert eng.GUARDS["big_eater"](ok) is True
+
+    not_enough_food = _ctx(match_stats=_ms(food_collected=24, mode="big_dig", npcs={"huracan": 1, "zas": 1, "bola": 0, "mancha": 0}))
+    assert eng.GUARDS["big_eater"](not_enough_food) is False
+
+
+def test_stars_75_needs_season_stars_threshold():
+    assert eng.GUARDS["stars_75"](_ctx(season_stars=75)) is True
+    assert eng.GUARDS["stars_75"](_ctx(season_stars=74)) is False
+
+
+def test_full_house_needs_five_whole_gangs_here_levels():
+    qualifying = {str(i): {"mode": "whole_gangs_here", "win_rate_snapshot": 70.0} for i in range(5)}
+    assert eng.GUARDS["full_house"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["full_house"](_ctx(qualifying_levels=dict(list(qualifying.items())[:4]))) is False
+
+
+def test_zas_chaser_needs_three_zas_levels_under_wr():
+    qualifying = {str(i): {"npcs": {"zas": 1}, "win_rate_snapshot": 50.0} for i in range(3)}
+    assert eng.GUARDS["zas_chaser"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["zas_chaser"](_ctx(qualifying_levels=dict(list(qualifying.items())[:2]))) is False
+
+
+# --- remaining UNCOMMON guards (T-447 ST-11) --------------------------------
+
+
+def test_stink_proof_needs_level_11_plus_and_no_badsmell_hits():
+    ok = _ctx(level_id=11, match_stats=_ms(won=True, badsmell_hits=0, npcs={"mancha": 1, "bola": 0, "huracan": 0, "zas": 0}), win_rate_snapshot=70.0)
+    assert eng.GUARDS["stink_proof"](ok) is True
+
+    got_hit = _ctx(level_id=11, match_stats=_ms(won=True, badsmell_hits=1, npcs={"mancha": 1, "bola": 0, "huracan": 0, "zas": 0}), win_rate_snapshot=70.0)
+    assert eng.GUARDS["stink_proof"](got_hit) is False
+
+
+def test_comeback_king_needs_three_deficit_comebacks():
+    qualifying = {str(i): {"max_food_deficit": 5, "win_rate_snapshot": 60.0, "npcs": {"huracan": 1, "zas": 0}} for i in range(3)}
+    assert eng.GUARDS["comeback_king"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["comeback_king"](_ctx(qualifying_levels=dict(list(qualifying.items())[:2]))) is False
+
+
+def test_maze_master_needs_90_pct_coverage_in_food_mode():
+    ok = _ctx(level_id=11, match_stats=_ms(won=True, maze_coverage_pct=90.0, mode="big_dig"), win_rate_snapshot=70.0)
+    assert eng.GUARDS["maze_master"](ok) is True
+
+    not_enough_coverage = _ctx(level_id=11, match_stats=_ms(won=True, maze_coverage_pct=89.0, mode="big_dig"), win_rate_snapshot=70.0)
+    assert eng.GUARDS["maze_master"](not_enough_coverage) is False
+
+
+def test_bola_dancer_needs_zero_stuns_with_bola_present():
+    ok = _ctx(match_stats=_ms(won=True, stuns_taken=0, npcs={"bola": 1, "mancha": 0, "huracan": 0, "zas": 0}), win_rate_snapshot=60.0)
+    assert eng.GUARDS["bola_dancer"](ok) is True
+
+    got_stunned = _ctx(match_stats=_ms(won=True, stuns_taken=1, npcs={"bola": 1, "mancha": 0, "huracan": 0, "zas": 0}), win_rate_snapshot=60.0)
+    assert eng.GUARDS["bola_dancer"](got_stunned) is False
+
+
+def test_daredevil_needs_frozen_time_with_mancha_present():
+    ok = _ctx(match_stats=_ms(won=True, frozen_secs=1.0, npcs={"mancha": 1, "bola": 0, "huracan": 0, "zas": 0}), win_rate_snapshot=60.0)
+    assert eng.GUARDS["daredevil"](ok) is True
+
+    never_frozen = _ctx(match_stats=_ms(won=True, frozen_secs=0.0, npcs={"mancha": 1, "bola": 0, "huracan": 0, "zas": 0}), win_rate_snapshot=60.0)
+    assert eng.GUARDS["daredevil"](never_frozen) is False
+
+
+def test_hungry_hungry_needs_two_npcs_and_short_food_drought():
+    ok = _ctx(match_stats=_ms(won=True, max_food_drought_secs=20.0, mode="big_dig", npcs={"bola": 1, "mancha": 1, "huracan": 0, "zas": 0}), win_rate_snapshot=60.0)
+    assert eng.GUARDS["hungry_hungry"](ok) is True
+
+    only_one_npc = _ctx(match_stats=_ms(won=True, max_food_drought_secs=20.0, mode="big_dig", npcs={"bola": 1, "mancha": 0, "huracan": 0, "zas": 0}), win_rate_snapshot=60.0)
+    assert eng.GUARDS["hungry_hungry"](only_one_npc) is False
+
+
+def test_thriller_needs_three_close_comeback_wins():
+    qualifying = {str(i): {"final_gap": 3, "lead_changes": 2, "win_rate_snapshot": 60.0, "npcs": {"huracan": 1, "zas": 0}} for i in range(3)}
+    assert eng.GUARDS["thriller"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["thriller"](_ctx(qualifying_levels=dict(list(qualifying.items())[:2]))) is False
+
+
+# --- remaining RARE guards (T-447 ST-11) --------------------------------
+
+
+def test_wall_dodger_needs_five_reroutes_in_watch_the_walls():
+    ok = _ctx(match_stats=_ms(won=True, shift_reroutes=5, mode="watch_the_walls"))
+    assert eng.GUARDS["wall_dodger"](ok) is True
+
+    not_enough_reroutes = _ctx(match_stats=_ms(won=True, shift_reroutes=4, mode="watch_the_walls"))
+    assert eng.GUARDS["wall_dodger"](not_enough_reroutes) is False
+
+
+def test_deep_survivor_needs_hit_free_deep_run():
+    ok = _ctx(match_stats=_ms(won=True, mode="deep_run", hits_taken=0, npcs={"bola": 1, "mancha": 0, "huracan": 0, "zas": 0}))
+    assert eng.GUARDS["deep_survivor"](ok) is True
+
+    got_hit = _ctx(match_stats=_ms(won=True, mode="deep_run", hits_taken=1, npcs={"bola": 1, "mancha": 0, "huracan": 0, "zas": 0}))
+    assert eng.GUARDS["deep_survivor"](got_hit) is False
+
+
+def test_speedster_needs_90s_remaining_and_wr_at_most_50():
+    ok = _ctx(match_stats=_ms(won=True, mode="first_bite", round_duration_secs=120.0, time_to_target_secs=30.0), win_rate_snapshot=50.0)
+    assert eng.GUARDS["speedster"](ok) is True
+
+    wr_too_high = _ctx(match_stats=_ms(won=True, mode="first_bite", round_duration_secs=120.0, time_to_target_secs=30.0), win_rate_snapshot=51.0)
+    assert eng.GUARDS["speedster"](wr_too_high) is False
+
+
+def test_outrun_the_swarm_needs_five_no_lead_change_huracans_friends():
+    qualifying = {str(i): {"mode": "huracans_friends", "lead_changes": 0} for i in range(5)}
+    assert eng.GUARDS["outrun_the_swarm"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["outrun_the_swarm"](_ctx(qualifying_levels=dict(list(qualifying.items())[:4]))) is False
+
+
+def test_clean_sweep_season_needs_ten_hit_free_levels():
+    qualifying = {str(i): {"hits_taken": 0, "win_rate_snapshot": 50.0, "npcs": {"bola": 1, "mancha": 0}} for i in range(10)}
+    assert eng.GUARDS["clean_sweep_season"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["clean_sweep_season"](_ctx(qualifying_levels=dict(list(qualifying.items())[:9]))) is False
+
+
+def test_perfectionist_needs_20_total_and_8_hard():
+    easy = {str(i): {"win_rate_snapshot": 80.0} for i in range(12)}
+    hard = {str(i): {"win_rate_snapshot": 40.0} for i in range(12, 20)}
+    assert eng.GUARDS["perfectionist"](_ctx(three_star_levels={**easy, **hard})) is True
+
+    only_seven_hard = {str(i): {"win_rate_snapshot": 80.0} for i in range(13)}
+    only_seven_hard.update({str(i): {"win_rate_snapshot": 40.0} for i in range(13, 20)})
+    assert eng.GUARDS["perfectionist"](_ctx(three_star_levels=only_seven_hard)) is False
+
+
+# --- remaining EPIC guards (T-447 ST-11) --------------------------------
+
+
+def test_manchas_nightmare_needs_ten_hit_free_mancha_levels():
+    qualifying = {str(i): {"badsmell_hits": 0, "npcs": {"mancha": 1}, "win_rate_snapshot": 40.0} for i in range(10)}
+    assert eng.GUARDS["manchas_nightmare"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["manchas_nightmare"](_ctx(qualifying_levels=dict(list(qualifying.items())[:9]))) is False
+
+
+def test_full_roster_zero_scars_needs_all_four_npcs_and_no_hits():
+    ok = _ctx(match_stats=_ms(won=True, hits_taken=0, npcs={"bola": 1, "mancha": 1, "huracan": 1, "zas": 1}))
+    assert eng.GUARDS["full_roster_zero_scars"](ok) is True
+
+    missing_zas = _ctx(match_stats=_ms(won=True, hits_taken=0, npcs={"bola": 1, "mancha": 1, "huracan": 1, "zas": 0}))
+    assert eng.GUARDS["full_roster_zero_scars"](missing_zas) is False
+
+
+def test_speed_legend_needs_100s_remaining_no_wr_gate():
+    ok = _ctx(match_stats=_ms(won=True, mode="first_bite", round_duration_secs=120.0, time_to_target_secs=20.0))
+    assert eng.GUARDS["speed_legend"](ok) is True
+
+    not_fast_enough = _ctx(match_stats=_ms(won=True, mode="first_bite", round_duration_secs=120.0, time_to_target_secs=21.0))
+    assert eng.GUARDS["speed_legend"](not_fast_enough) is False
+
+
+def test_survivors_gauntlet_needs_15_hit_free_levels():
+    qualifying = {str(i): {"hits_taken": 0, "win_rate_snapshot": 50.0, "npcs": {"bola": 1, "mancha": 0}} for i in range(15)}
+    assert eng.GUARDS["survivors_gauntlet"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["survivors_gauntlet"](_ctx(qualifying_levels=dict(list(qualifying.items())[:14]))) is False
+
+
+def test_the_hard_way_needs_three_star_low_wr_hit_npc():
+    ok = _ctx(stars_earned=3, win_rate_snapshot=20.0, match_stats=_ms(npcs={"bola": 1, "mancha": 0, "huracan": 0, "zas": 0}))
+    assert eng.GUARDS["the_hard_way"](ok) is True
+
+    wr_too_high = _ctx(stars_earned=3, win_rate_snapshot=21.0, match_stats=_ms(npcs={"bola": 1, "mancha": 0, "huracan": 0, "zas": 0}))
+    assert eng.GUARDS["the_hard_way"](wr_too_high) is False
+
+
+# --- remaining LEGENDARY guards (T-447 ST-11) --------------------------------
+
+
+def test_invincible_needs_ten_hit_free_levels_under_25_wr():
+    qualifying = {str(i): {"hits_taken": 0, "win_rate_snapshot": 25.0, "npcs": {"bola": 1, "mancha": 0}} for i in range(10)}
+    assert eng.GUARDS["invincible"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["invincible"](_ctx(qualifying_levels=dict(list(qualifying.items())[:9]))) is False
+
+
+def test_flawless_needs_twenty_hit_free_levels_under_40_wr():
+    qualifying = {str(i): {"hits_taken": 0, "win_rate_snapshot": 40.0, "npcs": {"bola": 1, "mancha": 0}} for i in range(20)}
+    assert eng.GUARDS["flawless"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["flawless"](_ctx(qualifying_levels=dict(list(qualifying.items())[:19]))) is False
+
+
+def test_apex_predator_needs_five_full_roster_hit_free_levels():
+    qualifying = {str(i): {"hits_taken": 0, "npcs": {"bola": 1, "mancha": 1, "huracan": 1, "zas": 1}} for i in range(5)}
+    assert eng.GUARDS["apex_predator"](_ctx(qualifying_levels=qualifying)) is True
+    assert eng.GUARDS["apex_predator"](_ctx(qualifying_levels=dict(list(qualifying.items())[:4]))) is False
 
 
 # --- season_points not yet available (ST-08) --------------------------
