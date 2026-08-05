@@ -3,7 +3,6 @@
 from datetime import date
 
 URL = "/jobs/recalc-age-thresholds"
-JOB_HEADERS = {"X-CloudScheduler-JobName": "recalc-age-thresholds"}
 
 
 async def test_recalc_requires_scheduler_header(client):
@@ -12,7 +11,7 @@ async def test_recalc_requires_scheduler_header(client):
     assert resp.json()["detail"]["error_code"] == "JOBS_FORBIDDEN"
 
 
-async def test_recalc_flips_aged_out_user_and_returns_summary(client, fake_db):
+async def test_recalc_flips_aged_out_user_and_returns_summary(client, fake_db, scheduler_headers):
     # Birth month/year chosen so the user has definitely aged out by today,
     # regardless of when this test actually runs.
     old_year = date.today().year - 30
@@ -26,7 +25,7 @@ async def test_recalc_flips_aged_out_user_and_returns_summary(client, fake_db):
         },
     })
 
-    resp = await client.post(URL, headers=JOB_HEADERS)
+    resp = await client.post(URL, headers=scheduler_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["aged_out_count"] == 1
@@ -36,12 +35,12 @@ async def test_recalc_flips_aged_out_user_and_returns_summary(client, fake_db):
     assert doc["consent"]["is_child"] is False
 
 
-async def test_recalc_no_eligible_users_is_a_noop(client, fake_db):
+async def test_recalc_no_eligible_users_is_a_noop(client, fake_db, scheduler_headers):
     fake_db.seed("users", "no-birth-fields-user", {
         "uid": "no-birth-fields-user",
         "consent": {"is_child": True},
     })
 
-    resp = await client.post(URL, headers=JOB_HEADERS)
+    resp = await client.post(URL, headers=scheduler_headers)
     assert resp.status_code == 200
     assert resp.json() == {"aged_out_count": 0, "aged_out_uids": []}

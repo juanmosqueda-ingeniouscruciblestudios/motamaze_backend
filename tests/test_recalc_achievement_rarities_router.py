@@ -3,7 +3,6 @@
 from app.services import bq_streaming
 
 URL = "/jobs/recalc-achievement-rarities"
-JOB_HEADERS = {"X-CloudScheduler-JobName": "recalc-achievement-rarities"}
 
 CATALOG = {
     "achievements": [
@@ -18,7 +17,7 @@ async def test_recalc_rarities_requires_scheduler_header(client):
     assert resp.json()["detail"]["error_code"] == "JOBS_FORBIDDEN"
 
 
-async def test_recalc_rarities_writes_and_reports_summary(client, monkeypatch, fake_db):
+async def test_recalc_rarities_writes_and_reports_summary(client, monkeypatch, fake_db, scheduler_headers):
     fake_db.seed("config", "achievements", CATALOG)
     fake_db.seed("achievement_progress", "user-1", {"unlocked": ["first_blood"]})
     fake_db.seed("achievement_progress", "user-2", {"unlocked": []})
@@ -28,7 +27,7 @@ async def test_recalc_rarities_writes_and_reports_summary(client, monkeypatch, f
 
     monkeypatch.setattr(bq_streaming, "run_select", _fake_run_select)
 
-    resp = await client.post(URL, headers=JOB_HEADERS)
+    resp = await client.post(URL, headers=scheduler_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["computed"] == ["first_blood"]
@@ -40,7 +39,7 @@ async def test_recalc_rarities_writes_and_reports_summary(client, monkeypatch, f
     assert rarity_doc["rarity_tier"] == "COMMON"
 
 
-async def test_recalc_rarities_no_active_players_skips_without_error(client, monkeypatch, fake_db):
+async def test_recalc_rarities_no_active_players_skips_without_error(client, monkeypatch, fake_db, scheduler_headers):
     fake_db.seed("config", "achievements", CATALOG)
 
     async def _fake_run_select(query, params):
@@ -48,6 +47,6 @@ async def test_recalc_rarities_no_active_players_skips_without_error(client, mon
 
     monkeypatch.setattr(bq_streaming, "run_select", _fake_run_select)
 
-    resp = await client.post(URL, headers=JOB_HEADERS)
+    resp = await client.post(URL, headers=scheduler_headers)
     assert resp.status_code == 200
     assert resp.json() == {"computed": [], "total_players": 0, "skipped": "no_active_players"}

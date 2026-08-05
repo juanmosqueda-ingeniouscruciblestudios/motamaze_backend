@@ -5,7 +5,6 @@ from datetime import date, timedelta
 from app.services import bq_streaming
 
 URL = "/jobs/reconcile-ad-revenue"
-JOB_HEADERS = {"X-CloudScheduler-JobName": "reconcile-ad-revenue"}
 
 
 async def test_reconcile_ad_revenue_requires_scheduler_header(client):
@@ -14,7 +13,7 @@ async def test_reconcile_ad_revenue_requires_scheduler_header(client):
     assert resp.json()["detail"]["error_code"] == "JOBS_FORBIDDEN"
 
 
-async def test_reconcile_ad_revenue_returns_summary_and_flags(client, monkeypatch):
+async def test_reconcile_ad_revenue_returns_summary_and_flags(client, monkeypatch, scheduler_headers):
     async def _fake_run_select(query, params):
         if "admob_daily_report" in query:
             return [
@@ -25,7 +24,7 @@ async def test_reconcile_ad_revenue_returns_summary_and_flags(client, monkeypatc
 
     monkeypatch.setattr(bq_streaming, "run_select", _fake_run_select)
 
-    resp = await client.post(URL, headers=JOB_HEADERS)
+    resp = await client.post(URL, headers=scheduler_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["ad_units_checked"] == 2
@@ -35,13 +34,13 @@ async def test_reconcile_ad_revenue_returns_summary_and_flags(client, monkeypatc
     assert flagged_units == ["interstitial-1"]
 
 
-async def test_reconcile_ad_revenue_no_data_is_a_noop(client, monkeypatch):
+async def test_reconcile_ad_revenue_no_data_is_a_noop(client, monkeypatch, scheduler_headers):
     async def _fake_run_select(query, params):
         return []
 
     monkeypatch.setattr(bq_streaming, "run_select", _fake_run_select)
 
-    resp = await client.post(URL, headers=JOB_HEADERS)
+    resp = await client.post(URL, headers=scheduler_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["report_date"] == (date.today() - timedelta(days=1)).isoformat()

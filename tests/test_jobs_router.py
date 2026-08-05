@@ -10,7 +10,6 @@ import pytest
 from app.services import bq_streaming
 
 PURGE_URL = "/jobs/purge-deleted-accounts"
-JOB_HEADERS = {"X-CloudScheduler-JobName": "purge-deleted-accounts"}
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +30,7 @@ async def test_purge_job_requires_scheduler_header(client):
     assert resp.json()["detail"]["error_code"] == "JOBS_FORBIDDEN"
 
 
-async def test_purge_job_purges_due_users_and_skips_others(client, fake_db):
+async def test_purge_job_purges_due_users_and_skips_others(client, fake_db, scheduler_headers):
     now = datetime.now(timezone.utc)
     fake_db.seed("users", "due-for-purge", {
         "uid": "due-for-purge", "delete_requested_at": now - timedelta(days=31),
@@ -42,7 +41,7 @@ async def test_purge_job_purges_due_users_and_skips_others(client, fake_db):
     })
     fake_db.seed("users", "normal-user", {"uid": "normal-user", "delete_requested_at": None})
 
-    resp = await client.post(PURGE_URL, headers=JOB_HEADERS)
+    resp = await client.post(PURGE_URL, headers=scheduler_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body == {"due": 1, "purged": 1, "failed": 0}
@@ -53,14 +52,14 @@ async def test_purge_job_purges_due_users_and_skips_others(client, fake_db):
     assert (await fake_db.collection("users").document("normal-user").get()).exists
 
 
-async def test_purge_job_no_due_users_is_a_noop(client, fake_db):
+async def test_purge_job_no_due_users_is_a_noop(client, fake_db, scheduler_headers):
     fake_db.seed("users", "normal-user-2", {"uid": "normal-user-2", "delete_requested_at": None})
-    resp = await client.post(PURGE_URL, headers=JOB_HEADERS)
+    resp = await client.post(PURGE_URL, headers=scheduler_headers)
     assert resp.status_code == 200
     assert resp.json() == {"due": 0, "purged": 0, "failed": 0}
 
 
-async def test_purge_job_runs_bigquery_before_firestore(client, fake_db, monkeypatch):
+async def test_purge_job_runs_bigquery_before_firestore(client, fake_db, monkeypatch, scheduler_headers):
     now = datetime.now(timezone.utc)
     fake_db.seed("users", "bq-then-fs-user", {
         "uid": "bq-then-fs-user", "delete_requested_at": now - timedelta(days=31),
@@ -71,13 +70,13 @@ async def test_purge_job_runs_bigquery_before_firestore(client, fake_db, monkeyp
 
     monkeypatch.setattr(bq_streaming, "run_dml", _fake_run_dml)
 
-    resp = await client.post(PURGE_URL, headers=JOB_HEADERS)
+    resp = await client.post(PURGE_URL, headers=scheduler_headers)
     assert resp.status_code == 200
     assert resp.json() == {"due": 1, "purged": 1, "failed": 0}
     assert not (await fake_db.collection("users").document("bq-then-fs-user").get()).exists
 
 
-async def test_purge_job_bigquery_failure_leaves_firestore_untouched_for_retry(client, fake_db, monkeypatch):
+async def test_purge_job_bigquery_failure_leaves_firestore_untouched_for_retry(client, fake_db, monkeypatch, scheduler_headers):
     # BQ purge fails -> Firestore purge must NOT run, so the user is still
     # found by find_users_due_for_purge on the next run (see jobs.py's
     # ordering rationale: users/{uid} is the flag that query scans for).
@@ -91,7 +90,7 @@ async def test_purge_job_bigquery_failure_leaves_firestore_untouched_for_retry(c
 
     monkeypatch.setattr(bq_streaming, "run_dml", _fake_run_dml_fails)
 
-    resp = await client.post(PURGE_URL, headers=JOB_HEADERS)
+    resp = await client.post(PURGE_URL, headers=scheduler_headers)
     assert resp.status_code == 200
     assert resp.json() == {"due": 1, "purged": 0, "failed": 1}
 
@@ -107,7 +106,7 @@ async def test_purge_job_bigquery_failure_leaves_firestore_untouched_for_retry(c
 # ---------------------------------------------------------------------------
 
 
-async def test_purge_job_streams_completed_status_with_all_tables(client, fake_db, monkeypatch):
+async def test_purge_job_streams_completed_status_with_all_tables(client, fake_db, monkeypatch, scheduler_headers):
     captured = {}
 
     async def _capture(table, row, *args, **kwargs):
@@ -126,7 +125,7 @@ async def test_purge_job_streams_completed_status_with_all_tables(client, fake_d
     })
     fake_db.seed("progress", "status-complete-user", {"uid": "status-complete-user"})
 
-    resp = await client.post(PURGE_URL, headers=JOB_HEADERS)
+    resp = await client.post(PURGE_URL, headers=scheduler_headers)
     assert resp.status_code == 200
 
     row = captured["row"]
@@ -138,7 +137,7 @@ async def test_purge_job_streams_completed_status_with_all_tables(client, fake_d
     assert "login_events" in row["tables_purged"]  # from the (mocked) BQ purge
 
 
-async def test_purge_job_streams_failed_status_with_error_in_notes(client, fake_db, monkeypatch):
+async def test_purge_job_streams_failed_status_with_error_in_notes(client, fake_db, monkeypatch, scheduler_headers):
     captured = {}
 
     async def _capture(table, row, *args, **kwargs):
@@ -157,7 +156,7 @@ async def test_purge_job_streams_failed_status_with_error_in_notes(client, fake_
         "uid": "status-failed-user", "delete_requested_at": now - timedelta(days=31),
     })
 
-    resp = await client.post(PURGE_URL, headers=JOB_HEADERS)
+    resp = await client.post(PURGE_URL, headers=scheduler_headers)
     assert resp.status_code == 200
 
     row = captured["row"]

@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     sendgrid_api_key: str = ""
     sendgrid_from_email: str = "noreply@ingeniouscruciblestudios.com"
     parental_consent_base_url: str = "https://motamaze-backend-542009654415.us-central1.run.app"
+    # INFRA-007: must match the `--oidc-token-audience` every /jobs/* Cloud
+    # Scheduler job was created with (`gcloud scheduler jobs list --format=
+    # "table(httpTarget.oidcToken.audience)"` to confirm) — verify_cloud_scheduler_oidc
+    # in app/routers/jobs.py rejects any token whose aud claim doesn't match
+    # this exactly. Default here is the dev Cloud Run URL; prod overrides via
+    # Secret Manager/.env like the rest of this class.
+    cloud_run_service_url: str = "https://motamaze-backend-qxc5bjtn4q-uc.a.run.app"
     company_website_url: str = "https://ingeniouscruciblestudios.com/motamaze/"
     privacy_email: str = "privacy@ingeniouscruciblestudios.com"
     # Decision L (2026-07-21): Option A — static tracking link created once in

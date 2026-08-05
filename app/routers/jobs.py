@@ -1,9 +1,12 @@
+import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from google.auth.transport import requests as google_requests
 from google.cloud.firestore import AsyncClient
+from google.oauth2 import id_token as google_id_token
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings
@@ -23,18 +26,59 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 _PUBLISHER_ID = "pub-9121176819960949"
+_SCHEDULER_SA_NAME = "game-api-backend"
 
 
-@router.post("/admob-daily-report")
-async def run_admob_daily_report(
-    background_tasks: BackgroundTasks,
-    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
+def _verify_scheduler_oidc_sync(token: str, audience: str) -> dict:
+    # Fetches Google's public certs over HTTPS and validates signature, exp,
+    # and aud in one call -- same library/pattern as auth_service.verify_google_token.
+    return google_id_token.verify_oauth2_token(token, google_requests.Request(), audience=audience)
+
+
+async def _verify_scheduler_oidc(token: str, audience: str) -> dict:
+    return await asyncio.to_thread(_verify_scheduler_oidc_sync, token, audience)
+
+
+async def verify_cloud_scheduler_oidc(
+    authorization: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
-):
-    # Cloud Run IAM is the primary auth layer; this header is belt-and-suspenders.
-    if x_cloudscheduler_jobname is None:
+) -> None:
+    """INFRA-007. Cloud Run IAM (--no-invoker-iam-check removed the domain-wide
+    default, only game-api-backend's own identity can reach these URLs at all)
+    is the primary auth layer. This is defense in depth on top of it: the old
+    check here only confirmed the client SENT an X-CloudScheduler-JobName
+    header -- any caller could set that themselves, so Cloud Run IAM was the
+    *only* real gate on 7 endpoints including purge-deleted-accounts (destroys
+    user data) and recalc-age-thresholds (COPPA child flags).
+
+    This verifies the Authorization: Bearer token Cloud Scheduler attaches is
+    genuinely Google-signed, unexpired, carries this exact Cloud Run service
+    as its audience (settings.cloud_run_service_url — must match every
+    /jobs/* scheduler job's own --oidc-token-audience, confirmed identical
+    across all of them per environment), and — the part a bare signature
+    check would miss — was issued to our own scheduler-invoking service
+    account specifically, not just any authenticated Google identity that
+    happened to reach this URL.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
+    token = authorization.removeprefix("Bearer ").strip()
+
+    try:
+        claims = await _verify_scheduler_oidc(token, settings.cloud_run_service_url)
+    except Exception:
         raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
 
+    expected_email = f"{_SCHEDULER_SA_NAME}@{settings.gcp_project_id}.iam.gserviceaccount.com"
+    if claims.get("email") != expected_email or not claims.get("email_verified"):
+        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
+
+
+@router.post("/admob-daily-report", dependencies=[Depends(verify_cloud_scheduler_oidc)])
+async def run_admob_daily_report(
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings),
+):
     report_date = date.today() - timedelta(days=1)
 
     try:
@@ -63,9 +107,8 @@ async def run_admob_daily_report(
     return {"report_date": report_date.isoformat(), "rows_queued": len(rows)}
 
 
-@router.post("/reconcile-ad-revenue")
+@router.post("/reconcile-ad-revenue", dependencies=[Depends(verify_cloud_scheduler_oidc)])
 async def run_reconcile_ad_revenue(
-    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
 ):
     """T-302: compares our own ad_impressions counts against AdMob's
@@ -73,9 +116,6 @@ async def run_reconcile_ad_revenue(
     discrepancies past DISCREPANCY_THRESHOLD_PERCENT. Must be scheduled to
     run AFTER admob-daily-report — it reads admob_daily_report for the same
     report_date, and that table is only populated by the other job."""
-    if x_cloudscheduler_jobname is None:
-        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
-
     report_date = date.today() - timedelta(days=1)
     results = await ad_revenue_reconciliation_service.reconcile_ad_revenue(
         settings.gcp_project_id, settings.bq_dataset, report_date
@@ -96,15 +136,11 @@ async def run_reconcile_ad_revenue(
     }
 
 
-@router.post("/reconcile-purchases")
+@router.post("/reconcile-purchases", dependencies=[Depends(verify_cloud_scheduler_oidc)])
 async def run_reconcile_purchases(
-    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
     db: AsyncClient = Depends(get_firestore_client),
 ):
-    if x_cloudscheduler_jobname is None:
-        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
-
     ack_result = await reconcile_service.reconcile_pending_acks(
         settings.play_package_name, db, settings
     )
@@ -116,10 +152,9 @@ async def run_reconcile_purchases(
     return {"pending_acks": ack_result, "refunds": refund_result}
 
 
-@router.post("/purge-deleted-accounts")
+@router.post("/purge-deleted-accounts", dependencies=[Depends(verify_cloud_scheduler_oidc)])
 async def run_purge_deleted_accounts(
     background_tasks: BackgroundTasks,
-    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
     db: AsyncClient = Depends(get_firestore_client),
 ):
@@ -133,9 +168,6 @@ async def run_purge_deleted_accounts(
     rows is a no-op), so a retry after a partial failure is always safe.
     Reversing this order would orphan a user whose Firestore doc was already
     gone but whose BQ purge failed, with no way to retry it."""
-    if x_cloudscheduler_jobname is None:
-        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
-
     due_uids = await account_deletion_service.find_users_due_for_purge(db)
     purged = failed = 0
 
@@ -192,9 +224,8 @@ async def run_purge_deleted_accounts(
     return {"due": len(due_uids), "purged": purged, "failed": failed}
 
 
-@router.post("/recalc-age-thresholds")
+@router.post("/recalc-age-thresholds", dependencies=[Depends(verify_cloud_scheduler_oidc)])
 async def run_recalc_age_thresholds(
-    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
     db: AsyncClient = Depends(get_firestore_client),
 ):
     """T-404: monthly recalc — flips is_child to False for DOB-verified
@@ -202,18 +233,14 @@ async def run_recalc_age_thresholds(
     Brazil store-signal users are out of scope (no stored birth_month/year
     to recalc from) — see age_threshold_recalc_service for why that's
     sufficient without an explicit country_code check."""
-    if x_cloudscheduler_jobname is None:
-        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
-
     aged_out = await age_threshold_recalc_service.find_and_recalc_aged_out_users(db)
 
     logger.info("T-404 recalc: %d users aged out: %s", len(aged_out), aged_out)
     return {"aged_out_count": len(aged_out), "aged_out_uids": aged_out}
 
 
-@router.post("/recalc-level-stats")
+@router.post("/recalc-level-stats", dependencies=[Depends(verify_cloud_scheduler_oidc)])
 async def run_recalc_level_stats(
-    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
     db: AsyncClient = Depends(get_firestore_client),
 ):
@@ -223,9 +250,6 @@ async def run_recalc_level_stats(
     attempts are left untouched — see docs/DATA_MODEL.md#level_stats for why
     an absent/stale WR fails the 26 dependent achievement guards closed
     instead of granting them for free."""
-    if x_cloudscheduler_jobname is None:
-        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
-
     result = await level_stats_service.recalc_level_stats(
         db, settings.gcp_project_id, settings.bq_dataset
     )
@@ -233,9 +257,8 @@ async def run_recalc_level_stats(
     return result
 
 
-@router.post("/recalc-achievement-rarities")
+@router.post("/recalc-achievement-rarities", dependencies=[Depends(verify_cloud_scheduler_oidc)])
 async def run_recalc_achievement_rarities(
-    x_cloudscheduler_jobname: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
     db: AsyncClient = Depends(get_firestore_client),
 ):
@@ -244,9 +267,6 @@ async def run_recalc_achievement_rarities(
     -- see its module docstring for why total_players and unlocked_by are
     both scoped to that same active-uid set). GET /achievements (ST-09)
     only reads these documents; no BQ query in the request path."""
-    if x_cloudscheduler_jobname is None:
-        raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
-
     result = await achievement_rarities_service.recalc_achievement_rarities(
         db, settings.gcp_project_id, settings.bq_dataset
     )

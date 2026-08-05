@@ -12,3 +12,4 @@
 | Firebase Remote Config | [remote-config.md](remote-config.md) | 2026-07-24 |
 | Deep Links (App Links / Universal Links) | [deep-links.md](deep-links.md) | 2026-07-27 |
 | Achievements & Season Points | [achievements.md](achievements.md) | 2026-07-31 |
+| Jobs / Cloud Scheduler Auth | [jobs-scheduler-auth.md](jobs-scheduler-auth.md) | 2026-08-05 |

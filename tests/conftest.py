@@ -323,6 +323,25 @@ def test_settings() -> Settings:
     )
 
 
+@pytest.fixture
+def scheduler_headers(monkeypatch, test_settings) -> dict:
+    """INFRA-007: valid Authorization header for /jobs/* endpoints, with
+    jobs._verify_scheduler_oidc patched to accept it -- avoids every job
+    test hitting Google's real cert endpoint. Tests exercising rejection
+    paths (missing header, wrong email, verification failure) should not
+    use this fixture; monkeypatch jobs._verify_scheduler_oidc directly."""
+    from app.routers import jobs
+
+    async def _fake_verify(token: str, audience: str) -> dict:
+        return {
+            "email": f"game-api-backend@{test_settings.gcp_project_id}.iam.gserviceaccount.com",
+            "email_verified": True,
+        }
+
+    monkeypatch.setattr(jobs, "_verify_scheduler_oidc", _fake_verify)
+    return {"Authorization": "Bearer fake-scheduler-token"}
+
+
 @pytest.fixture(autouse=True)
 def _patch_jwt_signing_key(monkeypatch, app_signing_key):
     """Every test gets a fixed, fast, offline RSA key instead of hitting
