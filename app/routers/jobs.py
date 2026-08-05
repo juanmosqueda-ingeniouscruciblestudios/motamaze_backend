@@ -66,11 +66,16 @@ async def verify_cloud_scheduler_oidc(
 
     try:
         claims = await _verify_scheduler_oidc(token, settings.cloud_run_service_url)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Scheduler OIDC verification failed: %s", exc)
         raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
 
     expected_email = f"{_SCHEDULER_SA_NAME}@{settings.gcp_project_id}.iam.gserviceaccount.com"
     if claims.get("email") != expected_email or not claims.get("email_verified"):
+        logger.warning(
+            "Scheduler OIDC email mismatch: got %s (verified=%s), expected %s",
+            claims.get("email"), claims.get("email_verified"), expected_email,
+        )
         raise HTTPException(403, detail={"error_code": "JOBS_FORBIDDEN"})
 
 
