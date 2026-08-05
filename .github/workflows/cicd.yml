@@ -103,6 +103,7 @@ jobs:
           env_vars: |
             GCP_PROJECT_ID=motamaze-dev
             ENVIRONMENT=dev
+            CLOUD_RUN_SERVICE_URL=https://motamaze-backend-qxc5bjtn4q-uc.a.run.app
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ST-03 — Promote to prod (same digest, manual approval required)
@@ -139,3 +140,4 @@ jobs:
           env_vars: |
             GCP_PROJECT_ID=motamaze
             ENVIRONMENT=prod
+            CLOUD_RUN_SERVICE_URL=https://motamaze-backend-ghubi2atbq-uc.a.run.app

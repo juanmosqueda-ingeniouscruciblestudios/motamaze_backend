@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Bug fix / Security |
 | **Priority** | Critical — `X-CloudScheduler-JobName` was spoofable, Cloud Run IAM was the *only* real gate on 7 endpoints including `purge-deleted-accounts` and `recalc-age-thresholds` |
-| **Status** | In Progress — ST-01–04 ✅. ST-05 (flip the invoker flag in PROD) and ST-06 (docs, in progress) remain |
+| **Status** | Done — ST-01–05 ✅. ST-06 (this doc) closes it out |
 | **Date** | 2026-08-05 |
 | **Depends-on** | None — no external blockers |
 
@@ -31,7 +31,7 @@ Cloud Run IAM was the sole real gate on 7 endpoints, two of which are genuinely 
 - [x] Audit every router's auth coverage, confirm `jobs.py` is the only real gap (ST-02)
 - [x] Replace the spoofable header check with real Cloud Scheduler OIDC verification (ST-03)
 - [x] Run `--no-invoker-iam-check` in `motamaze-dev`, validate (ST-04)
-- [ ] Run `--no-invoker-iam-check` in `motamaze` (prod), validate (ST-05)
+- [x] Run `--no-invoker-iam-check` in `motamaze` (prod), validate (ST-05)
 
 ---
 
@@ -125,6 +125,42 @@ wrong audience, wrong SA — same error code, no detail leaked about which check
    Confirms the share-preview endpoint genuinely resolves for unauthenticated callers now — the
    actual root problem this ticket exists to fix.
 
+### ST-05 — `--no-invoker-iam-check` in PROD, validated (found and fixed a real bug)
+
+`gcloud run services update motamaze-backend --no-invoker-iam-check --project=motamaze
+--region=us-central1`. Same four checks as ST-04, plus one that ST-04's cold-start theory turned out
+to be masking:
+
+1. No-auth / garbage-`Bearer` on `/jobs/recalc-level-stats` — `403 JOBS_FORBIDDEN` from the app, as
+   expected.
+2. Real Cloud Scheduler force-run — **failed deterministically**, not intermittently like ST-04's
+   first attempt. `recalc-level-stats` itself is `PAUSED` in prod (along with `purge-deleted-accounts`,
+   `reconcile-ad-revenue`, `recalc-age-thresholds`, `recalc-achievement-rarities` — 5 of 8 jobs;
+   separate, pre-existing finding, out of scope for this ticket), so `admob-daily-report` (`ENABLED`,
+   idempotent — deterministic BQ row IDs, no user-data writes) was force-run instead. The app log
+   (added in ST-04's `243b00c` logging) showed the real cause immediately:
+   `Token has wrong audience https://motamaze-backend-ghubi2atbq-uc.a.run.app, expected one of
+   ['https://motamaze-backend-qxc5bjtn4q-uc.a.run.app']` — the prod revision was checking against
+   **dev's** Cloud Run URL.
+   Root cause: `settings.cloud_run_service_url` (`app/config.py`) defaults to the dev URL, and
+   `.github/workflows/cicd.yml`'s `env_vars` for both the `deploy-dev` and `deploy-prod` jobs (ST-03)
+   never actually set `CLOUD_RUN_SERVICE_URL` — only `GCP_PROJECT_ID`/`ENVIRONMENT`. Dev passed ST-04
+   purely by coincidence, because the hardcoded default happens to equal dev's real URL; prod has no
+   such coincidence. This means ST-04's "cold-start" theory for the first failed force-run in dev is
+   now suspect too, but unlike prod's failure it wasn't reproducible/deterministic and the audience
+   check there was never actually wrong — left as-is, noted below.
+   Fix, in two parts: (a) hot-patched prod immediately via
+   `gcloud run services update motamaze-backend --project=motamaze --region=us-central1
+   --update-env-vars="CLOUD_RUN_SERVICE_URL=https://motamaze-backend-ghubi2atbq-uc.a.run.app"` to
+   validate ST-05 same-day; (b) added `CLOUD_RUN_SERVICE_URL` explicitly to both `env_vars` blocks in
+   `cicd.yml` (dev and prod, each with its own URL) so the next CI/CD deploy doesn't silently drop the
+   hot patch and regress prod back to the wrong audience. After the hot patch: 3/3 consecutive
+   force-runs of `admob-daily-report` returned `200`.
+3. `GET /ogimg/healthcheck` — `302 → 200` (was `403`). Same as dev; **T-CLO-4 is now unblocked in
+   prod too**.
+4. `GET /s/tokenquenoexiste` — `404 SHARE_TOKEN_NOT_FOUND` (was `403`). Confirms the actual root
+   problem (broken public share previews) is fixed in prod, not just dev.
+
 ---
 
 ## Testing
@@ -163,16 +199,29 @@ GET /s/tokenquenoexiste                       -> 404 SHARE_TOKEN_NOT_FOUND (was 
 GET /health                                   -> 200 (unchanged, already public)
 ```
 
+**PROD live validation (ST-05):**
+```
+POST /jobs/recalc-level-stats, no auth        -> 403 JOBS_FORBIDDEN (app-level)
+Cloud Scheduler force-run (admob-daily-report) -> 200 (3/3, after CLOUD_RUN_SERVICE_URL fix)
+GET /ogimg/healthcheck                        -> 302 -> 200 (was 403)
+GET /s/tokenquenoexiste                       -> 404 SHARE_TOKEN_NOT_FOUND (was 403)
+GET /health                                   -> 200 (unchanged, already public)
+```
+
 ---
 
 ## Follow-ups / notes
 
-- **ST-05 not done in this pass** — same `--no-invoker-iam-check` flip and live validation, in
-  `motamaze` (prod). Deliberately sequenced after dev, and after ST-03 landed — flipping the flag
-  first would have left the service publicly reachable with only the spoofable header as protection.
-- **T-CLO-4 (OG image health monitor) is unblocked** — it was paused 2026-07-31 because the canary
-  URL always 403'd regardless of the feature's actual correctness. That's no longer true in dev;
-  worth resuming once ST-05 makes it true in prod too.
+- **T-CLO-4 (OG image health monitor) is unblocked in both dev and prod** — it was paused 2026-07-31
+  because the canary URL always 403'd regardless of the feature's actual correctness. Now false in
+  both environments; ready to resume.
+- **5 of 8 `/jobs/*` Cloud Scheduler jobs are `PAUSED` in prod**
+  (`purge-deleted-accounts`, `reconcile-ad-revenue`, `recalc-age-thresholds`,
+  `recalc-achievement-rarities`, `recalc-level-stats` — only `admob-daily-report`,
+  `reconcile-purchases`, and the unrelated `maxmind-geolite2-weekly` are `ENABLED`). Found while
+  picking a job to force-run for ST-05; not caused by or in scope for this ticket, but worth a
+  separate ticket to confirm which of these are intentionally paused vs. an oversight — several
+  (`purge-deleted-accounts`, `recalc-age-thresholds`) look like they should be running.
 - **`admob-daily-report` and `reconcile-purchases` still have no dedicated test file** — pre-existing
   gap noted in `test_jobs_router.py`'s own docstring, unrelated to this ticket, not fixed here.
 - **`gcloud org-policies` (V2 API) required enabling `orgpolicy.googleapis.com`** on the project —
