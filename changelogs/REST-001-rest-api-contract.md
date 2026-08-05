@@ -585,6 +585,14 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 | `levels[].best_score` | int | Mejor puntuación histórica |
 | `levels[].completed_at` | string (ISO 8601) | Timestamp del primer completion |
 
+> **Fix 2026-08-05:** la implementación devolvía `levels` como el mapa crudo de Firestore
+> (`progress/{uid}.levels`, ver `docs/DATA_MODEL.md#progress`) en vez de transformarlo al array
+> documentado aquí — nunca coincidió con este contrato. Encontrado revisando MOTA-106 (cliente
+> Godot, modelo de progreso autoritativo): con esa forma de respuesta, `progression_service.gd`
+> no podía parsear los niveles, y bajo el modelo autoritativo eso se traduce en borrar el progreso
+> real del jugador, no solo un error de parseo. Corregido para devolver el array tal cual se
+> especifica arriba; también se agregó `user_id` a la respuesta, que ya se documentaba pero faltaba.
+
 **Errores:**
 
 | HTTP | `error_code` | Cuándo |

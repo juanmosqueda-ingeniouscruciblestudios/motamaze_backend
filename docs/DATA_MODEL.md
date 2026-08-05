@@ -191,11 +191,20 @@ Progresión del jugador por nivel. Autoridad del servidor — el cliente no pued
 - El nivel enviado por el cliente debe ser `<= best_level + 1` (no puede saltar niveles)
 - El score se acepta tal cual (validación de engagement via BigQuery analytics, no Firestore)
 
+> **`levels` es un mapa en Firestore, pero un array en la respuesta de `GET /progress`** (fix
+> 2026-08-05). El endpoint transforma `{level_id: LevelResult}` al `levels[]` de objetos
+> `{level_id, stars_earned, best_score, completed_at}` que documenta REST-001 — antes devolvía el
+> mapa crudo sin transformar, lo que el cliente Godot (`progression_service.gd`, que itera
+> `data.get("levels", [])` esperando un array) no podía parsear correctamente. Con el modelo
+> autoritativo de MOTA-106 (el cliente reemplaza su progreso local con la respuesta del servidor en
+> vez de mezclar), un mismatch de forma se traduce en progreso real del jugador borrado, no solo en
+> un error de parseo silencioso.
+
 **Endpoints que usan esta colección:**
 
 | Endpoint | Operación |
 |---|---|
-| `GET /progress` | `get` |
+| `GET /progress` | `get` — transforma `levels` de mapa a array, ver nota arriba |
 | `POST /progress/level-complete` | `set` (merge: solo actualiza el nivel enviado) + también escribe en `season_progress/{uid}` |
 
 ---

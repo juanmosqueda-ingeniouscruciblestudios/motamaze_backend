@@ -551,13 +551,31 @@ async def get_progress(
 
     if progress_snap.exists:
         prog = progress_snap.to_dict()
-        levels = prog.get("levels", {})
+        levels_map = prog.get("levels", {})
         best_level = prog.get("best_level", 0)
-        total_stars = sum(v.get("stars", 0) for v in levels.values())
+        total_stars = sum(v.get("stars", 0) for v in levels_map.values())
     else:
-        levels = {}
+        levels_map = {}
         best_level = 0
         total_stars = 0
+
+    # REST-001 documents `levels` as an array of {level_id, stars_earned,
+    # best_score, completed_at} -- Firestore stores it as a map keyed by
+    # level_id (progress/{uid}.levels.{level_id}), which was being returned
+    # here unconverted. The Godot client (progression_service.gd) iterates
+    # `data.get("levels", [])` expecting that documented array; receiving
+    # the raw map instead breaks parsing and, under MOTA-106's authoritative
+    # refresh(), wipes real player progress. Sorted by level_id for a
+    # deterministic response matching REST-001's own example ordering.
+    levels = [
+        {
+            "level_id": int(level_id),
+            "stars_earned": data.get("stars", 0),
+            "best_score": data.get("best_score", 0),
+            "completed_at": data.get("completed_at"),
+        }
+        for level_id, data in sorted(levels_map.items(), key=lambda kv: int(kv[0]))
+    ]
 
     season_stars = 0
     if season_snap.exists:
@@ -566,6 +584,7 @@ async def get_progress(
             season_stars = sd.get("season_stars", 0)
 
     return {
+        "user_id": user_id,
         "best_level": best_level,
         "highest_unlocked_level": min(best_level + 1, 30),
         "total_stars": total_stars,
