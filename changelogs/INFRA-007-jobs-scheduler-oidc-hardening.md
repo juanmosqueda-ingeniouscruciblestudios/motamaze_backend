@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Bug fix / Security |
 | **Priority** | Critical — `X-CloudScheduler-JobName` was spoofable, Cloud Run IAM was the *only* real gate on 7 endpoints including `purge-deleted-accounts` and `recalc-age-thresholds` |
-| **Status** | In Progress — ST-01–03 ✅ (this pass). ST-04/05 (flip the Cloud Run invoker flag in DEV/PROD) and ST-06 (docs, in progress) remain |
+| **Status** | In Progress — ST-01–04 ✅. ST-05 (flip the invoker flag in PROD) and ST-06 (docs, in progress) remain |
 | **Date** | 2026-08-05 |
 | **Depends-on** | None — no external blockers |
 
@@ -30,7 +30,7 @@ Cloud Run IAM was the sole real gate on 7 endpoints, two of which are genuinely 
 - [x] Confirm `constraints/run.managed.requireInvokerIam` doesn't block the fix (ST-01)
 - [x] Audit every router's auth coverage, confirm `jobs.py` is the only real gap (ST-02)
 - [x] Replace the spoofable header check with real Cloud Scheduler OIDC verification (ST-03)
-- [ ] Run `--no-invoker-iam-check` in `motamaze-dev`, validate (ST-04)
+- [x] Run `--no-invoker-iam-check` in `motamaze-dev`, validate (ST-04)
 - [ ] Run `--no-invoker-iam-check` in `motamaze` (prod), validate (ST-05)
 
 ---
@@ -103,6 +103,28 @@ authenticated Google identity could otherwise pass):
 Both failure modes return the same `403 JOBS_FORBIDDEN` as before (missing header, bad signature,
 wrong audience, wrong SA — same error code, no detail leaked about which check failed).
 
+### ST-04 — `--no-invoker-iam-check` in DEV, validated
+
+`gcloud run services update motamaze-backend --no-invoker-iam-check --project=motamaze-dev
+--region=us-central1`. Four things checked live afterward:
+
+1. `POST /jobs/recalc-level-stats` with no `Authorization` header, and with a garbage `Bearer` value
+   — both `403 {"error_code":"JOBS_FORBIDDEN"}` from our own app (not Cloud Run's generic HTML 403
+   page), confirming the request now reaches the app and our own check is what's rejecting it.
+2. A real Cloud Scheduler force-run (`gcloud scheduler jobs run recalc-level-stats`) — **first
+   attempt failed** (403, no exception detail logged — the original code silently swallowed it).
+   Added exception/mismatch logging (commit `243b00c`) rather than guess. After that deployed, 3/3
+   consecutive force-runs succeeded (200). No code path changed behavior between the two commits —
+   almost certainly a cold-start hiccup fetching Google's certs on the instance that came up right
+   after the Cloud Run service update, not a logic bug. Kept the logging permanently; silently
+   swallowing the exception would have made this undiagnosable if it ever happens for real.
+3. `GET /ogimg/healthcheck` (nonexistent token, falls back to the Cloudinary base image per T-440) —
+   `302 → 200`, 0→1 redirect. Previously always 403 regardless of token validity. **This also
+   unblocks T-CLO-4** (health monitor uptime check), paused since 2026-07-31 for this exact reason.
+4. `GET /s/tokenquenoexiste` — `404 SHARE_TOKEN_NOT_FOUND` (our own app logic), not Cloud Run's 403.
+   Confirms the share-preview endpoint genuinely resolves for unauthenticated callers now — the
+   actual root problem this ticket exists to fix.
+
 ---
 
 ## Testing
@@ -131,15 +153,26 @@ real cert endpoint.
 
 Full suite, no regressions across any router.
 
+**DEV live validation (ST-04):**
+```
+POST /jobs/recalc-level-stats, no auth        -> 403 JOBS_FORBIDDEN (app-level)
+POST /jobs/recalc-level-stats, garbage Bearer -> 403 JOBS_FORBIDDEN (app-level)
+Cloud Scheduler force-run (real OIDC token)   -> 200 (3/3 after the logging fix deployed)
+GET /ogimg/healthcheck                        -> 302 -> 200 (was 403)
+GET /s/tokenquenoexiste                       -> 404 SHARE_TOKEN_NOT_FOUND (was 403)
+GET /health                                   -> 200 (unchanged, already public)
+```
+
 ---
 
 ## Follow-ups / notes
 
-- **ST-04/ST-05 not done in this pass** — flipping `--no-invoker-iam-check` in dev then prod, each
-  followed by a live validation (confirm `/jobs/*` still rejects unauthenticated calls, confirm
-  `/s/{token}`/`/ogimg/{token}` now resolve publicly). Deliberately sequenced after ST-03 lands, not
-  before — flipping the flag first would have left the service publicly reachable with only the
-  spoofable header as protection.
+- **ST-05 not done in this pass** — same `--no-invoker-iam-check` flip and live validation, in
+  `motamaze` (prod). Deliberately sequenced after dev, and after ST-03 landed — flipping the flag
+  first would have left the service publicly reachable with only the spoofable header as protection.
+- **T-CLO-4 (OG image health monitor) is unblocked** — it was paused 2026-07-31 because the canary
+  URL always 403'd regardless of the feature's actual correctness. That's no longer true in dev;
+  worth resuming once ST-05 makes it true in prod too.
 - **`admob-daily-report` and `reconcile-purchases` still have no dedicated test file** — pre-existing
   gap noted in `test_jobs_router.py`'s own docstring, unrelated to this ticket, not fixed here.
 - **`gcloud org-policies` (V2 API) required enabling `orgpolicy.googleapis.com`** on the project —

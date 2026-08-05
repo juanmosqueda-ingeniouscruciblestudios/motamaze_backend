@@ -43,11 +43,11 @@ Cualquier falla en 1-4 devuelve el mismo `403 JOBS_FORBIDDEN` — no se filtra c
 
 ---
 
-## `--no-invoker-iam-check` (ST-04/ST-05, pendiente)
+## `--no-invoker-iam-check`
 
-El servicio completo hoy está inalcanzable sin token de identidad porque la org policy
+El servicio completo estaba inalcanzable sin token de identidad porque la org policy
 `iam.allowedPolicyMemberDomains` bloquea `allUsers` en IAM — `--allow-unauthenticated` falla en
-silencio. Eso rompe `GET /s/{token}` y `GET /ogimg/{token}` (T-440), que deben ser públicos para que
+silencio. Eso rompía `GET /s/{token}` y `GET /ogimg/{token}` (T-440), que deben ser públicos para que
 los crawlers de redes sociales generen el preview.
 
 Fix (retargeteado por Juan 2026-08-03, verificado): `gcloud run services update motamaze-backend
@@ -60,12 +60,25 @@ Juan.
 `verify_cloud_scheduler_oidc` (arriba) tenía que existir *antes* de correr el comando — si no,
 `/jobs/*` quedaría con cero protección real durante la ventana entre el flag y el hardening.
 
+**Estado: aplicado y validado en DEV (2026-08-05, ST-04).** `/jobs/*` sigue rechazando llamadas sin
+token válido (`403 JOBS_FORBIDDEN` de la app, ya no de Cloud Run); un force-run real de Cloud
+Scheduler resuelve 200; `/ogimg/healthcheck` y `/s/{token}` ya responden con la lógica real de la
+app (`200`/`404`) en vez del `403` genérico de antes. Pendiente el mismo flag en PROD (ST-05).
+
+> **Nota de debugging:** el primer force-run real después de aplicar el flag en DEV falló (403, sin
+> detalle) — `verify_cloud_scheduler_oidc` tragaba la excepción en silencio. Se agregó logging real
+> de la excepción/mismatch (no cambia el comportamiento, solo la visibilidad); tras redesplegar, 3/3
+> force-runs sucesivos dieron 200. Todo apunta a un cold-start puntual bajando los certificados
+> públicos de Google en la instancia recién creada tras el `service update`, no un bug de lógica —
+> pero quedó sin confirmar al 100% por no poder generar un token real de prueba (sin permiso de
+> impersonar `game-api-backend@motamaze-dev`). El logging se queda de forma permanente.
+
 ---
 
 ## Limitaciones conocidas / a revisar
 
-- **`--no-invoker-iam-check` todavía no se ha corrido** ni en dev ni en prod (ST-04/ST-05) — hasta
-  entonces, el servicio sigue privado y `/s/{token}`/`/ogimg/{token}` siguen sin funcionar para
-  crawlers externos.
+- **`--no-invoker-iam-check` todavía no se ha corrido en PROD** (ST-05) — hasta entonces, el
+  servicio de prod sigue privado y `/s/{token}`/`/ogimg/{token}` siguen sin funcionar ahí para
+  crawlers externos, aunque en DEV ya funciona.
 - **`admob-daily-report` y `reconcile-purchases` sin test dedicado** — gap preexistente, no
   introducido ni cerrado por INFRA-007.
