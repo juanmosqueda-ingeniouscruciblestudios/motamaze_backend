@@ -101,6 +101,27 @@ async def test_loss_after_win_resets_streak_across_two_requests(client, test_set
     assert doc["win_streak"] == {"count": 0, "levels": []}
 
 
+async def test_level_complete_rejects_out_of_range_level_id(client, test_settings):
+    """T-608: MVP scope is 1..80, was hardcoded to 1..30. Zero coverage of
+    this validation branch before (see module docstring)."""
+    for bad_level in (0, 81, -1):
+        resp = await client.post(
+            URL, json=_payload(level_id=bad_level), headers=_auth_headers(test_settings, "u-ms-bad-level")
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error_code"] == "PROGRESS_INVALID_LEVEL"
+
+
+async def test_level_complete_accepts_level_80(client, test_settings, fake_db):
+    """T-608: level 80 is now in range and should register normally. Seeded
+    at best_level=79 so level 80 is the legitimate next unlock -- otherwise
+    PROGRESS_LEVEL_LOCKED (game.py:638) fires first for any fresh user."""
+    fake_db.seed("progress", "u-ms-lvl80", {"uid": "u-ms-lvl80", "best_level": 79})
+    resp = await client.post(URL, json=_payload(level_id=80), headers=_auth_headers(test_settings, "u-ms-lvl80"))
+    assert resp.status_code == 200
+    assert resp.json()["highest_unlocked_level"] == 80
+
+
 async def test_valid_match_stats_unlocks_achievements_end_to_end(client, test_settings, fake_db):
     resp = await client.post(URL, json=_payload(), headers=_auth_headers(test_settings, "u-ms-6"))
     assert resp.status_code == 200

@@ -35,6 +35,11 @@ GAME_MODES = frozenset({
 REGEN_INTERVAL_SECS = 1800  # 30 minutes
 DEFAULT_MAX_LIVES = 5
 
+# T-608: MVP scope moved to 80 levels (2026-07-07, sims/2026-07-13_season_
+# recalibration/season_spread_new_modes.xlsx). Was hardcoded to 30 in five
+# places across game.py/social.py; centralized here so it can't drift again.
+MAX_LEVEL = 80
+
 
 async def _resolve_lives_config(settings: Settings) -> tuple[int, int]:
     """(regen_interval_secs, default_max_lives) — Remote Config values with
@@ -336,8 +341,8 @@ async def lives_spend(
     db: AsyncClient = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
 ):
-    if body.level_id is not None and not (1 <= body.level_id <= 30):
-        raise HTTPException(400, detail={"error_code": "LIVES_INVALID_LEVEL", "message": "level_id must be between 1 and 30"})
+    if body.level_id is not None and not (1 <= body.level_id <= MAX_LEVEL):
+        raise HTTPException(400, detail={"error_code": "LIVES_INVALID_LEVEL", "message": f"level_id must be between 1 and {MAX_LEVEL}"})
 
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
@@ -586,7 +591,7 @@ async def get_progress(
     return {
         "user_id": user_id,
         "best_level": best_level,
-        "highest_unlocked_level": min(best_level + 1, 30),
+        "highest_unlocked_level": min(best_level + 1, MAX_LEVEL),
         "total_stars": total_stars,
         "levels": levels,
         "season_id": settings.active_season_id,
@@ -606,8 +611,8 @@ async def level_complete(
     db: AsyncClient = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
 ):
-    if not (1 <= body.level_id <= 30):
-        raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_LEVEL", "message": "level_id must be between 1 and 30"})
+    if not (1 <= body.level_id <= MAX_LEVEL):
+        raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_LEVEL", "message": f"level_id must be between 1 and {MAX_LEVEL}"})
     if not (1 <= body.stars_earned <= 3):
         raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_STARS", "message": "stars_earned must be between 1 and 3"})
     if body.score < 0:
@@ -775,8 +780,8 @@ async def level_complete(
         "stars_earned":         body.stars_earned,
         "best_score":           new_score,
         "new_best":             new_best,
-        "next_level_unlocked":  new_best_level + 1 if newly_unlocked and new_best_level < 30 else None,
-        "highest_unlocked_level": min(new_best_level + 1, 30),
+        "next_level_unlocked":  new_best_level + 1 if newly_unlocked and new_best_level < MAX_LEVEL else None,
+        "highest_unlocked_level": min(new_best_level + 1, MAX_LEVEL),
         "total_stars":          total_stars,
         "season_stars_earned":  stars_delta,
         "total_season_stars":   total_season_stars,

@@ -99,7 +99,7 @@ async def test_share_create_uses_tenjin_tracking_link_when_configured(client, fa
 
 
 async def test_share_create_invalid_level_reached(client, test_settings):
-    for bad_level in (0, 31, -1):
+    for bad_level in (0, 81, -1):
         resp = await client.post(
             CREATE_URL, json=_valid_body(level_reached=bad_level), headers=_auth_headers(test_settings)
         )

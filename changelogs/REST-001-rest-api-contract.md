@@ -577,10 +577,10 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `highest_unlocked_level` | int | Nivel más alto al que el jugador tiene acceso (1–30). Nuevo usuario = `1`. |
-| `total_stars` | int | Suma de estrellas en todos los niveles (máximo 90 = 30 niveles × 3 estrellas) |
+| `highest_unlocked_level` | int | Nivel más alto al que el jugador tiene acceso (1–80). Nuevo usuario = `1`. |
+| `total_stars` | int | Suma de estrellas en todos los niveles (máximo 240 = 80 niveles × 3 estrellas) |
 | `levels` | array | Solo niveles que el jugador ha completado al menos una vez |
-| `levels[].level_id` | int | Identificador del nivel (1–30) |
+| `levels[].level_id` | int | Identificador del nivel (1–80) |
 | `levels[].stars_earned` | int | 1, 2, o 3 — mejor resultado histórico en ese nivel |
 | `levels[].best_score` | int | Mejor puntuación histórica |
 | `levels[].completed_at` | string (ISO 8601) | Timestamp del primer completion |
@@ -619,7 +619,7 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
-| `level_id` | int | ✅ | Nivel completado (1–30) |
+| `level_id` | int | ✅ | Nivel completado (1–80) |
 | `score` | int | ✅ | Puntuación obtenida (≥ 0) |
 | `stars_earned` | int | ✅ | Estrellas obtenidas (1, 2, o 3) |
 | `duration_secs` | int | ✅ | Duración de la partida en segundos |
@@ -627,7 +627,7 @@ Tiempo total de rotación sin downtime: **~15 minutos**.
 | `match_stats` | object \| null | ⬜ | Estadísticas de la partida — requeridas para evaluar achievements (T-447). Ver abajo |
 
 **Validaciones server-side:**
-- `level_id` entre 1 y 30
+- `level_id` entre 1 y 80
 - `level_id` ≤ `highest_unlocked_level + 1` (no puede saltarse niveles)
 - `stars_earned` entre 1 y 3
 - `score` ≥ 0
@@ -746,7 +746,7 @@ instrumentación del cliente.
 |---|---|---|
 | `400` | `PROGRESS_LEVEL_LOCKED` | El `level_id` supera `highest_unlocked_level + 1` |
 | `400` | `PROGRESS_INVALID_STARS` | `stars_earned` fuera del rango 1–3 |
-| `400` | `PROGRESS_INVALID_LEVEL` | `level_id` fuera del rango 1–30 |
+| `400` | `PROGRESS_INVALID_LEVEL` | `level_id` fuera del rango 1–80 |
 | `401` | `AUTH_JWT_MISSING` / `AUTH_JWT_INVALID` / `AUTH_JWT_EXPIRED` | Token inválido |
 
 ---
@@ -807,7 +807,7 @@ instrumentación del cliente.
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
 | `session_id` | string | ✅ | Session activo — para trazar la pérdida de vida en `player_behavior` BQ |
-| `level_id` | int (1–30) | ⬜ | Nivel en el que se gasta la vida (T-447 ST-03). Opcional para no romper clientes viejos, pero sin él el evento `life_spent` no es utilizable como denominador de `level_stats` — ver `docs/DATA_MODEL.md#level_stats` |
+| `level_id` | int (1–80) | ⬜ | Nivel en el que se gasta la vida (T-447 ST-03). Opcional para no romper clientes viejos, pero sin él el evento `life_spent` no es utilizable como denominador de `level_stats` — ver `docs/DATA_MODEL.md#level_stats` |
 
 > El servidor decrementa atómicamente. Si `current_lives == 0`, retorna error — el cliente **no debe** llamar a este endpoint si sabe que no hay vidas.
 >
@@ -826,7 +826,7 @@ instrumentación del cliente.
 | HTTP | `error_code` | Cuándo |
 |---|---|---|
 | `400` | `LIVES_INSUFFICIENT` | `current_lives == 0` — no hay vidas para gastar |
-| `400` | `LIVES_INVALID_LEVEL` | `level_id` fuera de rango 1–30 |
+| `400` | `LIVES_INVALID_LEVEL` | `level_id` fuera de rango 1–80 |
 | `401` | `AUTH_JWT_*` | Token inválido |
 
 ---
@@ -1065,7 +1065,7 @@ instrumentación del cliente.
 | `session_id` | string | ✅ | Session activo — correlaciona todos los eventos de la misma sesión |
 | `events` | array | ✅ | Array de eventos (mínimo 1, máximo 100 por request) |
 | `events[].event_name` | string | ✅ | Tipo de evento — ver catálogo abajo |
-| `events[].level_id` | int | ⬜ | Nivel donde ocurrió (1–30) |
+| `events[].level_id` | int | ⬜ | Nivel donde ocurrió (1–80) |
 | `events[].timestamp` | string ISO 8601 | ✅ | Timestamp del evento en el cliente |
 | `events[].duration_secs` | int | ⬜ | Duración — aplica en `level_fail` y `level_complete` |
 | `events[].score` | int | ⬜ | Score — aplica en `level_complete` |
@@ -1806,7 +1806,7 @@ readinessProbe:
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
 | `score` | integer | ✅ | Score a mostrar en la share card |
-| `level_reached` | integer | ✅ | Nivel alcanzado (1–30) para el copy de la card |
+| `level_reached` | integer | ✅ | Nivel alcanzado (1–80) para el copy de la card |
 | `season_id` | string | ✅ | ID de temporada — aparece en el título de la OG card |
 
 **Response 200:**
@@ -1836,7 +1836,7 @@ readinessProbe:
 |---|---|---|
 | `401` | `AUTH_JWT_*` | Token JWT inválido |
 | `404` | `SEASON_NOT_ACTIVE` | No hay temporada activa |
-| `400` | `SHARE_INVALID_LEVEL` | `level_reached` fuera del rango 1–30 |
+| `400` | `SHARE_INVALID_LEVEL` | `level_reached` fuera del rango 1–80 |
 
 ---
 
@@ -1998,7 +1998,7 @@ Aplican a cualquier endpoint protegido (🔒):
 | `error_code` | HTTP | Endpoint | Cuándo |
 |---|---|---|---|
 | `USER_NOT_FOUND` | 404 | `GET /progress` | El `user_id` del JWT no existe en Firestore (inconsistencia — no debería ocurrir en producción) |
-| `PROGRESS_INVALID_LEVEL` | 400 | `POST /progress/level-complete` | `level_id` fuera del rango 1–30 |
+| `PROGRESS_INVALID_LEVEL` | 400 | `POST /progress/level-complete` | `level_id` fuera del rango 1–80 |
 | `PROGRESS_LEVEL_LOCKED` | 400 | `POST /progress/level-complete` | `level_id` supera `highest_unlocked_level + 1` (intento de saltar nivel) |
 | `PROGRESS_INVALID_STARS` | 400 | `POST /progress/level-complete` | `stars_earned` fuera del rango 1–3 |
 | `LIVES_INSUFFICIENT` | 400 | `POST /lives/spend` | `current_lives == 0` — no hay vidas para gastar |
@@ -2025,7 +2025,7 @@ Aplican a cualquier endpoint protegido (🔒):
 | `SEASON_INVALID_TRACK` | 400 | `POST /season/claim-reward` | `track` no es `"free"` ni `"gold"` |
 | `LEADERBOARD_APPCHECK_MISSING` | 401 | `POST /leaderboard/score` | Header `X-Firebase-AppCheck` ausente o token App Check inválido |
 | `LEADERBOARD_RESTRICTED` | 403 | `POST /leaderboard/score` | Usuario con `restricted_features=true` (menor de edad) — excluido del leaderboard |
-| `SHARE_INVALID_LEVEL` | 400 | `POST /share/create` | `level_reached` fuera del rango 1–30 |
+| `SHARE_INVALID_LEVEL` | 400 | `POST /share/create` | `level_reached` fuera del rango 1–80 |
 | `SHARE_TOKEN_NOT_FOUND` | 404 | `GET /s/{token}` | Token no existe en Firestore o la temporada ya expiró |
 
 ---

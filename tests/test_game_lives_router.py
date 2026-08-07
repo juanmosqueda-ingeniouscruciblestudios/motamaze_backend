@@ -113,7 +113,7 @@ async def test_lives_spend_rejects_out_of_range_level_id(client, test_settings):
     called, so it never touches the untested transaction path."""
     resp = await client.post(
         SPEND_URL,
-        json={"session_id": "session-lives-1", "level_id": 31},
+        json={"session_id": "session-lives-1", "level_id": 81},
         headers=_auth_headers(test_settings, "user-lives-spend-1"),
     )
     assert resp.status_code == 400

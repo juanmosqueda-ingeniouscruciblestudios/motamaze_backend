@@ -591,7 +591,7 @@ Dificultad medida por nivel. **26 de los 40 achievements** gatean por win rate (
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `level_id` | `string` | = document ID (1–30) |
+| `level_id` | `string` | = document ID (1–80) |
 | `win_rate` | `number` | % global de intentos resueltos que fueron victoria (0–100) |
 | `source` | `string` | `"simulated"` (semilla de T-203) \| `"measured"` (BigQuery) |
 | `sample_size` | `number` | Intentos resueltos considerados. `null` cuando `source == "simulated"` |
@@ -755,7 +755,7 @@ Token de share de score creado por `POST /share/create`. El `token` es el docume
 shares/{token}
   uid                 string       ← uid del creador (no expuesto en la URL pública)
   score               integer      ← score al momento de compartir
-  level_reached       integer      ← nivel alcanzado (1–30)
+  level_reached       integer      ← nivel alcanzado (1–80)
   season_id           string       ← ID de la temporada activa
   og_image_url        string       ← URL de Cloudinary (<600 KB WebP, 1200×630 px)
   share_url           string       ← URL pública devuelta al cliente (ver nota)
