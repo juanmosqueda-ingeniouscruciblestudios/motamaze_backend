@@ -48,23 +48,36 @@ validación, y ningún jugador podía desbloquear más allá del nivel 30 aunque
 
 ## Implementación
 
-Centralizada en una sola constante — `MAX_LEVEL = 80` en `app/routers/game.py`, junto a los demás
-fallback defaults del archivo (`REGEN_INTERVAL_SECS`, `DEFAULT_MAX_LIVES`) — importada por
-`social.py`. Elimina el riesgo de que el valor vuelva a divergir entre archivos como pasó aquí.
+Primera pasada: centralizada en una sola constante (`MAX_LEVEL = 80` en `app/routers/game.py`,
+importada por `social.py`). Pero Saul planteó la pregunta correcta antes de cerrar el ticket: si el
+número de niveles vuelve a cambiar (ej. Season Pass agrega más), una constante en código sigue
+significando "editar código + redeploy" — el mismo tipo de fricción que causó que 30 quedara
+desactualizado por un mes. Segunda pasada: movido a Remote Config, mismo patrón que
+`REGEN_INTERVAL_SECS`/`DEFAULT_MAX_LIVES` (T-244) — ajustable desde la consola de Firebase sin
+redeploy, con `DEFAULT_MAX_LEVEL = 80` como fallback si Remote Config no responde o el key no está
+publicado.
 
 ```python
-# T-608: MVP scope moved to 80 levels (2026-07-07, sims/2026-07-13_season_
-# recalibration/season_spread_new_modes.xlsx). Was hardcoded to 30 in five
-# places across game.py/social.py; centralized here so it can't drift again.
-MAX_LEVEL = 80
+DEFAULT_MAX_LEVEL = 80
+
+async def resolve_max_level(settings: Settings) -> int:
+    """Público (sin guion bajo, a diferencia de _resolve_lives_config) porque
+    social.py también lo necesita, no solo este módulo."""
+    return await remote_config_service.get_value(
+        settings.gcp_project_id, "max_level", DEFAULT_MAX_LEVEL, cast=int
+    )
 ```
 
-Los 5 puntos reemplazados por `MAX_LEVEL`, incluyendo los mensajes de error (`f"level_id must be
-between 1 and {MAX_LEVEL}"}`) para que no queden con "30" hardcodeado en el texto aunque la
-validación ya use la constante.
+Los 5 puntos ahora llaman `max_level = await resolve_max_level(settings)` y usan la variable local,
+incluyendo los mensajes de error (`f"level_id must be between 1 and {max_level}"}`) para que nunca
+quede un "30" ni un "80" hardcodeado en el texto.
 
 No hubo import circular: `game.py` no importa `social.py`, así que `from app.routers.game import
-MAX_LEVEL` en `social.py` es seguro.
+resolve_max_level` en `social.py` es seguro.
+
+**Falta publicar el parámetro `max_level` en la consola de Firebase Remote Config** — hasta
+entonces el fallback (`DEFAULT_MAX_LEVEL = 80`) es lo que realmente rige en producción, igual que
+`regen_interval_secs`/`default_max_lives` cuando se implementaron en T-244.
 
 ---
 
@@ -85,13 +98,18 @@ python -m pytest -q
     `highest_unlocked_level` responde `80`. Requiere sembrar `progress` con `best_level=79` — de lo
     contrario `PROGRESS_LEVEL_LOCKED` (game.py:638, "completa niveles anteriores primero") dispara
     primero para cualquier usuario nuevo, sin relación con el límite superior que este ticket corrige.
+  - `test_level_complete_max_level_driven_by_remote_config` — publica `max_level=100` vía
+    `remote_config_service._fetch_template_sync` (mismo patrón que
+    `test_get_lives_uses_remote_config_value_when_published`) y confirma que el nivel 90 ahora se
+    acepta (por encima del default 80) mientras que 101 sigue rechazado — prueba que el valor
+    publicado manda, no solo que existe un fallback.
 
 ---
 
 ## Results
 
 ```
-349 passed, 8 skipped
+350 passed, 8 skipped
 ```
 
 Full suite, sin regresiones.

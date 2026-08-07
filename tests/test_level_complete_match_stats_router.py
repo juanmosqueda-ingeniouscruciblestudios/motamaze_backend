@@ -7,7 +7,7 @@ achievement engine wiring), not full endpoint coverage of progress/
 season_progress bookkeeping. See test_achievements_engine.py for guard
 logic itself -- these only prove the end-to-end wiring."""
 
-from app.services import jwt_service
+from app.services import jwt_service, remote_config_service
 
 URL = "/progress/level-complete"
 
@@ -120,6 +120,27 @@ async def test_level_complete_accepts_level_80(client, test_settings, fake_db):
     resp = await client.post(URL, json=_payload(level_id=80), headers=_auth_headers(test_settings, "u-ms-lvl80"))
     assert resp.status_code == 200
     assert resp.json()["highest_unlocked_level"] == 80
+
+
+async def test_level_complete_max_level_driven_by_remote_config(client, test_settings, fake_db, monkeypatch):
+    """T-608: max_level isn't just a fallback constant -- a published Remote
+    Config value must actually change the accepted range, same pattern as
+    regen_interval_secs/default_max_lives in test_game_lives_router.py."""
+    def _fake_fetch(project_id):
+        return {"parameters": {"max_level": {"defaultValue": {"value": "100"}}}}
+
+    monkeypatch.setattr(remote_config_service, "_fetch_template_sync", _fake_fetch)
+
+    fake_db.seed("progress", "u-ms-lvl90", {"uid": "u-ms-lvl90", "best_level": 89})
+    resp = await client.post(URL, json=_payload(level_id=90), headers=_auth_headers(test_settings, "u-ms-lvl90"))
+    assert resp.status_code == 200
+    assert resp.json()["highest_unlocked_level"] == 91  # min(new_best_level + 1, max_level) = min(91, 100)
+
+    # 101 is above the published max_level (100) -- proves the new boundary
+    # is what's enforced, not that the check got disabled entirely.
+    resp2 = await client.post(URL, json=_payload(level_id=101), headers=_auth_headers(test_settings, "u-ms-lvl101"))
+    assert resp2.status_code == 400
+    assert resp2.json()["detail"]["error_code"] == "PROGRESS_INVALID_LEVEL"
 
 
 async def test_valid_match_stats_unlocks_achievements_end_to_end(client, test_settings, fake_db):

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.config import Settings
 from app.dependencies import get_firestore_client, get_settings, verify_jwt
-from app.routers.game import MAX_LEVEL
+from app.routers.game import resolve_max_level
 
 router = APIRouter(tags=["social"])
 
@@ -78,10 +78,11 @@ async def share_create(
     db: AsyncClient = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
 ):
-    if not (1 <= body.level_reached <= MAX_LEVEL):
+    max_level = await resolve_max_level(settings)
+    if not (1 <= body.level_reached <= max_level):
         raise HTTPException(
             400,
-            detail={"error_code": "SHARE_INVALID_LEVEL", "message": f"level_reached must be between 1 and {MAX_LEVEL}"},
+            detail={"error_code": "SHARE_INVALID_LEVEL", "message": f"level_reached must be between 1 and {max_level}"},
         )
     if body.score < 0:
         raise HTTPException(

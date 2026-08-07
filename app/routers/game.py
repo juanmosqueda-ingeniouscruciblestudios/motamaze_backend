@@ -36,9 +36,12 @@ REGEN_INTERVAL_SECS = 1800  # 30 minutes
 DEFAULT_MAX_LIVES = 5
 
 # T-608: MVP scope moved to 80 levels (2026-07-07, sims/2026-07-13_season_
-# recalibration/season_spread_new_modes.xlsx). Was hardcoded to 30 in five
-# places across game.py/social.py; centralized here so it can't drift again.
-MAX_LEVEL = 80
+# recalibration/season_spread_new_modes.xlsx) after having been hardcoded to
+# 30 in five places across game.py/social.py. Resolved via Remote Config
+# (resolve_max_level) so the next season-pass level-count change is a
+# console edit, not another redeploy — this fallback only fires if Remote
+# Config is unreachable or the key isn't published yet.
+DEFAULT_MAX_LEVEL = 80
 
 
 async def _resolve_lives_config(settings: Settings) -> tuple[int, int]:
@@ -51,6 +54,14 @@ async def _resolve_lives_config(settings: Settings) -> tuple[int, int]:
         settings.gcp_project_id, "default_max_lives", DEFAULT_MAX_LIVES, cast=int
     )
     return regen_interval_secs, default_max_lives
+
+
+async def resolve_max_level(settings: Settings) -> int:
+    """T-608. Public (no leading underscore, unlike _resolve_lives_config)
+    because social.py needs it too, not just this module."""
+    return await remote_config_service.get_value(
+        settings.gcp_project_id, "max_level", DEFAULT_MAX_LEVEL, cast=int
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -341,8 +352,9 @@ async def lives_spend(
     db: AsyncClient = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
 ):
-    if body.level_id is not None and not (1 <= body.level_id <= MAX_LEVEL):
-        raise HTTPException(400, detail={"error_code": "LIVES_INVALID_LEVEL", "message": f"level_id must be between 1 and {MAX_LEVEL}"})
+    max_level = await resolve_max_level(settings)
+    if body.level_id is not None and not (1 <= body.level_id <= max_level):
+        raise HTTPException(400, detail={"error_code": "LIVES_INVALID_LEVEL", "message": f"level_id must be between 1 and {max_level}"})
 
     user_id = claims.get("uid", "")
     now = datetime.now(timezone.utc)
@@ -588,10 +600,11 @@ async def get_progress(
         if sd.get("season_id") == settings.active_season_id:
             season_stars = sd.get("season_stars", 0)
 
+    max_level = await resolve_max_level(settings)
     return {
         "user_id": user_id,
         "best_level": best_level,
-        "highest_unlocked_level": min(best_level + 1, MAX_LEVEL),
+        "highest_unlocked_level": min(best_level + 1, max_level),
         "total_stars": total_stars,
         "levels": levels,
         "season_id": settings.active_season_id,
@@ -611,8 +624,9 @@ async def level_complete(
     db: AsyncClient = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
 ):
-    if not (1 <= body.level_id <= MAX_LEVEL):
-        raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_LEVEL", "message": f"level_id must be between 1 and {MAX_LEVEL}"})
+    max_level = await resolve_max_level(settings)
+    if not (1 <= body.level_id <= max_level):
+        raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_LEVEL", "message": f"level_id must be between 1 and {max_level}"})
     if not (1 <= body.stars_earned <= 3):
         raise HTTPException(400, detail={"error_code": "PROGRESS_INVALID_STARS", "message": "stars_earned must be between 1 and 3"})
     if body.score < 0:
@@ -780,8 +794,8 @@ async def level_complete(
         "stars_earned":         body.stars_earned,
         "best_score":           new_score,
         "new_best":             new_best,
-        "next_level_unlocked":  new_best_level + 1 if newly_unlocked and new_best_level < MAX_LEVEL else None,
-        "highest_unlocked_level": min(new_best_level + 1, MAX_LEVEL),
+        "next_level_unlocked":  new_best_level + 1 if newly_unlocked and new_best_level < max_level else None,
+        "highest_unlocked_level": min(new_best_level + 1, max_level),
         "total_stars":          total_stars,
         "season_stars_earned":  stars_delta,
         "total_season_stars":   total_season_stars,
