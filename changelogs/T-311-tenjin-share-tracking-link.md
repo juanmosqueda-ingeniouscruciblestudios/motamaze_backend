@@ -4,8 +4,8 @@
 |---|---|
 | **Type** | Feature |
 | **Priority** | Medium — enables referral attribution for T-440 share links |
-| **Status** | Done (backend scope only — see "Scope note" below) — 2026-07-21 |
-| **Date** | 2026-07-21 |
+| **Status** | Done (backend scope only — see "Scope note" below). ST-01/02/06/07 ✅ 2026-08-10; ST-04 Stuck (needs Juan's SDK, ST-03/05); ST-03/05 open (Juan, client) |
+| **Date** | 2026-07-21 (backend URL wrapping); 2026-08-10 (fraud filtering + Data Safety review) |
 | **Workstream** | External Services |
 | **Depends-on** | T-440 (`POST /share/create`), Decision L resolution |
 | **Blocks** | Nothing — falls back to pre-Decision-L behavior until the Tenjin dashboard link exists |
@@ -78,3 +78,24 @@ Full suite: 65/65 passing.
 - **Not done here:** Godot client Tenjin SDK integration (Juan) — install event on first launch, revenue events piggybacking on the existing `ad_impression_recorded` signal (`Scripts/autoloads/events.gd`), following the `Scripts/services/<domain>/` real+null service pattern already used for ads/auth/payments.
 - **Not done here:** Data Safety form review for the Tenjin data flow (see doc correction above).
 - Recommend splitting the Monday ticket T-311 into its client (Juan) and backend (this, done) pieces if it isn't already tracked that way, so "Done" doesn't get misread as covering the client SDK work too.
+
+## 2026-08-10 — ST-06 (fraud filtering) and ST-07 (Data Safety) closed
+
+**ST-07:** written into `docs/GOOGLE_PLAY_DATA_SAFETY.md` — see that file's new "When T-311's
+Tenjin tracking link goes live" section. Split into Phase 1 (bare tracking-link click — IP +
+User-Agent only, this review) and Phase 2 (future Tenjin SDK, adds Advertising ID/IDFA — deferred to
+its own review when ST-03 ships).
+
+**ST-06:** logged into the real Tenjin dashboard (`dashboard.tenjin.com`) with Saul to check what's
+actually configurable — public docs describe a "Fraud" tab that doesn't exist on this account's
+plan/tier. The real tool is **Configure → Site ID Optimizations**, a reactive blocklist (block known-
+bad site IDs), not a proactive rules engine. Empty today because there's no campaign traffic yet —
+correct, expected state, nothing to configure without real data. Tenjin's baseline fraud protection
+(MTTI, click-injection/spamming detection) is part of the attribution engine and applies
+automatically, no dashboard config needed.
+
+**Resolution:** nothing left to do here today. The actual blocklist work moved to where it
+chronologically belongs — T-502 (Google App Campaigns LATAM, the paid UA campaign itself) got a new
+ST-01 subtask (Saul) to build the Site ID blocklist from real data right before that campaign
+launches. T-502's own title already promised "Tenjin fraud filter live" but had zero subtasks
+breaking that down.
