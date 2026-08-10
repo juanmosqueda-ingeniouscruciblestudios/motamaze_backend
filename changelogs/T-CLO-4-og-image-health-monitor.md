@@ -150,10 +150,46 @@ No se corrió test automatizado (no hay código de repo involucrado — todo es 
 
 ---
 
+## Corrección 2026-08-10 — el check llevaba 3 días fallando el 100% de las veces
+
+Al hacer seguimiento del ticket se revisaron las métricas reales (`timeSeries` de
+`uptime_check/check_passed` vía REST API) en vez de asumir que "creado = funcionando". Resultado:
+**20,406 mediciones, todas `false`**, desde las 4 regiones, desde la creación el 2026-08-07.
+
+Causa: el truco de doble-slash (`--path=//ogimg/healthcheck`) que evitó el mangling de Git Bash
+introdujo un bug distinto — el path quedó guardado literalmente como `//ogimg/healthcheck` (doble
+slash real, verificado con `describe`). Aunque el backend normaliza esa ruta igual que la de un solo
+slash (confirmado con `curl` manual), el checker de Google probablemente interpreta `//` al inicio
+del path como el inicio de un componente de autoridad (host) en vez de como parte del path —
+resultando en una resolución de host inválida y fallo consistente en las 4 regiones.
+
+**Contraste que confirmó el diagnóstico:** el check de `/health` (T-115), corregido el mismo día con
+el mismo truco, sí terminó con un solo slash (`/health`, confirmado vía REST) y pasa 99.8% del
+tiempo (20,167 de 20,215 mediciones en la ventana post-fix) — la inconsistencia entre ambos casos
+fue justamente lo que hizo sospechar que el doble-slash no se comportaba igual en los dos casos.
+
+**Fix:** actualizado el path directo vía la REST API de Cloud Monitoring (`PATCH
+.../uptimeCheckConfigs/...?updateMask=httpCheck.path`), evitando por completo el CLI de `gcloud` y
+por tanto el mangling de Git Bash:
+
+```bash
+curl -X PATCH "https://monitoring.googleapis.com/v3/projects/motamaze/uptimeCheckConfigs/motamaze-backend-ogimg-healthcheck-TdlbkY0nIgk?updateMask=httpCheck.path" \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" \
+  -d '{"httpCheck": {"path": "/ogimg/healthcheck"}}'
+```
+
+Verificado vía `GET` directo (no `describe` de `gcloud`, por la misma razón): `"path":
+"/ogimg/healthcheck"`, un solo slash. Pendiente confirmar en el dashboard que el check empieza a
+pasar en los próximos ciclos (período de 5 min).
+
+**Lección para la próxima vez que esto pase:** el truco de `//` para evitar el mangling de MSYS no es
+confiable — funcionó para `/health` pero no para `/ogimg/healthcheck`. La forma segura es ir directo
+por la REST API con `curl`, que no está sujeto a la reescritura de argumentos de Git Bash.
+
 ## Follow-ups / notes
 
-- **Primer ciclo real de chequeo pendiente de observar** — el período es de 5 min desde 4 regiones;
-  recién creado, no hay todavía datos históricos que confirmar en el dashboard.
+- **Confirmar en el dashboard que el check de `/ogimg/healthcheck` empieza a pasar** tras el fix del
+  2026-08-10 — no cerrar este follow-up hasta ver mediciones `true` reales.
 - **Solo en PROD** — mismo patrón que T-115 (su propio follow-up ya decía "aplicar las mismas
   configuraciones a `motamaze-dev` cuando INFRA-006 ST-04 complete el `terraform apply dev`" — sigue
   sin hacerse, no es parte de este ticket).
