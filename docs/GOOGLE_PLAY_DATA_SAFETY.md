@@ -202,6 +202,48 @@ age-assurance mechanisms was found as of this writing — same caveat already tr
 `logic/age-assurance.md` and `docs/DATA_MODEL.md`). **Revisit this section — and confirm the "No new
 row needed" reasoning above still holds — before scaling paid UA or traffic in Brazil.**
 
+## When T-311's Tenjin tracking link goes live (`tenjin_share_tracking_link` set) — T-311 ST-07
+
+**Not for today's submission** — same two-stage rule as AdMob/Crashlytics. `tenjin_share_tracking_link`
+is still unset in prod (`app/config.py` default `""`), so `_tenjin_share_url()` falls back to a
+direct URL and **no click currently reaches Tenjin's servers** — verified against shipped code, not
+assumed. This section is prep for the day ST-04 (create the campaign/tracking link — currently
+Stuck, blocked on Juan's client SDK work, ST-03) unblocks and a real link goes live.
+
+**Two distinct phases, each with a different Data Safety impact — do not conflate them:**
+
+**Phase 1 (this ticket, backend-only): the bare tracking-link click.** Once
+`tenjin_share_tracking_link` is set, `GET /share/create`'s `share_url` becomes a Tenjin URL. When
+someone taps it, their device makes an HTTP request straight to Tenjin's own domain — MotaMaze's
+backend is not in that request path at all. Tenjin's own privacy policy confirms IP addresses are
+"identified and logged automatically in Tenjin's server log files whenever a user accesses their
+[services]" (tenjin.com/privacy/), which is standard web-redirect/attribution-click behavior — no
+app SDK is involved yet, so no persistent device identifier (Advertising ID/IDFA/Vendor ID) is
+available to send; only IP address and the User-Agent header the device sends automatically.
+
+Recommended entry once Phase 1 ships:
+- **Approximate location (IP-derived)** row (Part 1, already declared Collected: Yes) — add Tenjin
+  as a **Shared: Yes** recipient specifically for this flow, purpose **"Analytics"** (install
+  attribution). The existing row's "Shared: No" reflects only the backend's own server-side use of
+  IP (country-gating); a second, separate collection event happens entirely client-side the moment
+  the link is tapped, outside backend code, so it needs its own explicit disclosure rather than
+  silently folding into the existing row.
+
+**Phase 2 (separate future update, T-311 ST-03, Juan — not triggered by this ticket): the Tenjin
+SDK.** Once the Godot client integrates Tenjin's SDK for install/revenue event firing, the data
+collected expands well beyond a click — Tenjin's own SDK docs list Advertising ID, Vendor ID,
+Bundle ID, SDK/App/OS version, device model, device locale/country as collected on-device
+(tenjin.com/mmp-sdk-android/, tenjin.com/mmp-sdk-ios/). **Do not enter Phase 2 values when Phase 1
+ships** — this needs its own Part 1B entry, added when ST-03 actually ships, verified against the
+real client code the same way this document insists on for every other row (see Part 2's
+verification checklist).
+
+**Source note:** unlike the AdMob/Crashlytics entries above, Tenjin's *own* public documentation
+doesn't state a concrete dashboard-configurable fraud-filtering path (checked 2026-08-10 — the
+public docs describe available metrics and signal categories, not a step-by-step) — that's a
+separate finding (T-311 ST-06), not a Data Safety concern, noted here only because it was verified
+in the same research pass.
+
 ## T-414 (Firebase Blaze) — no update needed here
 
 Firebase Blaze is a billing-plan upgrade (pay-as-you-go), not a new data flow or SDK integration.
@@ -297,9 +339,11 @@ owed and by which ticket — keep Part 1B's checkboxes below updated as each lan
 - [ ] T-261 (AdMob) shipped → Part 1B "AdMob" values entered in Play Console (Tenjin tracked
       separately below, not bundled with this item) — **both** the Data Safety "Device or other IDs"
       row **and** the separate App content → Ads declaration ("Does your app contain ads?" → Yes)
+- [x] T-311 ST-07 (2026-08-10): Data Safety review written in Part 1B above, ready to enter — split
+      into Phase 1 (bare tracking-link click, this review) and Phase 2 (future Tenjin SDK, separate
+      review owed when T-311 ST-03 ships)
 - [ ] T-311 Tenjin tracking link goes live (`tenjin_share_tracking_link` set to a real value) →
-      Data Safety review needed for the share-link flow (Decision L / Option A, confirmed
-      2026-07-21 — corrected from this doc's earlier "deferred to v1.1" note, which was wrong)
+      enter the Phase 1 values from Part 1B above in Play Console
 - [ ] Godot Android ships the Google Play Age Signals API call (T-402) → re-verify the "No new row
       needed" reasoning in Part 1B against the actually-shipped client behavior; if ANPD has issued
       final guidance by then, review this whole section against it too
