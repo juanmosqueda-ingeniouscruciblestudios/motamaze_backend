@@ -4,8 +4,8 @@
 |---|---|
 | **Type** | Feature / Infra |
 | **Priority** | Medium — sin esto los share links de T-440 abren el navegador en vez de la app |
-| **Status** | In Progress — ST-02, ST-03 y ST-10 ✅ (2026-07-27). Resto bloqueado por accesos y por T-IOS-3 |
-| **Date** | 2026-07-27 |
+| **Status** | In Progress — ST-01/02/03/04/07/10 ✅. ST-05/06 listas del lado del código (desplegadas en Firebase Hosting), esperando que Juan cambie el DNS. ST-14 esperando rol de org admin |
+| **Date** | 2026-07-27 (última actualización: 2026-08-14) |
 | **Workstream** | Auth Backend |
 | **Depends-on** | T-120 ✅ (`POST /auth/login`), T-440 ✅ (`POST /share/create`), EXT-001 ST-02 ✅ (package name) |
 | **Blocks** | T-442 (smoke test de deep links), T-441 (share client) |
@@ -282,31 +282,138 @@ Contenido definitivo de `assetlinks.json`, listo para publicar (reemplaza el `[]
 
 ---
 
+## Actualización 2026-08-14 — motamaze.com comprado, el dominio vuelve a cambiar
+
+El supuesto #1 de la sección Description ("el dominio nunca se registró") se revirtió: Juan compró
+`motamaze.com` el 2026-08-12 (vía Wix, renueva 2029-08-12). El plan de dominio dedicado que este ticket
+había descartado en julio vuelve a ser el plan real — no es un tercer diseño distinto, es el original.
+
+**Reabre ST-05/06/10/11 (cerradas contra el valor interino) y ST-01 (nuevo acceso a confirmar).**
+ST-08/09 (repuntar `www` del sitio corporativo) quedan obsoletas: el juego nunca vivió ahí bajo el plan
+de dominio dedicado, así que no hay nada que repuntar.
+
+### `share_base_url` — ST-10, segunda vez
+
+```python
+share_base_url: str = "https://motamaze.com"
+```
+
+Sin segmento `/motamaze` — el dominio es 100% del juego, no hay nada más que excluir. Los dos tests de
+la sección Testing original se reescribieron: `test_share_base_url_is_the_studio_domain` →
+`test_share_base_url_is_the_dedicated_domain` (mismo propósito, nuevo literal), y
+`test_share_urls_carry_the_motamaze_path_segment` se **invirtió** a
+`test_share_urls_have_no_path_segment` — antes guardaba que hubiera un path, ahora guarda que no vuelva
+a aparecer uno. Suite: 361 passed (los 8 que antes se saltaban por falta de token de `gcloud` ahora
+corren, sin relación con este cambio — fue efecto de reautenticar `gcloud` para T-124 ST-14).
+
+### Team ID ya no bloquea el AASA — T-IOS-3 ST-04
+
+`V6LS3VX234` (membresía de Apple Developer Program activada 2026-08-12). `appID` para el AASA:
+`V6LS3VX234.com.ingeniouscruciblestudios.motamaze`. El AASA ya no lleva el campo `paths` — mismo
+razonamiento que `assetlinks.json`: dominio dedicado, nada que acotar.
+
+### Wix no puede servir los archivos de verificación — investigado, no solo asumido
+
+Antes de mover DNS se validó explícitamente (no se asumió): Wix no permite escribir archivos en la raíz
+del sitio. El único workaround documentado usa un redirect 301/302 vía Wix Velo HTTP Functions +
+URL Redirect Manager — y Android **rechaza cualquier redirect** al verificar `assetlinks.json` (ya
+documentado en la sección de Hallazgos original, punto 4). Descartado sin necesidad de probarlo en la
+cuenta real.
+
+Fuentes: [How to add apple-app-site-association file to your Wix website](https://haashem.medium.com/how-to-add-apple-app-site-association-file-to-your-wix-website-e39f30d25ac9),
+[Deep Link Hosting for Shopify, Wix and Locked-Down Hosts](https://siteassociation.com/).
+
+### Firebase Hosting conectado y desplegado — ST-05/ST-06 del lado del código
+
+Proyecto `motamaze` (GCP), sitio de Hosting `motamaze` (`motamaze.web.app`, ya existía como sitio por
+defecto aunque nunca se había desplegado nada). Desplegado vía Firebase CLI (instalado y autenticado
+en la misma sesión):
+
+```
+firebase.json
+public/
+  index.html                        (placeholder)
+  apple-app-site-association        (Content-Type: application/json forzado por header)
+  .well-known/
+    assetlinks.json                 (Content-Type: application/json forzado por header)
+```
+
+Verificado en vivo contra `motamaze.web.app` — ambos archivos devuelven `200`, `Content-Type:
+application/json`, cero redirects:
+
+```
+$ curl -sI https://motamaze.web.app/apple-app-site-association | grep -i content-type
+Content-Type: application/json
+$ curl -sI https://motamaze.web.app/.well-known/assetlinks.json | grep -i content-type
+Content-Type: application/json
+```
+
+Dominio personalizado `motamaze.com` conectado en la consola de Firebase Hosting (modo Quick setup).
+Registros DNS que Firebase pidió, enviados a Juan por correo el mismo día — pendientes de que los
+aplique en el panel de Wix:
+
+**Agregar:** `A motamaze.com 199.36.158.100`, `TXT motamaze.com hosting-site=motamaze`
+**Eliminar:** los 3 `A` actuales de Wix (`185.230.63.107`, `.171`, `.186`)
+
+Certificado TLS y verificación son automáticos una vez que el DNS propague — sin pasos adicionales de
+nuestro lado.
+
+### `AndroidManifest.xml` sin `pathPrefix` — T-124 ST-07 (`motamaze-game`)
+
+Reasignada de Juan a Saul el 2026-08-12 (antes T-IOS-3 bloqueaba, ahora no). Implementada sin esperar a
+que el DNS propague — el código no depende de que el archivo esté publicado, solo la verificación en
+dispositivo real sí:
+
+```xml
+<intent-filter android:autoVerify="true">
+  <action android:name="android.intent.action.VIEW" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="https" android:host="motamaze.com" />
+</intent-filter>
+```
+
+**Hallazgo de paso, sin relación con el dominio:** `android/` estaba completo en `.gitignore` de
+`motamaze-game` (el ignore estándar de plantilla Godot). Este cambio se habría perdido silenciosamente
+en cualquier clone nuevo o reinstalación de la plantilla — corregido con una excepción específica para
+`AndroidManifest.xml`, más una colisión aparte donde la regla genérica de "builds exportados" (`build/`,
+sin anclar) también atrapaba `android/build/` por coincidencia de nombre.
+
+### Pendiente nuevo — cuenta de Wix
+
+La cuenta de Wix a la que Saul tiene acceso ("My Site 1", confirmado Administrador/copropietario) **no
+tiene `motamaze.com` registrado** — el dominio resuelve a Wix mediante otra cuenta. No bloquea nada de
+lo anterior (Firebase Hosting no necesita esa cuenta), pero sí bloqueaba saber quién podía cambiar el
+DNS — resuelto pidiéndole a Juan que ejecute el cambio él mismo, en vez de pedir acceso.
+
+---
+
 ## Follow-ups / notes
 
-**Bloqueado por accesos** (solicitados a Juan por correo 2026-07-27): publicar ambos archivos requiere
-acceso al repositorio del sitio web y al proyecto de Firebase Hosting. El redirect `www` → apex
-requiere además acceso al panel DNS, que reside en la cuenta de Wix.
+**Resueltos desde el 2026-08-14 (dejados aquí como registro, no como pendientes):**
 
-**Bloqueado por T-IOS-3:** el AASA necesita `appID` = `TeamID.bundleID`. El Team ID **no existe** — la
-inscripción al Apple Developer Program está sin iniciar. Ya se había diferido por la misma causa en
-AUTH-004 y PAY-004. La mitad iOS de T-124 no puede cerrarse en la ventana 2026-08-03/04.
+- ~~Bloqueado por accesos~~ — Firebase Hosting resuelto del lado del código (ver actualización arriba);
+  el push a `motamaze-project` ya no da 403.
+- ~~Bloqueado por T-IOS-3 (Team ID)~~ — `V6LS3VX234` obtenido 2026-08-12, AASA ya no bloqueado por esto.
+- ~~Dependencia de cliente: `intent-filter`~~ — implementado 2026-08-14 (`motamaze-game`, commit
+  `d1a7bb5`), sin `pathPrefix` (dominio dedicado, ver actualización arriba).
+- ~~`jwt_issuer`/`jwks_url` en duda~~ — Juan confirmó 2026-08-12 que `api.motamaze.com` sí existirá (vía
+  Global External ALB, no domain mapping de Cloud Run — sigue en Preview). Sin cambio de código
+  necesario, ya apuntaban ahí. Detalle: T-124 ST-12 (cerrada sin acción).
+- ~~Documentación de arquitectura desactualizada~~ — Juan la corrigió directamente 2026-08-12 (commits
+  `5944d28`, `362233a` en `motamaze-project`): encontró y arregló bundle ID mal escrito en 10 sitios
+  (`com.ingeniouscrucible.motamaze`, faltaba "studios") y el host de OAuth mal descrito como App Link.
 
-**Dependencia de cliente (Juan):** `intent-filter` con `autoVerify` + `pathPrefix="/motamaze/"` en el
-`AndroidManifest.xml`. Sin esto la app interceptaría todo el dominio institucional. El equivalente iOS
-(entitlement Associated Domains) ya está en T-IOS-12.
+**Pendiente real, hoy:**
 
-**Orden de ejecución:** publicar primero `assetlinks.json`, después generar el build con `autoVerify` —
-la verificación se dispara durante la instalación.
+- **DNS de `motamaze.com`** — registros enviados a Juan por correo 2026-08-14 (ver actualización
+  arriba). Sin esto, ST-05/06 no cierran aunque el código y el contenido ya estén listos.
+- **T-124 ST-14** (org policy `iam.allowedPolicyMemberDomains`, necesaria para `api.motamaze.com`) —
+  pedido enviado a Juan en Monday el mismo día: `roles/orgpolicy.policyAdmin` a nivel proyecto
+  `motamaze`. Confirmado por `gcloud`: Saul no tiene ningún acceso a nivel organización hoy.
+- **Cuenta de Wix real** — la de Saul ("My Site 1") no tiene `motamaze.com` registrado. No bloquea el
+  DNS (Juan lo ejecuta directo), pero sigue sin resolver de cara a administrar el sitio en sí más
+  adelante (contenido más allá de los dos archivos de verificación).
 
 **Advertencia para T-442:** los App Links **no verifican en builds de debug**. El debug keystore tiene
 un SHA-256 distinto al de la app signing key de Play. Probar con un build de Internal Testing.
-
-**Fuera de alcance, requiere decisión:** `jwt_issuer` y `jwks_url` apuntan a `api.motamaze.com`
-(`app/config.py`, `.env.example`, `terraform/modules/motamaze-env/main.tf`). Si tampoco existirá ese
-subdominio, hay que decidir su reemplazo — pero `jwt_issuer` va **firmado dentro de los JWT ya
-emitidos**, así que el cambio tiene radio de impacto sobre T-111 y T-120, ambas cerradas.
-
-**Documentación de arquitectura desactualizada:** `motamaze-project/rnd_research/2026-06-04_motamaze-architecture-final.md`
-asume `motamaze.com` como dominio de deep links en las líneas 58, 517, 1364, 1764 y 2006, incluyendo el
-No-Go item 14. La corrección está bloqueada: sin permiso de push en `motamaze-project` (403).
