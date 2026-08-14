@@ -825,10 +825,13 @@ config/catalog
 > respuesta ya usa `price_usd`/`currency` directamente — seguir el contrato aprobado sobre la
 > especificación de arquitectura más temprana, no al revés.
 >
-> **Precios sembrados (2026-07-24):** solo `lives_pack_5` ($0.99) y `no_ads` ($2.99) — los únicos
-> con precio confirmado tanto en la tabla de precios del architecture doc como en REST-001.
-> `skin_gold`, `skin_silver` y el life pack grande siguen `TBD` en el architecture doc — no
-> sembrados, pendientes de que Juan confirme precio real. Ver `scripts/seed_store_catalog.py`.
+> **Precios sembrados:** `lives_pack_5` ($0.99, 2026-07-24), `no_ads` ($2.99, 2026-07-24) y
+> `season_pass_gold` ($4.99, 2026-08-14 — confirmado en el arte de UI aprobado, `has_gold_pass` ya
+> tenía toda la lógica de compra/refund construida desde antes, solo faltaba el precio en el catálogo).
+> `skin_gold`, `skin_silver` y el life pack grande siguen `TBD` — no sembrados. **Tampoco sembrados
+> a propósito:** los packs de vidas 10/50/100 ni el cosmético "Aviator Cap" que muestra la UI
+> aprobada de Store — no existen en código y hay una reconciliación pendiente con Juan antes de
+> crear esos SKUs (los product_id son permanentes). Ver `scripts/seed_store_catalog.py`.
 >
 > **`owned` no se guarda aquí** — se calcula en cada request desde `entitlements/{uid}`, y solo
 > aplica a `non_consumable` (un consumible nunca está "owned", se vuelve a comprar cada vez).

@@ -942,6 +942,16 @@ instrumentación del cliente.
       }
     },
     {
+      "product_id":   "season_pass_gold",
+      "type":         "non_consumable",
+      "display_name": "Gold Pass",
+      "description":  "Unlock the Gold track rewards for this season's pass",
+      "price_usd":    4.99,
+      "currency":     "USD",
+      "owned":        false,
+      "promotion":    null
+    },
+    {
       "product_id":   "skin_gold",
       "type":         "non_consumable",
       "display_name": "Gold Mota",
@@ -954,6 +964,10 @@ instrumentación del cliente.
   ]
 }
 ```
+
+> `skin_gold` above illustrates the response shape only — still `TBD` pricing, not seeded (see
+> `scripts/seed_store_catalog.py`). `lives_pack_5`, `no_ads`, and `season_pass_gold` are the 3 real,
+> seeded products as of 2026-08-14.
 
 | Campo | Tipo | Descripción |
 |---|---|---|

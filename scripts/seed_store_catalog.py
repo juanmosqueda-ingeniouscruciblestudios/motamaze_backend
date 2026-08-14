@@ -13,6 +13,21 @@ payload shows placeholder numbers for those to illustrate the response
 shape, not approved pricing. Do not add them here until Juan confirms
 real prices; inventing one would show a wrong charge to real players.
 
+season_pass_gold added 2026-08-14: $4.99 confirmed in approved UI art
+(motamaze-project/docs/media/ui_screen_roadmap.md:52-53 — Store screen
+"Best Value" callout + Season Pass screen "UNLOCK GOLD PASS $4.99"), not
+just noted somewhere — the purchase path was already fully built
+(payments.py, reconcile_service.py, REST-001 §2099) but had no price seeded
+anywhere. The $9.99 in seed_bq_test_data.py is unrelated fixture noise, not
+a competing real price.
+
+Do NOT seed any lives_pack_10/50/100 or a cosmetic product here yet — the
+approved Store UI advertises those but they don't exist in code, and
+lives_pack_5 (which exists) doesn't appear in that UI. Product IDs are
+permanent once created in either store; seeding a guess would burn an ID
+nobody ends up using. Juan flagged this reconciliation as still open
+(2026-08-13).
+
 config/promotions/{promo_id} is intentionally left empty by this script —
 no promotion is active yet. GET /store/catalog treats "no matching active
 promotion" as a normal, valid state.
@@ -53,6 +68,18 @@ PRODUCTS = [
         "display_order": 2,
         "visible": True,
         "badge": None,
+    },
+    {
+        "product_id": "season_pass_gold",
+        "type": "non_consumable",
+        "display_name": "Gold Pass",
+        "description": "Unlock the Gold track rewards for this season's pass",
+        "price_usd": 4.99,
+        "currency": "USD",
+        "lives_granted": None,
+        "display_order": 3,
+        "visible": True,
+        "badge": "BEST VALUE",
     },
 ]
 
