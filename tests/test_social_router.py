@@ -156,7 +156,7 @@ async def test_share_view_expired(client, fake_db):
         "created_at": datetime.now(timezone.utc) - timedelta(days=100),
         "expires_at": datetime.now(timezone.utc) - timedelta(days=1),
         "og_image_url": "https://res.cloudinary.com/x/image/upload/x",
-        "share_url": "https://ingeniouscruciblestudios.com/motamaze/s/expiredtoken",
+        "share_url": "https://motamaze.com/s/expiredtoken",
     })
     resp = await client.get("/s/expiredtoken")
     assert resp.status_code == 404
@@ -193,32 +193,36 @@ async def test_ogimg_unknown_token_redirects_to_fallback(client, test_settings):
 # ---------------------------------------------------------------------------
 
 
-def test_share_base_url_is_the_studio_domain():
+def test_share_base_url_is_the_dedicated_domain():
     """The other tests here assert share_url against test_settings.share_base_url,
     so they'd pass with ANY value — they can't catch a wrong domain. This one
     pins the literal.
 
-    motamaze.com was never registered; the game lives under the studio domain at
-    /motamaze/. The trailing-slash assertion matters because social.py builds
+    motamaze.com was purchased 2026-08-12 and is dedicated entirely to the game
+    (T-124 ST-10, 2026-08-14) — no /motamaze path segment anymore, unlike the
+    2026-07-27..2026-08-14 interim value that lived under the studio's apex
+    domain. The trailing-slash assertion still matters because social.py builds
     URLs as f"{share_base_url}/s/{token}" — a trailing slash yields "//s/", which
     is a different path and would break both the deep link and the OG preview."""
     from app.config import Settings
 
     s = Settings(gcp_project_id="motamaze-test")
-    assert s.share_base_url == "https://ingeniouscruciblestudios.com/motamaze"
+    assert s.share_base_url == "https://motamaze.com"
     assert not s.share_base_url.endswith("/")
 
 
-async def test_share_urls_carry_the_motamaze_path_segment(client, fake_db, test_settings):
-    """Guards the /motamaze path segment end-to-end: share_base_url gained a path
-    component (it used to be a bare origin), so a regression to an origin-only
-    value would still produce well-formed URLs — just pointing at the wrong place,
-    outside the scope declared in assetlinks.json / apple-app-site-association."""
+async def test_share_urls_have_no_path_segment(client, fake_db, test_settings):
+    """Guards against a regression back to a shared/scoped domain: share_base_url
+    is now a bare origin (motamaze.com is 100% dedicated to the game, T-124
+    ST-10), not `{origin}/motamaze` like the interim value it replaced. Re-adding
+    a path prefix here would still produce well-formed URLs — just narrower than
+    what assetlinks.json / apple-app-site-association actually grant now that
+    there's nothing else on the domain to scope away from."""
     resp = await client.post(
         CREATE_URL, json=_valid_body(), headers=_auth_headers(test_settings)
     )
     body = resp.json()
     token = body["token"]
 
-    assert body["share_url"] == f"https://ingeniouscruciblestudios.com/motamaze/s/{token}"
-    assert body["og_image_url"] == f"https://ingeniouscruciblestudios.com/motamaze/ogimg/{token}"
+    assert body["share_url"] == f"https://motamaze.com/s/{token}"
+    assert body["og_image_url"] == f"https://motamaze.com/ogimg/{token}"

@@ -289,36 +289,47 @@ Ordenadas por workstream y dependencia de ejecución.
 
 ---
 
-## T-124 — HTTPS App Links (Android) / Universal Links (iOS) para share URL deep links (`/motamaze/s/*`)
+## T-124 — HTTPS App Links (Android) / Universal Links (iOS) para share URL deep links (`/s/*`)
 
-**Monday ID:** 12272121946 | **RAG:** Gray | **Timeline:** 8/3–8/4/2026 | **Critical Path:** No
+**Monday ID:** 12272121946 | **RAG:** Amber | **Timeline:** 8/12–8/21/2026 | **Critical Path:** No
 
 **Storytelling:** → [changelogs/T-124-app-links-universal-links.md](../changelogs/T-124-app-links-universal-links.md)
 **Logic doc:** → [logic/deep-links.md](../logic/deep-links.md)
 
-**Status:** 🔄 In Progress — ST-02 y ST-03 ✅. El resto bloqueado por accesos (repo del sitio web +
-Firebase Hosting + DNS en Wix, solicitados a Juan por correo 2026-07-27) o por T-IOS-3.
+**Status:** 🔄 In Progress — ST-02/03/04/07/10 ✅. Bloqueado esperando a Juan en dos frentes
+independientes: confirmar en qué cuenta de Wix vive `motamaze.com` (2026-08-14) y otorgar
+`roles/orgpolicy.policyAdmin` a nivel proyecto para ST-14.
 
-> **Cambio de alcance 2026-06-22 + cambio de dominio 2026-07-27.** No habrá dominio `motamaze.com`;
-> el juego vive en `https://ingeniouscruciblestudios.com/motamaze/`. Las 3 subtareas originales de
-> Monday (2026-06-17) quedaron obsoletas y fueron reemplazadas — una de ellas duplicaba T-442 y otra
-> asumía un deep link para el callback de OAuth, que en realidad usa polling RFC 8252 (REST-001).
+> **Segundo cambio de dominio, 2026-08-12.** `motamaze.com` **sí se compró** — revierte el cambio del
+> 2026-07-27 que asumía que no existiría nunca. El juego pasa de vivir en
+> `https://ingeniouscruciblestudios.com/motamaze/` a `https://motamaze.com/`, dominio dedicado 100% al
+> juego (sin acotamiento de rutas — no hay nada más ahí que excluir). Reabre ST-01/05/06/10/11; ST-08/09
+> (repuntar `www` del sitio corporativo) quedan **obsoletas**, ya no aplican bajo ningún escenario
+> porque el juego nunca vivió bajo ese `www`.
+>
+> **Nuevo bloqueo encontrado el mismo día:** la cuenta de Wix a la que Saul tiene acceso ("My Site 1",
+> confirmado Administrador/copropietario) **no tiene `motamaze.com` registrado** — el dominio resuelve
+> por DNS a infraestructura de Wix, pero bajo una cuenta distinta. Saul le escribió a Juan preguntando
+> con qué cuenta se compró; esperando respuesta. Hasta entonces, ST-01/05/06 quedan efectivamente en
+> manos de Juan, no ejecutables por Saul.
 
 ### Subtareas
 
 | # | Subtarea | Status | Dependencias | Notas |
 |---|---|---|---|---|
-| ST-01 | Confirmar hosting y control de `ingeniouscruciblestudios.com` + capacidad de escribir en `/.well-known/` del root | 🔄 In Progress | — | Hosting confirmado: Firebase Hosting. Ambos archivos ya se sirven con `200` + `application/json`, el de iOS sin extensión. Falta el acceso de publicación |
-| ST-02 | Definir host canónico (apex vs `www`) y ruta final de share links | ✅ Done 2026-07-27 | — | Apex, sin `www`. El cert TLS declara SAN solo para el apex; `www` sigue en Wix y responde `400` en `/.well-known/` |
-| ST-03 | Obtener SHA-256 de la app signing key desde Play Console | ✅ Done 2026-07-27 | EXT-001 ST-02 ✅ | `9A:08:7E:...:D2:38:58` (32 bytes). App signing key, no upload key. Vía URL `/keymanagement` — la ruta por menú cambió (App Integrity → "Protected with Play") |
-| ST-04 | Obtener Team ID de Apple | 🔴 Stuck | **T-IOS-3** | No es problema de acceso: la inscripción al Apple Developer Program está sin iniciar, el Team ID no existe |
-| ST-05 | Generar y publicar `assetlinks.json` en el root + validar con Digital Asset Links API | ⏳ Pending | ST-03 ✅, acceso repo/Firebase | Contenido definitivo ya armado en `logic/deep-links.md`. Reemplaza el scaffold `[]` actual |
-| ST-06 | Generar y publicar `apple-app-site-association` en el root + validar | ⏳ Pending | ST-04 🔴, acceso repo/Firebase | Requiere `appID` = `TeamID.bundleID`. Scaffold vacío ya desplegado y sirviéndose correctamente |
-| ST-07 | `intent-filter` con `autoVerify` + `pathPrefix=/motamaze/` en `AndroidManifest.xml` | ⏳ Pending | ST-05 | **Owner: Juan** (cliente Godot). `assetlinks.json` no acota rutas — sin esto la app interceptaría todo el dominio. Sin `autoVerify` Android ni consulta el archivo |
-| ST-08 | Repuntar registro DNS de `www` de Wix hacia Firebase Hosting + verificar propagación | ⏳ Pending | Acceso DNS (Wix) | Propagación hasta 24–48 h. Operación más delicada: toca el sitio corporativo en producción |
-| ST-09 | Agregar `www` como dominio en Firebase Hosting + redirect `301` al apex en `firebase.json` | ⏳ Pending | ST-08 | Provisiona el cert TLS para `www`, que hoy no está cubierto |
-| ST-10 | Actualizar `share_base_url` y referencias a `motamaze.com` en código, config y Terraform + tests | ✅ Done 2026-07-27 | — | `share_base_url` → `https://ingeniouscruciblestudios.com/motamaze`. +2 tests (literal del dominio y slash final; los existentes se autorreferenciaban al setting y no detectaban un dominio incorrecto). Suite: 202 passed, 8 skipped. Terraform sin cambios: solo contiene `JWT_ISSUER`/`JWKS_URL` (`api.motamaze.com`), fuera de alcance |
-| ST-11 | Documentación (changelog T-124, `logic/deep-links.md`, corregir arquitectura que asume `motamaze.com`) | 🔄 In Progress | — | `logic/deep-links.md` ✅ y changelog T-124 ✅ (2026-07-27). Corrección del doc de arquitectura bloqueada: sin permiso de push en `motamaze-project` (403) |
+| ST-01 | Confirmar hosting y control de `motamaze.com` + capacidad de escribir en `/.well-known/` del root | 🔴 Stuck | — | DNS ya resuelve a Wix. **Cuenta exacta sin confirmar** — la de Saul no lo tiene. Owner efectivo: Juan, hasta que se aclare |
+| ST-02 | Definir host canónico (apex vs `www`) y ruta final de share links | ✅ Done 2026-07-27 | — | Apex, sin `www`. Se mantiene bajo el nuevo dominio — `www.motamaze.com` responde distinto al apex (verificado 2026-08-14, revisar si es a propósito) |
+| ST-03 | Obtener SHA-256 de la app signing key desde Play Console | ✅ Done 2026-07-27 | EXT-001 ST-02 ✅ | `9A:08:7E:...:D2:38:58` (32 bytes). App signing key, no upload key. Sin cambios por el nuevo dominio |
+| ST-04 | Obtener Team ID de Apple | ✅ Done 2026-08-12 | **T-IOS-3** | `V6LS3VX234` — membresía de Apple Developer Program activada. `appID` para AASA: `V6LS3VX234.com.ingeniouscruciblestudios.motamaze` |
+| ST-05 | Generar y publicar `assetlinks.json` en el root + validar con Digital Asset Links API | ⏳ Pending | ST-01 🔴 | Contenido definitivo en `logic/deep-links.md`. Sin acceso a la cuenta de Wix correcta todavía |
+| ST-06 | Generar y publicar `apple-app-site-association` en el root + validar | ⏳ Pending | ST-01 🔴, ST-04 ✅ | Ya no bloqueado por el Team ID (ST-04 resuelto) — solo falta el acceso al hosting |
+| ST-07 | `intent-filter` con `autoVerify` en `AndroidManifest.xml` (sin `pathPrefix` — dominio 100% dedicado) | ✅ Done 2026-08-14 | ST-05 (no bloqueante para escribir el código) | **Reasignado a Saul** 2026-08-12 (antes Juan). Implementado en `motamaze-game` (commit `d1a7bb5`) sin esperar a ST-05 — el código no depende del archivo estando publicado, solo la verificación en dispositivo real sí |
+| ST-08 | ~~Repuntar registro DNS de `www` de Wix hacia Firebase Hosting~~ | 🚫 Obsoleta 2026-08-10 | — | El juego nunca vivió bajo el `www` del sitio corporativo bajo el plan de dominio dedicado |
+| ST-09 | ~~Agregar `www` como dominio en Firebase Hosting~~ | 🚫 Obsoleta 2026-08-10 | — | Mismo motivo que ST-08 |
+| ST-10 | Actualizar `share_base_url`/`company_website_url` y tests | ✅ Done 2026-08-14 (reabierta) | — | `share_base_url` → `https://motamaze.com` (antes `.../motamaze`, interino desde 2026-07-27). 2 tests existentes actualizados (`test_share_base_url_is_the_dedicated_domain`, `test_share_urls_have_no_path_segment` — renombrados, el segundo invierte su aserción: ya no hay path que guardar, hay que guardar que NO vuelva a aparecer uno). Suite: 361 passed |
+| ST-11 | Documentación (changelog T-124, `logic/deep-links.md`, doc de arquitectura) | 🔄 In Progress | — | `logic/deep-links.md` reescrito 2026-08-14. Doc de arquitectura: Juan lo corrigió directamente 2026-08-12 (push a `motamaze-project` ya no está bloqueado) — encontró y arregló bundle ID mal escrito en 10 sitios (`com.ingeniouscrucible.motamaze`, faltaba "studios") y el host de OAuth mal descrito como App Link. Falta actualizar el changelog `T-124-app-links-universal-links.md` con la segunda migración de dominio |
+| ST-12 | Decisión: ¿`api.motamaze.com` será real? Migración de `jwt_issuer`/`jwks_url` | ✅ Resuelta 2026-08-12, sin acción | — | Juan: sí existirá (Global External ALB, no domain mapping de Cloud Run). `jwt_issuer`/`jwks_url` ya apuntaban ahí — sin cambio de código necesario |
+| ST-14 | Resolver org policy `iam.allowedPolicyMemberDomains` (bloquea `allUsers`, necesario para el ALB de `api.motamaze.com`) | 🔴 Stuck | Rol de org admin | Confirmado 2026-08-14: Saul tiene `roles/owner` en el proyecto `motamaze` pero cero acceso a nivel organización (ni siquiera lectura). Pedido enviado a Juan en Monday: otorgar `roles/orgpolicy.policyAdmin` a nivel proyecto |
 
 ---
 

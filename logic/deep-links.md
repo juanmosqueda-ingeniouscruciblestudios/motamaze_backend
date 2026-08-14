@@ -1,8 +1,9 @@
 # Deep Links — App Links (Android) / Universal Links (iOS) (T-124) — Estado actual
 
-> Última actualización: 2026-07-27
-> **Estado: parcialmente configurado.** Los archivos de verificación existen en el dominio pero
-> están vacíos. Ningún deep link funciona todavía. Detalle de lo pendiente al final.
+> Última actualización: 2026-08-14
+> **Estado: parcialmente configurado.** El dominio existe y resuelve, pero no hay sitio publicado
+> todavía y los archivos de verificación no se han creado. Ningún deep link funciona todavía. Detalle
+> de lo pendiente al final.
 
 Los links compartidos del juego (`POST /share/create` → `GET /s/{token}`, ver [T-440]) deben abrir la
 app nativa en lugar del navegador cuando el usuario la tiene instalada. Eso requiere que el sistema
@@ -15,45 +16,39 @@ desde la raíz del dominio.
 
 | Campo | Valor |
 |---|---|
-| Host canónico | `ingeniouscruciblestudios.com` — **apex, sin `www`** |
-| Ruta del juego | `https://ingeniouscruciblestudios.com/motamaze/` |
-| Ruta de share links | `https://ingeniouscruciblestudios.com/motamaze/s/{token}` |
-| Hosting | Firebase Hosting (decisión documentada en `motamaze-project/rnd_research/2026-06-26_hosting-firebase-vs-netlify.md`) |
+| Host canónico | `motamaze.com` — dominio dedicado, comprado 2026-08-12 |
+| Ruta del juego | `https://motamaze.com/` |
+| Ruta de share links | `https://motamaze.com/s/{token}` |
+| Registro/DNS | Wix. Cuenta exacta **por confirmar con Juan** (2026-08-14) — la cuenta de Wix a la que Saul tiene acceso ("My Site 1", rol Administrador/copropietario) **no tiene el dominio registrado**; `motamaze.com` resuelve por DNS a infraestructura de Wix pero bajo una cuenta distinta. Ver sección "Pendientes". |
+| Hosting del sitio/archivos | Sin resolver — depende de qué permite la cuenta de Wix que sí tiene el dominio (ver Pendientes) |
 
-**No existe dominio propio `motamaze.com`.** El juego vive bajo el dominio del estudio.
-
-El host canónico es el apex porque su certificado TLS declara `SAN: DNS:ingeniouscruciblestudios.com`
-únicamente — no cubre `www`. Además `www.ingeniouscruciblestudios.com` **sigue apuntando a Wix** y es
-un sitio distinto: responde `400` en `/.well-known/assetlinks.json` y `301` en `/motamaze/`. No hay
-redirect entre ambos hosts.
+**`ingeniouscruciblestudios.com/motamaze` ya NO es el host de los share links** (lo fue del
+2026-07-27 al 2026-08-14, mientras `motamaze.com` no existía). El dominio corporativo sigue siendo el
+sitio institucional del estudio — sin relación con esto salvo por haber sido el host interino.
 
 > **Importante para App Links:** la verificación de Android **falla ante cualquier redirect** al pedir
-> `assetlinks.json`. Por eso el host debe fijarse al apex y los archivos servirse ahí directamente.
+> `assetlinks.json`. El host debe servir los archivos directamente, sin redirect intermedio.
 
 ---
 
 ## Archivos de verificación
 
 Ambos se sirven desde la **raíz del dominio**. Esto no es configurable: Android y Apple solo los
-buscan ahí. **No pueden vivir en `/motamaze/.well-known/`.**
+buscan ahí.
 
-| Archivo | URL | Estado actual |
+| Archivo | URL objetivo | Estado actual |
 |---|---|---|
-| Android | `https://ingeniouscruciblestudios.com/.well-known/assetlinks.json` | `200`, `application/json`, contenido `[]` |
-| iOS | `https://ingeniouscruciblestudios.com/.well-known/apple-app-site-association` | `200`, `application/json`, contenido `{"applinks":{"apps":[],"details":[]}}` |
+| Android | `https://motamaze.com/.well-known/assetlinks.json` | `404` — nada publicado (verificado 2026-08-14, sirve la página de error genérica de Wix) |
+| iOS | `https://motamaze.com/apple-app-site-association` | `404` — nada publicado |
 
-Ambos responden sin redirects. El de iOS se sirve **sin extensión** y con `Content-Type:
-application/json`, que es el requisito que Apple rechaza si no se cumple — Firebase Hosting lo maneja
-correctamente.
-
-Los archivos se editan en el **repositorio del sitio web** (no en este repo) y se publican con
-`firebase deploy`.
+El de iOS se sirve **sin extensión** y con `Content-Type: application/json` — requisito que Apple
+rechaza si no se cumple. **Sin confirmar todavía si Wix puede servir esto** — ver Pendientes.
 
 ---
 
 ## Android — `assetlinks.json`
 
-Contenido definitivo, pendiente de publicar (reemplaza el `[]` actual):
+Contenido definitivo, pendiente de publicar:
 
 ```json
 [
@@ -94,13 +89,15 @@ play.google.com/console/u/0/developers/5099504302304988454/app/49727654243208230
 `5099504302304988454` es el Account ID de Ingenious Crucible Studios; `4972765424320823000` es el ID
 interno de la app en Play Console (distinto del package name, solo legible desde la URL).
 
-### El acotamiento de rutas NO vive en este archivo
+### El acotamiento de rutas ya no aplica
 
-`assetlinks.json` usa la relación `delegate_permission/common.handle_all_urls` y **no tiene campo de
-paths**: concede el manejo de URLs para **todo el dominio**.
+`assetlinks.json` usa la relación `delegate_permission/common.handle_all_urls` y concede el manejo de
+URLs para **todo el dominio**. Con `motamaze.com` dedicado 100% al juego (nada más vive ahí), esto ya
+no es un riesgo — a diferencia del plan interino bajo el dominio corporativo, donde conceder el dominio
+completo habría entregado el sitio institucional entero.
 
-La restricción a `/motamaze/*` en Android depende exclusivamente del `intent-filter` en el
-`AndroidManifest.xml` de la app (responsabilidad del cliente Godot — Juan):
+Consistente con esto, el `intent-filter` del cliente Android (`AndroidManifest.xml`, T-124 ST-07,
+hecho 2026-08-14 en `motamaze-game`) **ya no usa `pathPrefix`**:
 
 ```xml
 <intent-filter android:autoVerify="true">
@@ -108,25 +105,19 @@ La restricción a `/motamaze/*` en Android depende exclusivamente del `intent-fi
   <category android:name="android.intent.category.DEFAULT" />
   <category android:name="android.intent.category.BROWSABLE" />
   <data android:scheme="https"
-        android:host="ingeniouscruciblestudios.com"
-        android:pathPrefix="/motamaze/" />
+        android:host="motamaze.com" />
 </intent-filter>
 ```
 
-Dos consecuencias:
-
-1. **Publicar `assetlinks.json` sin este `intent-filter` daría a la app permiso para interceptar
-   cualquier URL de `ingeniouscruciblestudios.com`**, incluido el sitio institucional completo.
-2. **Sin `android:autoVerify="true"` Android no consulta `assetlinks.json` en absoluto** y los deep
-   links nunca se abren en la app. Es requisito, no opcional.
-
-**Orden de ejecución:** publicar primero el archivo en el dominio, después generar el build con
-`autoVerify` — la verificación se dispara durante la instalación.
+1. **`android:autoVerify="true"` sigue siendo requisito, no opcional** — sin esto Android no consulta
+   `assetlinks.json` en absoluto y los deep links nunca se abren en la app.
+2. **Orden de ejecución:** publicar primero el archivo en el dominio, después generar el build con
+   `autoVerify` — la verificación se dispara durante la instalación.
 
 ### Validación posterior a la publicación
 
 ```
-https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://ingeniouscruciblestudios.com&relation=delegate_permission/common.handle_all_urls
+https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://motamaze.com&relation=delegate_permission/common.handle_all_urls
 ```
 
 > **Los App Links no verifican en builds de debug.** El debug keystore local tiene un SHA-256
@@ -137,14 +128,8 @@ https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=http
 
 ## iOS — `apple-app-site-association`
 
-**Bloqueado: no se puede generar todavía.** El archivo requiere el campo `appID` con formato
-`TeamID.bundleID`, y el **Team ID no existe** — la inscripción al Apple Developer Program (T-IOS-3)
-está sin iniciar al 2026-07-27.
-
-El bundle ID sí se conoce: `com.ingeniouscruciblestudios.motamaze` (`Settings.apple_bundle_id` en
-`app/config.py`).
-
-Forma que tendrá el archivo una vez disponible el Team ID:
+**Ya no bloqueado por el Team ID** (T-IOS-3, resuelto 2026-08-12): Team ID `V6LS3VX234`, bundle ID
+`com.ingeniouscruciblestudios.motamaze` (`Settings.apple_bundle_id`).
 
 ```json
 {
@@ -152,17 +137,19 @@ Forma que tendrá el archivo una vez disponible el Team ID:
     "apps": [],
     "details": [
       {
-        "appID": "<TEAM_ID>.com.ingeniouscruciblestudios.motamaze",
-        "paths": ["/motamaze/*"]
+        "appID": "V6LS3VX234.com.ingeniouscruciblestudios.motamaze"
       }
     ]
   }
 }
 ```
 
-A diferencia de Android, **el AASA sí acota rutas dentro del propio archivo** vía el campo `paths`.
-El equivalente cliente en iOS es el entitlement Associated Domains
-(`applinks:ingeniouscruciblestudios.com`), contemplado en T-IOS-12.
+**Ya no lleva el campo `paths`** — antes acotaba a `["/motamaze/*"]`; con `motamaze.com` dedicado al
+juego no hay nada que excluir. Omitir `paths` (o usar `["*"]`) concede el dominio completo, igual que
+`assetlinks.json` en Android.
+
+El equivalente cliente en iOS es el entitlement Associated Domains (`applinks:motamaze.com`, sin
+acotamiento de ruta), pendiente en T-IOS-12 (Juan).
 
 > **Propagación:** desde iOS 14 Apple sirve el AASA a través de su propia CDN. Los cambios pueden
 > tardar hasta 24 h en reflejarse — publicar con margen respecto a cualquier fecha de prueba.
@@ -179,7 +166,7 @@ links**. Según el contrato REST-001, el callback es un flujo de polling (RFC 82
 GET /auth/pending/{state_token} cada 2s hasta recibir los tokens
 ```
 
-Los deep links de T-124 aplican únicamente a los **share links** (`/motamaze/s/*`).
+Los deep links de T-124 aplican únicamente a los **share links** (`/s/*`).
 
 ---
 
@@ -187,27 +174,29 @@ Los deep links de T-124 aplican únicamente a los **share links** (`/motamaze/s/
 
 | Pendiente | Bloqueo |
 |---|---|
-| Publicar `assetlinks.json` con el contenido real | Acceso al repo del sitio web + proyecto de Firebase Hosting |
-| Generar y publicar `apple-app-site-association` | Team ID de Apple — T-IOS-3 sin iniciar |
-| `intent-filter` con `autoVerify` + `pathPrefix` en el manifest Android | Cliente Godot (Juan) |
-| Entitlement Associated Domains en iOS | T-IOS-12 (Juan) |
-| Redirect `www` → apex | DNS en cuenta de Wix + Firebase Hosting |
-| Rewrite de `/motamaze/s/{token}` hacia Cloud Run en `firebase.json` | Acceso al repo del sitio web |
+| Confirmar en qué cuenta de Wix vive el dominio `motamaze.com` | **Con Juan** — la cuenta de Saul ("My Site 1") no lo tiene registrado, esperando respuesta (2026-08-14) |
+| Confirmar si esa cuenta de Wix puede servir `assetlinks.json`/AASA como archivos estáticos crudos en la raíz, con `Content-Type` exacto | Depende de lo anterior. Si no se puede, evaluar la alternativa ya discutida: subdominio dedicado (ej. `share.motamaze.com`) mapeado directo a Cloud Run vía Global External ALB — mismo patrón que `api.motamaze.com` (ver `logic/jobs-scheduler-auth.md`/INFRA-007 para el ALB) |
+| Publicar `assetlinks.json` y `apple-app-site-association` con el contenido de arriba | Depende de los dos anteriores |
+| Entitlement Associated Domains en iOS (`applinks:motamaze.com`) | T-IOS-12 (Juan) |
+| Redirect `www.motamaze.com` → apex, si aplica | Verificado 2026-08-14: `www.motamaze.com` responde distinto al apex (`Server: cloudflare` vs. headers de Wix) — revisar si está configurado a propósito o es un descuido |
 
 ### Configuración de URLs en este repo
 
-`Settings.share_base_url` = `https://ingeniouscruciblestudios.com/motamaze` (actualizado 2026-07-27,
-antes apuntaba al inexistente `motamaze.com`). Consumido por `_tenjin_share_url()`, `_og_proxy_url()`
-y `share_view()` en `app/routers/social.py`, siempre como `f"{share_base_url}/<path>/{token}"`.
+`Settings.share_base_url` = `https://motamaze.com` (actualizado 2026-08-14, T-124 ST-10 — antes
+`https://ingeniouscruciblestudios.com/motamaze`, interino desde 2026-07-27 mientras `motamaze.com` no
+existía). Consumido por `_tenjin_share_url()`, `_og_proxy_url()` y `share_view()` en
+`app/routers/social.py`, siempre como `f"{share_base_url}/<path>/{token}"`.
 
 > **Debe permanecer sin slash final.** Un slash produciría `//s/{token}`, una ruta distinta que
 > rompería tanto el deep link como la preview de OG. Hay un test que lo fija:
-> `test_share_base_url_is_the_studio_domain` en `tests/test_social_router.py`.
+> `test_share_base_url_is_the_dedicated_domain` en `tests/test_social_router.py`.
 
-`Settings.company_website_url` ya estaba correcto (`https://ingeniouscruciblestudios.com/motamaze/`).
+`Settings.company_website_url` también se actualizó a `https://motamaze.com/` (mismo commit) — antes
+apuntaba al mismo valor interino que `share_base_url`.
 
-### Deuda pendiente
+### Deuda pendiente — resuelta
 
-`Settings.jwt_issuer` y `Settings.jwks_url` apuntan a `https://api.motamaze.com`. Si ese subdominio
-tampoco existirá, requiere decisión aparte — `jwt_issuer` va firmado dentro de los JWT ya emitidos,
-por lo que el cambio tiene radio de impacto sobre T-111 y T-120 (ambas cerradas).
+`Settings.jwt_issuer` y `Settings.jwks_url` apuntan a `https://api.motamaze.com`. Confirmado por Juan
+(2026-08-12): ese subdominio sí existirá — la vía es un Global External Application Load Balancer (no
+el domain mapping de Cloud Run, que sigue en Preview). **Sin cambio necesario** en `jwt_issuer`/
+`jwks_url` — ya apuntaban al valor correcto. Detalle de la decisión: T-124 ST-12 (cerrada sin acción).

@@ -14,11 +14,17 @@ class Settings(BaseSettings):
     active_season_id: str = "season_001"
     cloudinary_cloud_name: str = "lyku9hz2"
     cloudinary_share_image_id: str = "motamaze_1200x630_v2_yivwuj"
-    # T-124 (2026-07-27): motamaze.com was never registered — the game lives
-    # under the studio domain. Must stay without a trailing slash: social.py
-    # builds URLs as f"{share_base_url}/s/{token}". The /motamaze path segment
-    # is part of the base, so App Links/AASA scope to /motamaze/* accordingly.
-    share_base_url: str = "https://ingeniouscruciblestudios.com/motamaze"
+    # T-124 ST-10 (2026-08-14): motamaze.com purchased 2026-08-12, registered
+    # via Wix (host account TBD as of this change — see the ST-10 discussion,
+    # confirming with Juan). Reverses the 2026-07-27 interim value below,
+    # which was itself a workaround for motamaze.com not existing yet — that
+    # workaround is gone, not the plan it stood in for. Must stay without a
+    # trailing slash: social.py builds URLs as f"{share_base_url}/s/{token}";
+    # a trailing slash would produce "//s/{token}", a different path.
+    # Previously: "https://ingeniouscruciblestudios.com/motamaze" (2026-07-27
+    # to 2026-08-14) — the studio apex, since motamaze.com wasn't registered
+    # and App Links can't follow a redirect during verification.
+    share_base_url: str = "https://motamaze.com"
     play_package_name: str = "com.ingeniouscruciblestudios.motamaze"
     # aud claim on a native iOS identity_token is the app's bundle ID (not a
     # separate "Services ID" — that's only for web-based Sign in with Apple JS).
@@ -42,7 +48,7 @@ class Settings(BaseSettings):
     # this exactly. Default here is the dev Cloud Run URL; prod overrides via
     # Secret Manager/.env like the rest of this class.
     cloud_run_service_url: str = "https://motamaze-backend-qxc5bjtn4q-uc.a.run.app"
-    company_website_url: str = "https://ingeniouscruciblestudios.com/motamaze/"
+    company_website_url: str = "https://motamaze.com/"
     privacy_email: str = "privacy@ingeniouscruciblestudios.com"
     # Decision L (2026-07-21): Option A — static tracking link created once in
     # Tenjin's dashboard (organic/referral channel). Empty until Juan/Saul set
