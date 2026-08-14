@@ -44,7 +44,14 @@ def _infer_entitlement(product_id: str) -> tuple[str | None, str | None, int | N
     if product_id.startswith("skin_"):
         return "skin", "non_consumable", None
     if product_id == "season_pass_gold":
-        return "season_pass", "non_consumable", None
+        # Consumable, not non_consumable (corrected 2026-08-14, Juan): the
+        # Gold Pass is a per-season benefit, not a lifetime unlock. A
+        # non_consumable can only ever be bought once per store account --
+        # the store itself would refuse a repurchase next season. Consumable
+        # lets Android consume_product_purchase()/iOS StoreKit allow buying
+        # it again each season; has_gold_pass resets at season boundary
+        # (see game.py's season_progress rollover).
+        return "season_pass", "consumable", None
     return None, None, None
 
 

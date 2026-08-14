@@ -363,9 +363,9 @@ Progreso del jugador en la temporada activa. Se actualiza en cada `POST /progres
 | `levels_cleared_ids` | `string[]` | *(T-447 ST-08)* `level_id`s distintos completados esta temporada — cualquier completion cuenta, no solo mejoras de estrellas |
 | `achievement_bonus_points` | `number` | *(T-447 ST-08)* Suma de `points` de los achievements desbloqueados **durante esta temporada** — ver nota de scoping abajo |
 | `current_tier` | `number` | Tier actual (1–10) — calculado server-side al leer, no almacenado |
-| `has_gold_pass` | `boolean` | `true` si compró el Season Pass Gold track |
-| `free_rewards_claimed` | `number[]` | Tiers del track Free ya reclamados, ej: `[1, 2, 3]` |
-| `gold_rewards_claimed` | `number[]` | Tiers del track Gold ya reclamados |
+| `has_gold_pass` | `boolean` | `true` si compró el Season Pass Gold track **de esta temporada** — se resetea a `false` en cada transición de temporada, ver nota abajo |
+| `free_rewards_claimed` | `number[]` | Tiers del track Free ya reclamados **esta temporada**, ej: `[1, 2, 3]` — se resetea a `[]` por temporada |
+| `gold_rewards_claimed` | `number[]` | Tiers del track Gold ya reclamados **esta temporada** — se resetea a `[]` por temporada |
 | `updated_at` | `timestamp` | Última actualización |
 
 > **Threshold de tiers (config-driven, Remote Config):** Tier 1 = 100 stars, Tier 2 = 250, ..., Tier 10 = 2000. El `current_tier` se calcula en cada request leyendo `season_stars` vs. la tabla de umbrales — no se persiste para evitar drift.
@@ -374,6 +374,21 @@ Progreso del jugador en la temporada activa. Se actualiza en cada `POST /progres
 > en 4 fases con umbrales en **puntos** (ej. M40 = 1,900 pts), no 10 tiers en estrellas. Hallazgo de
 > T-447 ST-08 (2026-07-30), fuera de su alcance — pertenece al ticket del Season Pass (Social-001), no
 > a achievements.
+>
+> **`has_gold_pass` es por temporada, no un unlock de por vida (corregido 2026-08-14, Juan).** El Gold
+> Pass se recompra cada temporada — por eso `season_pass_gold` es `consumable` en `config/catalog`
+> (ver esa sección), no `non_consumable`: un `non_consumable` solo se puede comprar una vez por cuenta
+> en cualquiera de las dos tiendas, para siempre, lo cual habría hecho imposible venderlo de nuevo la
+> temporada siguiente. `POST /progress/level-complete` resetea `has_gold_pass`/`free_rewards_claimed`/
+> `gold_rewards_claimed` a sus valores vacíos en cuanto detecta que `season_id` cambió — mismo punto
+> donde ya se resetean `season_stars`/`levels_cleared_ids`/`achievement_bonus_points` (T-447 ST-08).
+>
+> **Bug preexistente, anterior incluso a ST-08:** el código original solo escribía estos tres campos en
+> `false`/`[]` al crear el documento **por primera vez en la vida del jugador** — nunca al transicionar
+> de una temporada a otra para un jugador que ya tenía documento. Un jugador que compró el Gold Pass en
+> la temporada 1 lo habría conservado gratis para siempre en las temporadas siguientes, y los tiers
+> reclamados de la temporada 1 habrían bloqueado reclamar esos mismos números de tier en la temporada 2.
+> Corregido en el mismo cambio que ajustó el `type` del producto.
 
 #### `season_points` — fórmula (T-447 ST-08, `app/services/season_points_service.py`)
 
@@ -828,6 +843,9 @@ config/catalog
 > **Precios sembrados:** `lives_pack_5` ($0.99, 2026-07-24), `no_ads` ($2.99, 2026-07-24) y
 > `season_pass_gold` ($4.99, 2026-08-14 — confirmado en el arte de UI aprobado, `has_gold_pass` ya
 > tenía toda la lógica de compra/refund construida desde antes, solo faltaba el precio en el catálogo).
+> `season_pass_gold.type` es `consumable`, no `non_consumable` — corregido el mismo día tras confirmar
+> con Juan que el Gold Pass se recompra cada temporada, no es un unlock de por vida (ver la nota de
+> `has_gold_pass` en `season_progress` arriba para el detalle completo y el bug que esto destapó).
 > `skin_gold`, `skin_silver` y el life pack grande siguen `TBD` — no sembrados. **Tampoco sembrados
 > a propósito:** los packs de vidas 10/50/100 ni el cosmético "Aviator Cap" que muestra la UI
 > aprobada de Store — no existen en código y hay una reconciliación pendiente con Juan antes de

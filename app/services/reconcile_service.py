@@ -22,7 +22,7 @@ def _infer_entitlement(product_id: str) -> tuple[str | None, str | None]:
     if product_id.startswith("skin_"):
         return "skin", "non_consumable"
     if product_id == "season_pass_gold":
-        return "season_pass", "non_consumable"
+        return "season_pass", "consumable"  # see payments.py's _infer_entitlement (2026-08-14)
     return None, None
 
 

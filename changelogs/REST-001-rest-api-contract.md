@@ -943,7 +943,7 @@ instrumentación del cliente.
     },
     {
       "product_id":   "season_pass_gold",
-      "type":         "non_consumable",
+      "type":         "consumable",
       "display_name": "Gold Pass",
       "description":  "Unlock the Gold track rewards for this season's pass",
       "price_usd":    4.99,
@@ -2110,7 +2110,7 @@ Circularle el documento completo a Juan para revisión. Deadline: 2026-06-24.
 - **Season Stars en level-complete:** `POST /progress/level-complete` ya incluye `season_stars_earned` y `total_season_stars` en su response — el cliente no necesita llamar a `GET /season` después de cada nivel para refrescar el progreso de temporada.
 - **Leaderboard CDN cache:** `GET /leaderboard` emite `Cache-Control: public, max-age=300`. El cliente puede confiar en este cache — no necesita headers de revalidación.
 - **Rarity de achievements:** Calculado cada 24h via Cloud Scheduler + BigQuery → Firestore `achievement_rarities/{achievement_id}`. No hay query BQ en tiempo real en el endpoint.
-- **Season Pass Gold track:** El Gold Pass es un IAP `non_consumable` (`product_id: "season_pass_gold"`) — se compra vía `/payments/*/verify` y otorga `has_gold_pass: true` en Firestore. No requiere un endpoint dedicado.
+- **Season Pass Gold track:** El Gold Pass es un IAP `consumable` (`product_id: "season_pass_gold"`, corregido 2026-08-14 — es un beneficio por temporada, se recompra cada una, no un unlock de por vida) — se compra vía `/payments/*/verify` y otorga `has_gold_pass: true` en Firestore, reseteado a `false` en cada transición de temporada. No requiere un endpoint dedicado.
 - **"Share score" OG URL (T-440):** ✅ Studio Decision K confirmada 2026-06-22 — Share score está en MVP scope. Endpoints agregados: #25 `POST /leaderboard/score`, #26 `POST /share/create`, #27 `GET /s/{token}`. Implementación Saul: inicio 2026-08-05, ~5 días. Cloudinary free tier para OG image. Path `/s/*` debe cubrir `assetlinks.json` + AASA (T-124 + T-442).
 - **Conejo → Zas:** El nombre del NPC rabbit cambió de "Conejo" a "Zas" per `project_spec.md` 2026-06-22. `events[].npc_type` actualizado en ST-04 accordingly.
 - **Decision L — Tenjin deferred deep link para share score (T-445, pendiente junta 2026-06-24):**

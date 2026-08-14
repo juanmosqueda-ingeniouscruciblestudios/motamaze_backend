@@ -754,14 +754,24 @@ async def level_complete(
             "achievement_bonus_points": achievement_bonus_points,
             "updated_at": now,
         }
+        if season_reset:
+            # New season (including the very first doc a player ever gets):
+            # has_gold_pass and the reward-claim trackers are season-scoped
+            # too, not just the three fields above. The Gold Pass is a
+            # per-season repurchase, not a lifetime unlock (corrected
+            # 2026-08-14, Juan) -- carrying has_gold_pass over would let a
+            # player keep an unpaid Gold Pass into a season they never
+            # bought it in. Carrying the claimed-tier lists over would block
+            # re-claiming a tier number they're seeing for the first time on
+            # this season's fresh walkroad. This was a pre-existing gap: the
+            # old code only ever reset these three on true first-ever doc
+            # creation, never on a season *transition* for a returning player.
+            season_payload["has_gold_pass"] = False
+            season_payload["free_rewards_claimed"] = []
+            season_payload["gold_rewards_claimed"] = []
+
         if season_snap_data is None:
-            await season_ref.set({
-                "uid": user_id,
-                "has_gold_pass": False,
-                "free_rewards_claimed": [],
-                "gold_rewards_claimed": [],
-                **season_payload,
-            })
+            await season_ref.set({"uid": user_id, **season_payload})
         else:
             await season_ref.update(season_payload)
 

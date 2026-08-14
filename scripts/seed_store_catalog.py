@@ -19,7 +19,10 @@ season_pass_gold added 2026-08-14: $4.99 confirmed in approved UI art
 just noted somewhere — the purchase path was already fully built
 (payments.py, reconcile_service.py, REST-001 §2099) but had no price seeded
 anywhere. The $9.99 in seed_bq_test_data.py is unrelated fixture noise, not
-a competing real price.
+a competing real price. type corrected to "consumable" the same day, after
+Juan confirmed with the team it's a per-season benefit, not a lifetime
+unlock — a non_consumable can only ever be bought once per store account,
+which would have made it impossible to sell again next season.
 
 Do NOT seed any lives_pack_10/50/100 or a cosmetic product here yet — the
 approved Store UI advertises those but they don't exist in code, and
@@ -71,7 +74,10 @@ PRODUCTS = [
     },
     {
         "product_id": "season_pass_gold",
-        "type": "non_consumable",
+        # Consumable, not non_consumable (corrected 2026-08-14, per Juan): it's
+        # a per-season benefit, repurchased each season, not a lifetime
+        # unlock. See app/routers/payments.py's _infer_entitlement.
+        "type": "consumable",
         "display_name": "Gold Pass",
         "description": "Unlock the Gold track rewards for this season's pass",
         "price_usd": 4.99,

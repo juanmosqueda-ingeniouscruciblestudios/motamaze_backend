@@ -122,3 +122,58 @@ async def test_season_reset_persists_new_season_id_and_does_not_regress_on_next_
     assert doc["levels_cleared_ids"] == ["2", "3"]
 
     app.dependency_overrides[get_settings] = lambda: test_settings
+
+
+async def test_season_transition_resets_gold_pass_and_reward_claims(client, test_settings, fake_db):
+    """has_gold_pass is a per-season repurchase (2026-08-14, Juan), not a
+    lifetime unlock -- and free/gold_rewards_claimed are tier numbers on
+    THIS season's walkroad. Both must reset on a season transition for a
+    returning player, not just on a brand-new document. This was a
+    pre-existing gap even before ST-08: the old code only ever reset these
+    three on true first-ever doc creation."""
+    fake_db.seed("season_progress", "u-sp-6", {
+        "uid": "u-sp-6", "season_id": "season_001", "season_stars": 50,
+        "levels_cleared_ids": ["1", "2"], "achievement_bonus_points": 0,
+        "has_gold_pass": True, "free_rewards_claimed": [1, 2, 3], "gold_rewards_claimed": [1, 2],
+        "updated_at": None,
+    })
+
+    season_2_settings = Settings(**{**test_settings.model_dump(), "active_season_id": "season_002"})
+    app.dependency_overrides[get_settings] = lambda: season_2_settings
+    try:
+        resp = await client.post(
+            URL, json=_payload(1, stars_earned=1, session_id="a"),
+            headers=_auth_headers(test_settings, "u-sp-6"),
+        )
+        assert resp.status_code == 200
+    finally:
+        app.dependency_overrides[get_settings] = lambda: test_settings
+
+    doc = fake_db._collections["season_progress"]["u-sp-6"]
+    assert doc["season_id"] == "season_002"
+    assert doc["has_gold_pass"] is False
+    assert doc["free_rewards_claimed"] == []
+    assert doc["gold_rewards_claimed"] == []
+
+
+async def test_same_season_update_does_not_touch_gold_pass_or_reward_claims(client, test_settings, fake_db):
+    """Regression guard for the fix above: a plain in-season update must NOT
+    reset has_gold_pass/reward claims just because season_progress got
+    written for an unrelated reason (e.g. a new level_id)."""
+    fake_db.seed("season_progress", "u-sp-7", {
+        "uid": "u-sp-7", "season_id": test_settings.active_season_id, "season_stars": 3,
+        "levels_cleared_ids": ["1"], "achievement_bonus_points": 0,
+        "has_gold_pass": True, "free_rewards_claimed": [1], "gold_rewards_claimed": [1],
+        "updated_at": None,
+    })
+
+    resp = await client.post(
+        URL, json=_payload(1, stars_earned=2, session_id="a"),
+        headers=_auth_headers(test_settings, "u-sp-7"),
+    )
+    assert resp.status_code == 200
+
+    doc = fake_db._collections["season_progress"]["u-sp-7"]
+    assert doc["has_gold_pass"] is True
+    assert doc["free_rewards_claimed"] == [1]
+    assert doc["gold_rewards_claimed"] == [1]

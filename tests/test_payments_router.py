@@ -333,3 +333,38 @@ async def test_android_verify_writes_platform_field(client, fake_db, test_settin
     token_hash = hashlib.sha256(b"tok-abc").hexdigest()
     purchase = (await fake_db.collection("purchases").document(token_hash).get()).to_dict()
     assert purchase["platform"] == "android"
+
+
+async def test_android_verify_season_pass_gold_consumes_not_acknowledges(client, fake_db, test_settings, monkeypatch):
+    """season_pass_gold is consumable (corrected 2026-08-14) -- a per-season
+    repurchase needs Play's consume_product_purchase (which frees the
+    product for a future re-buy), not acknowledge_product_purchase (which
+    permanently marks a non_consumable as owned)."""
+    from app.services import play_api
+
+    async def _fake_get_product_purchase(pkg, product_id, purchase_token):
+        return {"purchaseState": 0, "orderId": "order-season", "consumptionState": 0}
+
+    consume_calls = []
+
+    async def _fake_consume(pkg, product_id, purchase_token):
+        consume_calls.append((pkg, product_id, purchase_token))
+
+    async def _fail_if_acknowledged(pkg, product_id, purchase_token):
+        raise AssertionError("season_pass_gold must be consumed, not acknowledged")
+
+    monkeypatch.setattr(play_api, "get_product_purchase", _fake_get_product_purchase)
+    monkeypatch.setattr(play_api, "consume_product_purchase", _fake_consume)
+    monkeypatch.setattr(play_api, "acknowledge_product_purchase", _fail_if_acknowledged)
+
+    resp = await client.post(
+        "/payments/android/verify",
+        json={"purchase_token": "tok-season", "product_id": "season_pass_gold", "session_id": "s1"},
+        headers=_auth_headers(test_settings, uid="user-android-2"),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["product_type"] == "consumable"
+    assert len(consume_calls) == 1
+
+    season = (await fake_db.collection("season_progress").document("user-android-2").get()).to_dict()
+    assert season["has_gold_pass"] is True
