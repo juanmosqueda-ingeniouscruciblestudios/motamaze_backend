@@ -376,8 +376,15 @@ Firebase Hosting + DNS en Wix, solicitados a Juan por correo 2026-07-27) o por T
 **Status:** ⬜ Not Started — bloqueado en ST-01
 
 > **Ticket de habilitación, no de construcción.** Bloquea 9 de los 13 tickets T-IOS más T-124 ST-04/ST-06.
-> T-IOS-1 y T-IOS-9 están Done pero no pueden pasar a producción: `apple_app_apple_id` sigue en `None`
-> y `apple_environment` en `Sandbox`.
+> T-IOS-1 y T-IOS-9 están Done pero no pueden pasar a producción: `apple_environment` sigue en
+> `Sandbox` (correcto durante TestFlight). `apple_app_apple_id` ya se pobló (`6800867964`,
+> `app/config.py`, 2026-08-14) — la membresía del Developer Program quedó activa el 2026-08-12.
+>
+> **Esta tabla de subtareas quedó desactualizada frente a Monday** (los updates de Juan del
+> 2026-08-11/12 renumeraron y agregaron varias — Paid Apps Agreement, llave de IAP, trader status DSA,
+> sandbox accounts, replicar la API key a los 3 entornos — que no están reflejadas abajo). Pendiente
+> una pasada de sincronización completa; no se hizo aquí para no mezclarla con el cambio de
+> `apple_app_apple_id`.
 
 ### Subtareas
 
@@ -390,7 +397,7 @@ Firebase Hosting + DNS en Wix, solicitados a Juan por correo 2026-07-27) o por T
 | ST-05 | Crear el registro del app en App Store Connect → `apple_app_apple_id` | ⏳ Pending | Saul | Desbloquea T-IOS-4, T-IOS-6, T-IOS-13 |
 | ST-06 | Generar App Store Connect API key (Issuer ID + Key ID + `.p8`) + Secret Manager | ⏳ Pending | Saul | **El `.p8` se descarga una sola vez** (GOTCHA 15 / OA-10) |
 | ST-07 | Documentar Team ID, Issuer ID y Key IDs en `logic/` + `.env.example` | ⏳ Pending | Saul | |
-| ST-08 | Poblar `apple_app_apple_id` y evaluar `apple_environment` → Production | ⏳ Pending | Saul | Sandbox es correcto durante TestFlight |
+| ST-08 | Poblar `apple_app_apple_id` y evaluar `apple_environment` → Production | ✅ Done (parcial) | Saul | `apple_app_apple_id=6800867964` poblado 2026-08-14. `apple_environment` sigue en `Sandbox` a propósito — correcto durante TestFlight, se evalúa el cambio a Production más adelante |
 | ST-09 | Registrar URL del webhook ASSN v2 en App Store Connect | ⏳ Pending | Saul | Follow-up de PAY-004. Registrar prod **y** sandbox |
 | ST-10 | Implementar `AppStoreServerAPIClient` + polling de refund history | ⏳ Pending | Saul | Único ítem con código de aplicación. Diferido en PAY-004 |
 

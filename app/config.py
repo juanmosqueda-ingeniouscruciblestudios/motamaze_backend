@@ -25,9 +25,10 @@ class Settings(BaseSettings):
     apple_bundle_id: str = "com.ingeniouscruciblestudios.motamaze"
     apple_environment: str = "Sandbox"  # "Sandbox" | "Production" (appstoreserverlibrary Environment)
     # Numeric App Store listing ID — required by SignedDataVerifier only when
-    # apple_environment="Production". None is fine for Sandbox. Doesn't exist
-    # until the app is created in App Store Connect (T-IOS-3) — deferred.
-    apple_app_apple_id: int | None = None
+    # apple_environment="Production". None is fine for Sandbox. Registered
+    # 2026-08-12 (T-IOS-3 ST-05); same value across dev/staging/prod, there's
+    # only one App Store Connect app registration.
+    apple_app_apple_id: int | None = 6800867964
     geoip2_db_path: str = "/gcs/geolite2/GeoLite2-Country.mmdb"
     firebase_project_number: str = "542009654415"
     pubsub_rtdn_sa_email: str = "game-api-backend@motamaze.iam.gserviceaccount.com"
