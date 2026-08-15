@@ -75,9 +75,16 @@ quede un "30" ni un "80" hardcodeado en el texto.
 No hubo import circular: `game.py` no importa `social.py`, así que `from app.routers.game import
 resolve_max_level` en `social.py` es seguro.
 
-**Falta publicar el parámetro `max_level` en la consola de Firebase Remote Config** — hasta
-entonces el fallback (`DEFAULT_MAX_LEVEL = 80`) es lo que realmente rige en producción, igual que
-`regen_interval_secs`/`default_max_lives` cuando se implementaron en T-244.
+**`max_level` publicado en Firebase Remote Config de `motamaze-dev`** (2026-08-15, vía
+`scripts/seed_remote_config.py`, agregado a `PARAMETERS` junto a `regen_interval_secs`/
+`default_max_lives`): `max_level=80`, idéntico al fallback — sin cambio de comportamiento, solo lo
+hace tuneable desde consola sin redeploy. La SA `game-api-backend@motamaze-dev.iam.gserviceaccount.com`
+ya tenía `roles/firebase.admin` de T-244, así que no hizo falta repetir el fix de IAM.
+
+**Prod sigue sin configurar, deliberado** — mismo criterio que T-244 (diferido a después del soft
+launch, requiere primero repetir el fix de IAM en `game-api-backend@motamaze.iam.gserviceaccount.com`).
+Hasta entonces el fallback (`DEFAULT_MAX_LEVEL = 80`) es lo que rige en producción — correcto, es el
+valor real del MVP.
 
 ---
 

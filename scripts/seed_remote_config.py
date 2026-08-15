@@ -8,9 +8,10 @@ current template (preserving anything else already published), merges in
 PARAMETERS below, PUTs it back with the fetched etag.
 
 Values below match the CURRENT hardcoded fallback constants in
-app/routers/game.py (REGEN_INTERVAL_SECS=1800, DEFAULT_MAX_LIVES=5) — this
-run makes them live-tunable with NO behavior change, not a balance change.
-Edit PARAMETERS and re-run to actually change gameplay behavior.
+app/routers/game.py (REGEN_INTERVAL_SECS=1800, DEFAULT_MAX_LIVES=5,
+DEFAULT_MAX_LEVEL=80, added T-608) — this run makes them live-tunable with
+NO behavior change, not a balance change. Edit PARAMETERS and re-run to
+actually change gameplay behavior.
 
 Usage:
     gcloud auth application-default login --project motamaze-dev   # or motamaze for prod
@@ -28,11 +29,12 @@ import google.auth.transport.requests
 _REMOTE_CONFIG_URL = "https://firebaseremoteconfig.googleapis.com/v1/projects/{project_id}/remoteConfig"
 _SCOPES = ["https://www.googleapis.com/auth/firebase.remoteconfig"]
 
-# Matches app/routers/game.py's REGEN_INTERVAL_SECS / DEFAULT_MAX_LIVES
-# fallback constants exactly — see module docstring.
+# Matches app/routers/game.py's REGEN_INTERVAL_SECS / DEFAULT_MAX_LIVES /
+# DEFAULT_MAX_LEVEL fallback constants exactly — see module docstring.
 PARAMETERS = {
     "regen_interval_secs": "1800",
     "default_max_lives": "5",
+    "max_level": "80",
 }
 
 
