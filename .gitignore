@@ -26,6 +26,9 @@ docs/*.xlsx
 *.tfstate.backup
 *.tfplan
 
+# Firebase CLI — local deploy cache
+hosting/.firebase/
+
 # Design assets — stored in Cloudinary, not in git
 *.png
 *.jpg

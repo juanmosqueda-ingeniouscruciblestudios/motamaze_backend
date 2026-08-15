@@ -4,8 +4,8 @@
 |---|---|
 | **Type** | Feature / Infra |
 | **Priority** | Medium — sin esto los share links de T-440 abren el navegador en vez de la app |
-| **Status** | In Progress — ST-01/02/03/04/07/10 ✅. ST-05/06 listas del lado del código (desplegadas en Firebase Hosting), esperando que Juan cambie el DNS. ST-14 esperando rol de org admin |
-| **Date** | 2026-07-27 (última actualización: 2026-08-14) |
+| **Status** | In Progress — ST-01.2/02/03/04/05/06/07/10/11/12 ✅. ST-01.1 (repo del sitio) resuelto, sitio movido a `hosting/`. ST-13 bloqueada por ST-14, esperando que Juan aplique la org policy acotada |
+| **Date** | 2026-07-27 (última actualización: 2026-08-15) |
 | **Workstream** | Auth Backend |
 | **Depends-on** | T-120 ✅ (`POST /auth/login`), T-440 ✅ (`POST /share/create`), EXT-001 ST-02 ✅ (package name) |
 | **Blocks** | T-442 (smoke test de deep links), T-441 (share client) |
@@ -406,14 +406,63 @@ DNS — resuelto pidiéndole a Juan que ejecute el cambio él mismo, en vez de p
 
 **Pendiente real, hoy:**
 
-- **DNS de `motamaze.com`** — registros enviados a Juan por correo 2026-08-14 (ver actualización
-  arriba). Sin esto, ST-05/06 no cierran aunque el código y el contenido ya estén listos.
 - **T-124 ST-14** (org policy `iam.allowedPolicyMemberDomains`, necesaria para `api.motamaze.com`) —
-  pedido enviado a Juan en Monday el mismo día: `roles/orgpolicy.policyAdmin` a nivel proyecto
-  `motamaze`. Confirmado por `gcloud`: Saul no tiene ningún acceso a nivel organización hoy.
-- **Cuenta de Wix real** — la de Saul ("My Site 1") no tiene `motamaze.com` registrado. No bloquea el
-  DNS (Juan lo ejecuta directo), pero sigue sin resolver de cara a administrar el sitio en sí más
-  adelante (contenido más allá de los dos archivos de verificación).
+  pedido enviado a Juan en Monday 2026-08-14; Juan respondió 2026-08-15 pidiendo el binding exacto
+  (ver actualización 2026-08-15 abajo). En espera de que aplique la policy acotada que propuso.
+- **ST-01.1** (acceso al repo fuente del sitio) — resuelto en la práctica el 2026-08-15: Juan confirmó
+  que es `motamaze_backend` (ver actualización abajo). Cerrada.
+- **Cuenta de Wix real** — la de Saul ("My Site 1") no tiene `motamaze.com` registrado. No bloquea
+  nada activo (el sitio del juego ya no depende de Wix salvo el DNS, que Juan ya aplicó), sigue sin
+  resolver solo de cara a quién administra el registro del dominio en sí.
 
 **Advertencia para T-442:** los App Links **no verifican en builds de debug**. El debug keystore tiene
 un SHA-256 distinto al de la app signing key de Play. Probar con un build de Internal Testing.
+
+---
+
+## Actualización 2026-08-15 — DNS aplicado, sitio movido a `hosting/` en este repo
+
+**DNS de `motamaze.com` — aplicado y verificado.** Juan confirmó 2026-08-14 que aplicó los registros
+enviados por correo (A `199.36.158.100` + TXT `hosting-site=motamaze`, los 3 A de Wix eliminados).
+Verificado de forma independiente 2026-08-15: `nslookup` confirma el A/TXT correctos; `curl` a ambos
+archivos de verificación → `200`, `Content-Type: application/json`, 0 redirects, certificado HTTPS
+emitido. **ST-05/ST-06 cerradas.**
+
+**Repo del sitio — resuelto: es `motamaze_backend`, no un repo externo.** Se le preguntó a Juan por
+correo si existía un repo dedicado al sitio (con la evidencia de que el historial de releases de
+Firebase Hosting mostraba un único deploy, manual, mío, sin CI). Su respuesta corrigió un supuesto que
+venía arrastrando desde la investigación original del dominio corporativo (2026-07-27, cuando el sitio
+sí vivía en un repo Next.js externo): con el dominio dedicado, todo el backend/implementación —
+incluido esto — pertenece a `motamaze_backend`. `motamaze-project` es el repo de front-end/proyecto de
+Claude, no de infraestructura de backend.
+
+Contenido movido a `hosting/` en este repo (antes vivía solo en un directorio local no versionado):
+
+```
+hosting/
+├── firebase.json      # Content-Type: application/json forzado en ambos archivos
+├── .firebaserc         # proyecto default: motamaze
+├── README.md           # instrucciones de deploy + por qué no hay dev/staging
+└── public/
+    ├── index.html                        # placeholder, no hay landing page real
+    ├── apple-app-site-association        # T-124 ST-06
+    └── .well-known/assetlinks.json       # T-124 ST-05
+```
+
+Re-desplegado desde esta ubicación versionada (`firebase deploy --only hosting --project motamaze`)
+para probar el flujo completo — verificado en vivo, sin regresión, mismo resultado que el deploy
+manual anterior.
+
+**Por qué no hay `motamaze-dev`/`motamaze-staging` para este sitio:** documentado en `hosting/README.md`
+— la verificación de App Links/Universal Links es contra el dominio y certificado reales, un sitio de
+prueba en otro dominio no verificaría nada útil, y estos archivos no llaman al backend. Juan preguntó
+por esto directamente (por qué no pasa por dev primero); esta es la respuesta que se le dio.
+
+**ST-14 — respuesta de Juan.** Cuestionó correctamente el pedido original: el binding `allUsers` de
+`motamaze-backend` (INFRA-007) sigue vivo porque la org policy solo se evalúa al escribir un binding
+nuevo, no retroactivamente — probó esto pegándole directo al `run.app`. Pero el motivo real de ST-14
+nunca fue ese Cloud Run: es preventivo para `api.motamaze.com` (ST-13, Global External ALB), que sigue
+sin construirse (`api.motamaze.com` no resuelve en DNS todavía — confirmado). Juan propuso una policy
+acotada (`principalSet://goog/public:all` con `inheritFromParent: true`) en vez de otorgar
+`roles/orgpolicy.policyAdmin` a Saul — mejor solución, resuelve de raíz sin depender de que alguien la
+aplique después. Confirmado que es correcta, en espera de que la aplique.

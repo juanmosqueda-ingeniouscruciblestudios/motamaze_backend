@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.ingeniouscruciblestudios.motamaze",
+      "sha256_cert_fingerprints": [
+        "9A:08:7E:AA:FF:17:45:10:66:43:69:E0:24:38:0F:9E:AF:2E:C8:65:13:B0:BC:8D:FD:0E:C8:6B:FD:D2:38:58"
+      ]
+    }
+  }
+]
